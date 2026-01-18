@@ -13,6 +13,7 @@ import { parseFile } from "../parser/parser.js";
 import { buildIndex, getOutgoingLinks, getIncomingLinks } from "../index/indexer.js";
 import { watchDirectory } from "../index/watcher.js";
 import { search, getContext, formatContextForLLM } from "../search/searcher.js";
+import { buildEmbeddings, semanticSearch, getEmbeddingStats } from "../embeddings/semantic-search.js";
 import type { MdSection } from "../core/types.js";
 
 // ============================================================================
@@ -530,6 +531,134 @@ const contextCommand = Command.make(
 );
 
 // ============================================================================
+// Embed Command
+// ============================================================================
+
+const embedCommand = Command.make(
+  "embed",
+  {
+    root: Options.directory("root").pipe(
+      Options.withAlias("r"),
+      Options.withDefault(".")
+    ),
+    force: forceOption,
+    json: jsonOption,
+    pretty: prettyOption,
+  },
+  ({ root, force, json, pretty }) =>
+    Effect.gen(function* () {
+      const resolvedRoot = path.resolve(root);
+
+      yield* Console.log(`Building embeddings for ${resolvedRoot}...`);
+
+      const result = yield* buildEmbeddings(resolvedRoot, { force });
+
+      if (json) {
+        yield* Console.log(formatJson(result, pretty));
+      } else {
+        yield* Console.log("");
+        yield* Console.log(`Embedded ${result.sectionsEmbedded} sections`);
+        yield* Console.log(`  Tokens used: ${result.tokensUsed}`);
+        yield* Console.log(`  Cost: $${result.cost.toFixed(6)}`);
+        yield* Console.log(`  Duration: ${result.duration}ms`);
+      }
+    })
+);
+
+// ============================================================================
+// Semantic Search Command
+// ============================================================================
+
+const queryArg = Options.text("query").pipe(
+  Options.withAlias("q"),
+  Options.withDescription("Natural language query for semantic search")
+);
+
+const thresholdOption = Options.float("threshold").pipe(
+  Options.withDescription("Minimum similarity threshold (0-1)"),
+  Options.withDefault(0.5)
+);
+
+const semanticCommand = Command.make(
+  "semantic",
+  {
+    query: queryArg,
+    root: Options.directory("root").pipe(
+      Options.withAlias("r"),
+      Options.withDefault(".")
+    ),
+    limit: limitOption,
+    threshold: thresholdOption,
+    pathPattern: pathOption,
+    json: jsonOption,
+    pretty: prettyOption,
+  },
+  ({ query, root, limit, threshold, pathPattern, json, pretty }) =>
+    Effect.gen(function* () {
+      const resolvedRoot = path.resolve(root);
+
+      const results = yield* semanticSearch(resolvedRoot, query, {
+        limit,
+        threshold,
+        pathPattern: Option.getOrUndefined(pathPattern),
+      });
+
+      if (json) {
+        yield* Console.log(formatJson(results, pretty));
+      } else {
+        yield* Console.log(`Semantic search results for: "${query}"`);
+        yield* Console.log(`Results: ${results.length}`);
+        yield* Console.log("");
+
+        for (const result of results) {
+          const similarity = (result.similarity * 100).toFixed(1);
+          yield* Console.log(`  ${result.documentPath}`);
+          yield* Console.log(`    ${result.heading} (${similarity}% match)`);
+          yield* Console.log("");
+        }
+      }
+    })
+);
+
+// ============================================================================
+// Embedding Stats Command
+// ============================================================================
+
+const statsCommand = Command.make(
+  "stats",
+  {
+    root: Options.directory("root").pipe(
+      Options.withAlias("r"),
+      Options.withDefault(".")
+    ),
+    json: jsonOption,
+    pretty: prettyOption,
+  },
+  ({ root, json, pretty }) =>
+    Effect.gen(function* () {
+      const resolvedRoot = path.resolve(root);
+      const stats = yield* getEmbeddingStats(resolvedRoot);
+
+      if (json) {
+        yield* Console.log(formatJson(stats, pretty));
+      } else {
+        yield* Console.log("Embedding stats:");
+        yield* Console.log("");
+        if (stats.hasEmbeddings) {
+          yield* Console.log(`  Vectors: ${stats.count}`);
+          yield* Console.log(`  Provider: ${stats.provider}`);
+          yield* Console.log(`  Dimensions: ${stats.dimensions}`);
+          yield* Console.log(`  Total tokens: ${stats.totalTokens}`);
+          yield* Console.log(`  Total cost: $${stats.totalCost.toFixed(6)}`);
+        } else {
+          yield* Console.log("  No embeddings found.");
+          yield* Console.log("  Run 'mdtldr embed' to build embeddings.");
+        }
+      }
+    })
+);
+
+// ============================================================================
 // Main CLI
 // ============================================================================
 
@@ -544,6 +673,9 @@ const mainCommand = Command.make("mdtldr").pipe(
     backlinksCommand,
     searchCommand,
     contextCommand,
+    embedCommand,
+    semanticCommand,
+    statsCommand,
   ])
 );
 

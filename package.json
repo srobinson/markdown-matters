@@ -38,6 +38,8 @@
     "chokidar": "^4.0.3",
     "effect": "^3.19.0",
     "gray-matter": "^4.0.3",
+    "hnswlib-node": "^3.0.0",
+    "openai": "^6.16.0",
     "remark": "^15.0.1",
     "remark-gfm": "^4.0.0",
     "remark-parse": "^11.0.0",
