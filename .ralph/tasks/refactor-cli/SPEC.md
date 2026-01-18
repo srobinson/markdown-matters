@@ -78,11 +78,11 @@ INSPECTION
 - [x] Quick reference card at top of README
 
 ### Phase 4: Quality & Polish
-- [ ] `npm run check` passes
-- [ ] `npm run test` passes (all tests updated for new API)
-- [ ] No console.log debugging left
-- [ ] Collocated tests for any new code
-- [ ] `pnpm link --global` and test from different directory
+- [x] `npm run check` passes
+- [x] `npm run test` passes (all tests updated for new API)
+- [x] No console.log debugging left
+- [x] Collocated tests for any new code
+- [x] `pnpm link --global` and test from different directory
 
 ## Constraints
 
