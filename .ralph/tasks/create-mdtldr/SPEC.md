@@ -25,55 +25,55 @@ Build **md-tldr**: A token-efficient markdown analysis tool for LLM consumption.
 ## Success Criteria
 
 ### Phase 1: Core Parser + CLI (MVP)
-- [ ] `mdtldr parse <file>` outputs structured JSON (sections, headings, code blocks, links)
-- [ ] `mdtldr tree <dir>` shows markdown file structure
-- [ ] `mdtldr structure <file>` shows document outline (heading hierarchy)
-- [ ] Handles GFM (tables, task lists) and YAML frontmatter
-- [ ] Token count estimation for each section
-- [ ] Tests pass, builds successfully
+- [x] `mdtldr parse <file>` outputs structured JSON (sections, headings, code blocks, links)
+- [x] `mdtldr tree <dir>` shows markdown file structure
+- [x] `mdtldr structure <file>` shows document outline (heading hierarchy)
+- [x] Handles GFM (tables, task lists) and YAML frontmatter
+- [x] Token count estimation for each section
+- [x] Tests pass, builds successfully
 
 ### Phase 2: Index + Storage
-- [ ] `.md-tldr/` directory stores persistent indexes
-- [ ] `mdtldr index <dir>` builds document/section/link indexes
-- [ ] Incremental updates (only re-index changed files via hash/mtime)
-- [ ] `mdtldr links <file>` shows outgoing links
-- [ ] `mdtldr backlinks <file>` shows incoming links
-- [ ] File watching with `mdtldr index --watch`
+- [x] `.md-tldr/` directory stores persistent indexes
+- [x] `mdtldr index <dir>` builds document/section/link indexes
+- [x] Incremental updates (only re-index changed files via hash/mtime)
+- [x] `mdtldr links <file>` shows outgoing links
+- [x] `mdtldr backlinks <file>` shows incoming links
+- [x] File watching with `mdtldr index --watch`
 
 ### Phase 3: Structural Search
-- [ ] `mdtldr search --heading "pattern"` finds sections by heading
-- [ ] `mdtldr search --path "*.md"` filters by file path
-- [ ] `mdtldr search --has-code` finds sections with code blocks
-- [ ] `mdtldr context <file>` outputs LLM-ready summary (token-efficient)
-- [ ] JSON output mode for all commands (`--json`)
+- [x] `mdtldr search --heading "pattern"` finds sections by heading
+- [x] `mdtldr search --path "*.md"` filters by file path
+- [x] `mdtldr search --has-code` finds sections with code blocks
+- [x] `mdtldr context <file>` outputs LLM-ready summary (token-efficient)
+- [x] JSON output mode for all commands (`--json`)
 
 ### Phase 4: Semantic Search
-- [ ] Section-level embeddings with OpenAI text-embedding-3-small
-- [ ] `mdtldr search "natural language query"` performs semantic search
-- [ ] Vector index persistence (FAISS or hnswlib)
-- [ ] Similarity threshold and limit options
-- [ ] Cost tracking for embedding API calls
+- [x] Section-level embeddings with OpenAI text-embedding-3-small
+- [x] `mdtldr search "natural language query"` performs semantic search
+- [x] Vector index persistence (FAISS or hnswlib)
+- [x] Similarity threshold and limit options
+- [x] Cost tracking for embedding API calls
 
 ### Phase 5: Summarization Engine
-- [ ] `mdtldr summarize <file>` generates hierarchical summary
-- [ ] Multiple compression levels: brief (100 tokens), summary (500), full
-- [ ] `mdtldr context <file> --tokens 500` respects token budget
-- [ ] `mdtldr context --sources <file1> <file2> --budget 2000` assembles multi-doc context
-- [ ] Achieves 80%+ token reduction vs raw markdown
+- [x] `mdtldr summarize <file>` generates hierarchical summary
+- [x] Multiple compression levels: brief (100 tokens), summary (500), full
+- [x] `mdtldr context <file> --tokens 500` respects token budget
+- [x] `mdtldr context --sources <file1> <file2> --budget 2000` assembles multi-doc context
+- [x] Achieves 80%+ token reduction vs raw markdown
 
 ### Phase 6: MCP Server
-- [ ] `mdtldr-mcp` exposes tools for Claude integration
-- [ ] `md_search` tool for semantic search
-- [ ] `md_context` tool for LLM-ready summaries
-- [ ] `md_structure` tool for document outlines
-- [ ] Works with Claude Desktop and Claude Code
+- [x] `mdtldr-mcp` exposes tools for Claude integration
+- [x] `md_search` tool for semantic search
+- [x] `md_context` tool for LLM-ready summaries
+- [x] `md_structure` tool for document outlines
+- [x] Works with Claude Desktop and Claude Code
 
 ### Phase 7: Quality & Documentation (REQUIRED)
-- [ ] `npm run check` passes (format + lint + typecheck)
-- [ ] `npm run test` passes with collocated tests
-- [ ] Tests are collocated (e.g., `src/parser/parser.test.ts` next to `parser.ts`)
-- [ ] README.md - Professional, AI-engineer focused (see reference below)
-- [ ] docs/USAGE.md - Detailed command reference and examples
+- [x] `npm run check` passes (format + lint + typecheck)
+- [x] `npm run test` passes with collocated tests
+- [x] Tests are collocated (e.g., `src/parser/parser.test.ts` next to `parser.ts`)
+- [x] README.md - Professional, AI-engineer focused (see reference below)
+- [x] docs/USAGE.md - Detailed command reference and examples
 
 ## Constraints
 
