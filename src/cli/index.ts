@@ -14,6 +14,7 @@ import { buildIndex, getOutgoingLinks, getIncomingLinks } from "../index/indexer
 import { watchDirectory } from "../index/watcher.js";
 import { search, getContext, formatContextForLLM } from "../search/searcher.js";
 import { buildEmbeddings, semanticSearch, getEmbeddingStats } from "../embeddings/semantic-search.js";
+import { summarizeFile, formatSummary, assembleContext, formatAssembledContext } from "../summarize/summarizer.js";
 import type { MdSection } from "../core/types.js";
 
 // ============================================================================
@@ -484,7 +485,7 @@ const searchCommand = Command.make(
 );
 
 // ============================================================================
-// Context Command
+// Summarize Command
 // ============================================================================
 
 const tokensOption = Options.integer("tokens").pipe(
@@ -497,6 +498,36 @@ const levelOption = Options.choice("level", ["brief", "summary", "full"]).pipe(
   Options.withDescription("Compression level"),
   Options.withDefault("summary" as const)
 );
+
+const summarizeCommand = Command.make(
+  "summarize",
+  {
+    file: Options.file("file").pipe(Options.withAlias("f")),
+    level: levelOption,
+    tokens: tokensOption,
+    json: jsonOption,
+    pretty: prettyOption,
+  },
+  ({ file, level, tokens, json, pretty }) =>
+    Effect.gen(function* () {
+      const maxTokens = Option.getOrUndefined(tokens);
+
+      const summary = yield* summarizeFile(file, {
+        level: level as "brief" | "summary" | "full",
+        maxTokens,
+      });
+
+      if (json) {
+        yield* Console.log(formatJson(summary, pretty));
+      } else {
+        yield* Console.log(formatSummary(summary));
+      }
+    })
+);
+
+// ============================================================================
+// Context Command (single file)
+// ============================================================================
 
 const contextCommand = Command.make(
   "context",
@@ -526,6 +557,52 @@ const contextCommand = Command.make(
         yield* Console.log(formatJson(context, pretty));
       } else {
         yield* Console.log(formatContextForLLM(context));
+      }
+    })
+);
+
+// ============================================================================
+// Assemble Command (multi-file context)
+// ============================================================================
+
+const sourcesOption = Options.text("sources").pipe(
+  Options.withAlias("s"),
+  Options.withDescription("Comma-separated list of source files")
+);
+
+const budgetOption = Options.integer("budget").pipe(
+  Options.withAlias("b"),
+  Options.withDescription("Total token budget"),
+  Options.withDefault(2000)
+);
+
+const assembleCommand = Command.make(
+  "assemble",
+  {
+    sources: sourcesOption,
+    root: Options.directory("root").pipe(
+      Options.withAlias("r"),
+      Options.withDefault(".")
+    ),
+    budget: budgetOption,
+    level: levelOption,
+    json: jsonOption,
+    pretty: prettyOption,
+  },
+  ({ sources, root, budget, level, json, pretty }) =>
+    Effect.gen(function* () {
+      const resolvedRoot = path.resolve(root);
+      const sourcePaths = sources.split(",").map((s) => s.trim());
+
+      const assembled = yield* assembleContext(resolvedRoot, sourcePaths, {
+        budget,
+        level: level as "brief" | "summary" | "full",
+      });
+
+      if (json) {
+        yield* Console.log(formatJson(assembled, pretty));
+      } else {
+        yield* Console.log(formatAssembledContext(assembled));
       }
     })
 );
@@ -673,6 +750,8 @@ const mainCommand = Command.make("mdtldr").pipe(
     backlinksCommand,
     searchCommand,
     contextCommand,
+    summarizeCommand,
+    assembleCommand,
     embedCommand,
     semanticCommand,
     statsCommand,
