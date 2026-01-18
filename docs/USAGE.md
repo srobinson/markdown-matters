@@ -7,18 +7,12 @@ Complete command reference and workflows for md-tldr.
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Commands](#commands)
-  - [parse](#parse)
-  - [tree](#tree)
-  - [structure](#structure)
   - [index](#index)
-  - [links](#links)
-  - [backlinks](#backlinks)
   - [search](#search)
   - [context](#context)
-  - [summarize](#summarize)
-  - [assemble](#assemble)
-  - [embed](#embed)
-  - [semantic](#semantic)
+  - [tree](#tree)
+  - [links](#links)
+  - [backlinks](#backlinks)
   - [stats](#stats)
 - [MCP Server](#mcp-server)
 - [Workflows](#workflows)
@@ -49,72 +43,200 @@ npx md-tldr --help
 mdtldr index ./docs
 
 # 2. View structure
-mdtldr tree ./docs
-mdtldr structure -f ./docs/README.md
+mdtldr tree ./docs                 # File list
+mdtldr tree ./docs/README.md       # Document outline
 
 # 3. Get LLM-ready context
-mdtldr context -f ./docs/README.md
+mdtldr context ./docs/README.md
 
 # 4. Enable semantic search (optional)
 export OPENAI_API_KEY=sk-...
-mdtldr embed ./docs
-mdtldr semantic -q "how to authenticate"
+mdtldr index --embed
+mdtldr search "how to authenticate"
 ```
 
 ---
 
 ## Commands
 
-### parse
+### index
 
-Parse a single markdown file and output structured JSON.
+Build or update the document index. Run this first before using other commands.
 
 ```bash
-mdtldr parse -f <file> [--json] [--pretty]
+mdtldr index [path] [options]
 ```
+
+**Arguments:**
+| Argument | Description |
+|----------|-------------|
+| `path` | Directory to index (default: current directory) |
 
 **Options:**
 | Option | Description |
 |--------|-------------|
-| `-f, --file` | Path to markdown file (required) |
+| `-e, --embed` | Also build semantic embeddings |
+| `-w, --watch` | Watch for file changes |
+| `--force` | Force full rebuild (ignore cache) |
 | `--json` | Output as JSON |
 | `--pretty` | Pretty-print JSON |
 
-**Example:**
+**Examples:**
 ```bash
-mdtldr parse -f README.md --json --pretty
+# Index current directory
+mdtldr index
+
+# Index specific directory
+mdtldr index ./docs
+
+# Index with embeddings for semantic search
+mdtldr index --embed
+
+# Watch mode for development
+mdtldr index --watch
+
+# Force rebuild
+mdtldr index --force
+```
+
+**Index location:** `.md-tldr/indexes/`
+
+---
+
+### search
+
+Search by meaning (semantic) or by structure (heading patterns).
+
+```bash
+mdtldr search <query> [path] [options]
+```
+
+**Arguments:**
+| Argument | Description |
+|----------|-------------|
+| `query` | Search query (natural language or regex pattern) |
+| `path` | Directory to search in (default: current directory) |
+
+**Options:**
+| Option | Description |
+|--------|-------------|
+| `-s, --structural` | Force structural search (heading regex) |
+| `-n, --limit` | Maximum results (default: 10) |
+| `--threshold` | Similarity threshold for semantic search (0-1) |
+| `--json` | Output as JSON |
+| `--pretty` | Pretty-print JSON |
+
+**Auto-detection:**
+- If embeddings exist AND query looks like natural language: semantic search
+- If query has regex characters OR `-s` flag: structural search
+
+**Examples:**
+```bash
+# Semantic search (if embeddings exist)
+mdtldr search "how to authenticate"
+
+# Structural search (heading regex)
+mdtldr search "Setup|Install" -s
+
+# Limit results
+mdtldr search "api" -n 5
+
+# Higher similarity threshold
+mdtldr search "deploy" --threshold 0.8
+
+# Search in specific directory
+mdtldr search "config" ./docs
+```
+
+---
+
+### context
+
+Get LLM-ready context from one or more files.
+
+```bash
+mdtldr context <files...> [options]
+```
+
+**Arguments:**
+| Argument | Description |
+|----------|-------------|
+| `files...` | One or more markdown files (glob patterns supported) |
+
+**Options:**
+| Option | Description |
+|--------|-------------|
+| `-t, --tokens` | Token budget |
+| `--brief` | Minimal output (~100 tokens) |
+| `--full` | Include full content |
+| `--json` | Output as JSON |
+| `--pretty` | Pretty-print JSON |
+
+**Examples:**
+```bash
+# Single file
+mdtldr context README.md
+
+# Multiple files
+mdtldr context README.md docs/api.md docs/setup.md
+
+# Glob patterns
+mdtldr context docs/*.md
+
+# With token budget
+mdtldr context README.md -t 500
+
+# Brief summary
+mdtldr context README.md --brief
+
+# Full content
+mdtldr context README.md --full
 ```
 
 **Output includes:**
-- Title (from H1 or frontmatter)
-- Sections (hierarchical)
-- Links (internal, external, images)
-- Code blocks
-- Metadata (word count, token count, etc.)
+- Document title and path
+- Section summaries (respecting token budget)
+- Token count
+- Metadata markers for code, tables, etc.
 
 ---
 
 ### tree
 
-Display markdown file structure in a directory.
+Display file structure or document outline.
 
 ```bash
-mdtldr tree [dir] [--json] [--pretty]
+mdtldr tree [path] [options]
 ```
+
+**Arguments:**
+| Argument | Description |
+|----------|-------------|
+| `path` | Directory or file (default: current directory) |
 
 **Options:**
 | Option | Description |
 |--------|-------------|
-| `-d, --dir` | Directory to scan (default: current) |
 | `--json` | Output as JSON |
 | `--pretty` | Pretty-print JSON |
 
-**Example:**
+**Auto-detection:**
+- If path is a directory: shows file list
+- If path is a file: shows document outline (heading hierarchy)
+
+**Examples:**
 ```bash
+# File list in current directory
+mdtldr tree
+
+# File list in specific directory
 mdtldr tree ./docs
+
+# Document outline
+mdtldr tree README.md
 ```
 
-**Output:**
+**Directory output:**
 ```
 docs/
 ├── README.md (2,450 tokens)
@@ -125,29 +247,7 @@ docs/
     └── getting-started.md (1,560 tokens)
 ```
 
----
-
-### structure
-
-Display document outline (heading hierarchy).
-
-```bash
-mdtldr structure -f <file> [--json] [--pretty]
-```
-
-**Options:**
-| Option | Description |
-|--------|-------------|
-| `-f, --file` | Path to markdown file (required) |
-| `--json` | Output as JSON |
-| `--pretty` | Pretty-print JSON |
-
-**Example:**
-```bash
-mdtldr structure -f docs/api.md
-```
-
-**Output:**
+**File output:**
 ```
 # API Reference (450 tokens)
   ## Authentication (120 tokens)
@@ -160,58 +260,29 @@ mdtldr structure -f docs/api.md
 
 ---
 
-### index
-
-Build or update the document index.
-
-```bash
-mdtldr index [dir] [--force] [--watch] [--json] [--pretty]
-```
-
-**Options:**
-| Option | Description |
-|--------|-------------|
-| `-d, --dir` | Directory to index (default: current) |
-| `--force` | Force full rebuild (ignore cache) |
-| `-w, --watch` | Watch for file changes |
-| `--json` | Output as JSON |
-| `--pretty` | Pretty-print JSON |
-
-**Example:**
-```bash
-# Initial index
-mdtldr index ./docs
-
-# Watch mode for development
-mdtldr index ./docs --watch
-
-# Force rebuild
-mdtldr index ./docs --force
-```
-
-**Index location:** `.md-tldr/indexes/`
-
----
-
 ### links
 
 Show outgoing links from a file.
 
 ```bash
-mdtldr links -f <file> [-r <root>] [--json] [--pretty]
+mdtldr links <file> [options]
 ```
+
+**Arguments:**
+| Argument | Description |
+|----------|-------------|
+| `file` | Markdown file to analyze |
 
 **Options:**
 | Option | Description |
 |--------|-------------|
-| `-f, --file` | Path to markdown file (required) |
 | `-r, --root` | Root directory for index (default: current) |
 | `--json` | Output as JSON |
 | `--pretty` | Pretty-print JSON |
 
 **Example:**
 ```bash
-mdtldr links -f docs/README.md
+mdtldr links docs/README.md
 ```
 
 **Output:**
@@ -232,20 +303,24 @@ External Links:
 Show files that link to a specific file.
 
 ```bash
-mdtldr backlinks -f <file> [-r <root>] [--json] [--pretty]
+mdtldr backlinks <file> [options]
 ```
+
+**Arguments:**
+| Argument | Description |
+|----------|-------------|
+| `file` | Markdown file to find links to |
 
 **Options:**
 | Option | Description |
 |--------|-------------|
-| `-f, --file` | Path to markdown file (required) |
 | `-r, --root` | Root directory for index (default: current) |
 | `--json` | Output as JSON |
 | `--pretty` | Pretty-print JSON |
 
 **Example:**
 ```bash
-mdtldr backlinks -f docs/api/authentication.md
+mdtldr backlinks docs/api/authentication.md
 ```
 
 **Output:**
@@ -257,240 +332,22 @@ Files linking to docs/api/authentication.md:
 
 ---
 
-### search
-
-Search for sections by structural criteria.
-
-```bash
-mdtldr search [-r <root>] [--heading <pattern>] [--path <pattern>]
-              [--has-code] [--has-table] [--has-list] [-l <limit>]
-              [--json] [--pretty]
-```
-
-**Options:**
-| Option | Description |
-|--------|-------------|
-| `-r, --root` | Root directory for index |
-| `-h, --heading` | Regex pattern to match headings |
-| `-p, --path` | Glob pattern to filter files |
-| `--has-code` | Only sections with code blocks |
-| `--has-table` | Only sections with tables |
-| `--has-list` | Only sections with lists |
-| `-l, --limit` | Maximum results (default: 10) |
-| `--json` | Output as JSON |
-| `--pretty` | Pretty-print JSON |
-
-**Examples:**
-```bash
-# Find sections about authentication
-mdtldr search --heading "auth|login|session"
-
-# Find code examples in API docs
-mdtldr search --path "api/*.md" --has-code
-
-# Find configuration sections
-mdtldr search --heading "config|settings" --limit 5
-```
-
----
-
-### context
-
-Get LLM-ready context for a file.
-
-```bash
-mdtldr context -f <file> [-r <root>] [-t <tokens>]
-               [--level brief|summary|full] [--json] [--pretty]
-```
-
-**Options:**
-| Option | Description |
-|--------|-------------|
-| `-f, --file` | Path to markdown file (required) |
-| `-r, --root` | Root directory for index |
-| `-t, --tokens` | Maximum token budget |
-| `--level` | Compression level: brief (100), summary (500), full |
-| `--json` | Output as JSON |
-| `--pretty` | Pretty-print JSON |
-
-**Examples:**
-```bash
-# Default context
-mdtldr context -f docs/README.md
-
-# Constrained to 200 tokens
-mdtldr context -f docs/README.md -t 200
-
-# Brief summary
-mdtldr context -f docs/README.md --level brief
-```
-
-**Output includes:**
-- Document title and path
-- Section summaries (respecting token budget)
-- Token count
-- Metadata markers for code, tables, etc.
-
----
-
-### summarize
-
-Generate a hierarchical summary of a file.
-
-```bash
-mdtldr summarize -f <file> [--level brief|summary|full]
-                 [-t <tokens>] [--json] [--pretty]
-```
-
-**Options:**
-| Option | Description |
-|--------|-------------|
-| `-f, --file` | Path to markdown file (required) |
-| `--level` | Compression level: brief, summary, full |
-| `-t, --tokens` | Override token budget |
-| `--json` | Output as JSON |
-| `--pretty` | Pretty-print JSON |
-
-**Compression Levels:**
-| Level | Target | Description |
-|-------|--------|-------------|
-| `brief` | ~100 tokens | Key points only |
-| `summary` | ~500 tokens | Main content |
-| `full` | No limit | Complete content |
-
-**Example:**
-```bash
-mdtldr summarize -f docs/architecture.md --level summary
-```
-
----
-
-### assemble
-
-Assemble context from multiple files with a token budget.
-
-```bash
-mdtldr assemble -s <sources> [-r <root>] [-b <budget>]
-                [--level brief|summary|full] [--json] [--pretty]
-```
-
-**Options:**
-| Option | Description |
-|--------|-------------|
-| `-s, --sources` | Comma-separated list of files |
-| `-r, --root` | Root directory for index |
-| `-b, --budget` | Total token budget (default: 2000) |
-| `--level` | Compression level for each file |
-| `--json` | Output as JSON |
-| `--pretty` | Pretty-print JSON |
-
-**Example:**
-```bash
-# Assemble context from 3 files within 1500 tokens
-mdtldr assemble -s "README.md,docs/api.md,docs/setup.md" -b 1500
-```
-
-**Output:**
-- Combined context from all files
-- Token budget respected across all files
-- Metadata about what was included/truncated
-
----
-
-### embed
-
-Build embedding index for semantic search.
-
-```bash
-mdtldr embed [-r <root>] [--force] [--json] [--pretty]
-```
-
-**Options:**
-| Option | Description |
-|--------|-------------|
-| `-r, --root` | Root directory for index |
-| `--force` | Force rebuild all embeddings |
-| `--json` | Output as JSON |
-| `--pretty` | Pretty-print JSON |
-
-**Requirements:**
-- `OPENAI_API_KEY` environment variable
-
-**Example:**
-```bash
-export OPENAI_API_KEY=sk-...
-mdtldr embed ./docs
-```
-
-**Output:**
-```
-Embedding 45 sections...
-  ✓ docs/README.md (5 sections)
-  ✓ docs/api/endpoints.md (12 sections)
-  ...
-Done. 45 sections embedded.
-Cost: ~$0.002
-```
-
----
-
-### semantic
-
-Search by natural language query.
-
-```bash
-mdtldr semantic -q <query> [-r <root>] [-l <limit>]
-                [--threshold <float>] [-p <path>] [--json] [--pretty]
-```
-
-**Options:**
-| Option | Description |
-|--------|-------------|
-| `-q, --query` | Natural language query (required) |
-| `-r, --root` | Root directory for index |
-| `-l, --limit` | Maximum results (default: 5) |
-| `--threshold` | Minimum similarity score (0-1) |
-| `-p, --path` | Filter by file path pattern |
-| `--json` | Output as JSON |
-| `--pretty` | Pretty-print JSON |
-
-**Requirements:**
-- Embedding index built with `mdtldr embed`
-- `OPENAI_API_KEY` environment variable
-
-**Example:**
-```bash
-mdtldr semantic -q "how to handle authentication errors" -l 3
-```
-
-**Output:**
-```
-Results for "how to handle authentication errors":
-
-1. docs/api/errors.md > Error Handling (0.89)
-   Describes how to handle API errors including auth failures...
-
-2. docs/guides/auth.md > Troubleshooting (0.82)
-   Common authentication issues and solutions...
-
-3. docs/api/authentication.md > Error Codes (0.78)
-   List of authentication error codes...
-```
-
----
-
 ### stats
 
 Show index statistics.
 
 ```bash
-mdtldr stats [-r <root>] [--json] [--pretty]
+mdtldr stats [path] [options]
 ```
+
+**Arguments:**
+| Argument | Description |
+|----------|-------------|
+| `path` | Directory to show stats for (default: current) |
 
 **Options:**
 | Option | Description |
 |--------|-------------|
-| `-r, --root` | Root directory for index |
 | `--json` | Output as JSON |
 | `--pretty` | Pretty-print JSON |
 
@@ -568,59 +425,72 @@ Add to `.claude/settings.json`:
 ### Adding Documentation to LLM Context
 
 ```bash
-# 1. Get overview of available docs
+# 1. See what's available
 mdtldr tree ./docs
 
-# 2. Find relevant sections
-mdtldr search --heading "setup|install" --has-code
+# 2. Check document structure
+mdtldr tree docs/api.md
 
 # 3. Get context for specific file
-mdtldr context -f docs/setup.md -t 500
+mdtldr context docs/api.md -t 500
 
-# 4. Or assemble from multiple files
-mdtldr assemble -s "README.md,docs/setup.md,docs/api.md" -b 2000
+# 4. Or combine multiple files
+mdtldr context README.md docs/setup.md docs/api.md -t 2000
 ```
 
 ### Finding Related Documentation
 
 ```bash
 # 1. See what a file links to
-mdtldr links -f docs/README.md
+mdtldr links docs/README.md
 
 # 2. See what links to a file
-mdtldr backlinks -f docs/api/authentication.md
+mdtldr backlinks docs/api/authentication.md
 
 # 3. Use semantic search to find related content
-mdtldr semantic -q "user authentication and session management"
+mdtldr search "user authentication and session management"
 ```
 
 ### Keeping Index Updated
 
 ```bash
 # One-time index
-mdtldr index ./docs
+mdtldr index
 
 # Watch mode during development
-mdtldr index ./docs --watch
+mdtldr index --watch
 
 # Force full rebuild after major changes
-mdtldr index ./docs --force
+mdtldr index --force
+```
+
+### Setting Up Semantic Search
+
+```bash
+# 1. Set API key
+export OPENAI_API_KEY=sk-...
+
+# 2. Build embeddings
+mdtldr index --embed
+
+# 3. Search by meaning
+mdtldr search "how to handle authentication errors"
 ```
 
 ### Optimizing for Token Budget
 
 ```bash
-# Check token counts
-mdtldr structure -f large-doc.md
+# Check document size
+mdtldr tree docs/large-doc.md
 
 # Get brief summary
-mdtldr context -f large-doc.md --level brief
+mdtldr context docs/large-doc.md --brief
 
 # Or set explicit budget
-mdtldr context -f large-doc.md -t 200
+mdtldr context docs/large-doc.md -t 200
 
-# For multiple files with shared budget
-mdtldr assemble -s "a.md,b.md,c.md" -b 1000
+# Combine multiple files with shared budget
+mdtldr context a.md b.md c.md -t 1000
 ```
 
 ---
@@ -633,7 +503,6 @@ By default, indexes are stored in `.md-tldr/` in your project root:
 
 ```
 .md-tldr/
-├── config.json           # Configuration
 ├── indexes/
 │   ├── documents.json    # Document metadata
 │   ├── sections.json     # Section index
@@ -668,12 +537,12 @@ By default, indexes are stored in `.md-tldr/` in your project root:
 
 ### "No index found"
 
-Run `mdtldr index .` to build the index first.
+Run `mdtldr index` to build the index first.
 
 ### "Semantic search not available"
 
 1. Set `OPENAI_API_KEY` environment variable
-2. Run `mdtldr embed .` to build embedding index
+2. Run `mdtldr index --embed` to build embedding index
 
 ### "File not found in index"
 
@@ -682,6 +551,6 @@ Run `mdtldr index .` to build the index first.
 
 ### High token counts
 
-- Use `--level brief` for compressed output
+- Use `--brief` for compressed output
 - Use `-t <tokens>` to set explicit budget
-- Use `assemble` for multi-file with shared budget
+- Use multiple files with shared budget via `context`

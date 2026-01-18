@@ -65,17 +65,17 @@ INSPECTION
 - [x] All tests updated and passing
 
 ### Phase 2: Help & Error Messages
-- [ ] `mdtldr --help` shows clean, minimal output (not Effect boilerplate)
-- [ ] Each command has clear 1-line description
-- [ ] Error messages are human-friendly, not stack traces
-- [ ] Missing argument errors show usage example
-- [ ] `--version` works
+- [x] `mdtldr --help` shows clean, minimal output (not Effect boilerplate)
+- [x] Each command has clear 1-line description
+- [x] Error messages are human-friendly, not stack traces
+- [x] Missing argument errors show usage example
+- [x] `--version` works
 
 ### Phase 3: Documentation
-- [ ] README.md rewritten with new API (follow llm-tldr style)
-- [ ] docs/USAGE.md updated with new commands
-- [ ] All command examples in docs actually work
-- [ ] Quick reference card at top of README
+- [x] README.md rewritten with new API (follow llm-tldr style)
+- [x] docs/USAGE.md updated with new commands
+- [x] All command examples in docs actually work
+- [x] Quick reference card at top of README
 
 ### Phase 4: Quality & Polish
 - [ ] `npm run check` passes

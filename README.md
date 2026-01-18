@@ -1,11 +1,21 @@
-# md-tldr: Markdown Analysis for LLMs
+# md-tldr
 
 **Give LLMs exactly the markdown they need. Nothing more.**
 
-```bash
-# One-liner: Install, index, search
-npm install -g md-tldr && mdtldr index . && mdtldr semantic -q "what you're looking for"
 ```
+QUICK REFERENCE
+  mdtldr index [path]           Index markdown files (add --embed for semantic search)
+  mdtldr search <query> [path]  Search by meaning or structure
+  mdtldr context <files...>     Get LLM-ready summary
+  mdtldr tree [path|file]       Show files or document outline
+  mdtldr links <file>           Outgoing links
+  mdtldr backlinks <file>       Incoming links
+  mdtldr stats [path]           Index statistics
+```
+
+---
+
+## Why?
 
 Your documentation is 50K tokens of markdown. LLM context windows are limited. Raw markdown dumps waste tokens on structure, headers, and noise.
 
@@ -14,181 +24,125 @@ md-tldr extracts *structure* instead of dumping *text*. The result: **80%+ fewer
 ```bash
 npm install -g md-tldr
 mdtldr index .                     # Index your docs
-mdtldr context -f README.md        # Get LLM-ready summary
+mdtldr search "authentication"     # Find by meaning
+mdtldr context README.md           # Get LLM-ready summary
 ```
 
 ---
 
-## How It Works
-
-md-tldr builds multiple analysis layers from your markdown:
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│ Layer 4: Semantic        → "Find docs about authentication" │
-│ Layer 3: Summarization   → "TLDR this in 100 tokens"        │
-│ Layer 2: Link Graph      → "What links to this file?"       │
-│ Layer 1: Structure       → "What sections exist?"           │
-└─────────────────────────────────────────────────────────────┘
-```
-
-**Why layers?** Different tasks need different depth:
-- Browsing docs? Layer 1 (structure) is enough
-- Finding related content? Layer 2 (link graph) shows connections
-- Searching by topic? Layer 4 (semantic) finds by meaning
-
-### Architecture
-
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                      YOUR MARKDOWN                               │
-│  docs/*.md, README.md, CHANGELOG.md                              │
-└───────────────────────────┬──────────────────────────────────────┘
-                            │ remark + unified
-                            ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                     STRUCTURAL ANALYSIS                          │
-│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐                 │
-│  │ Sections│→│  Links  │→│ Summary │→│Semantic │                 │
-│  │  (AST)  │ │  Graph  │ │  Engine │ │  Index  │                 │
-│  └─────────┘ └─────────┘ └─────────┘ └─────────┘                 │
-└───────────────────────────┬──────────────────────────────────────┘
-                            │ text-embedding-3-small
-                            ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                      VECTOR INDEX                                │
-│  Section embeddings in hnswlib → "find auth docs"                │
-└───────────────────────────┬──────────────────────────────────────┘
-                            │
-                            ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                      LLM-READY OUTPUT                            │
-│  Token-efficient summaries • Hierarchical structure • Links      │
-└──────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## The Workflow
-
-### Before Reading Docs
-```bash
-mdtldr tree docs/                  # See file structure
-mdtldr structure -f docs/api.md   # See document outline
-```
-
-### Before Adding Context
-```bash
-mdtldr context -f docs/setup.md              # LLM-ready summary
-mdtldr context -f docs/setup.md -t 200       # Budget: 200 tokens
-mdtldr assemble -s "a.md,b.md" -b 1000       # Multi-doc context
-```
-
-### Finding Related Content
-```bash
-mdtldr links -f docs/api.md       # Outgoing links
-mdtldr backlinks -f docs/api.md   # Incoming links
-```
-
-### Searching
-```bash
-mdtldr search --heading "Setup"              # By heading pattern
-mdtldr search --has-code                     # Sections with code
-mdtldr semantic -q "authentication flow"     # By meaning
-```
-
----
-
-## Quick Setup
-
-### 1. Install
+## Installation
 
 ```bash
 npm install -g md-tldr
 ```
 
-### 2. Index Your Docs
+Requires Node.js 18+. Semantic search requires `OPENAI_API_KEY`.
+
+---
+
+## Commands
+
+### index
+
+Index markdown files. Run this first.
 
 ```bash
-mdtldr index /path/to/docs
+mdtldr index                       # Index current directory
+mdtldr index ./docs                # Index specific path
+mdtldr index --embed               # Also build embeddings for semantic search
+mdtldr index --watch               # Watch for changes
+mdtldr index --force               # Force full rebuild
 ```
 
-This builds section indexes and link graphs. Takes seconds for typical projects.
+### search
 
-### 3. Add Embeddings (Optional)
+Search by meaning (semantic) or structure (regex).
 
 ```bash
-export OPENAI_API_KEY=sk-...
-mdtldr embed /path/to/docs
+mdtldr search "how to authenticate"        # Semantic search (if embeddings exist)
+mdtldr search "auth.*flow" -s              # Structural search (heading regex)
+mdtldr search "setup" -n 5                 # Limit to 5 results
+mdtldr search "deploy" --threshold 0.8     # Higher similarity threshold
 ```
 
-This enables semantic search using OpenAI embeddings.
+Auto-detection: Uses semantic search if embeddings exist and query looks like natural language. Use `-s` to force structural search.
 
-### 4. Start Using
+### context
+
+Get LLM-ready summaries from one or more files.
 
 ```bash
-mdtldr context -f README.md        # Get LLM-ready context
-mdtldr semantic -q "how to deploy" # Find by meaning
+mdtldr context README.md                   # Single file
+mdtldr context README.md docs/api.md       # Multiple files
+mdtldr context docs/*.md                   # Glob patterns work
+mdtldr context README.md -t 500            # Token budget
+mdtldr context README.md --brief           # Minimal output
+mdtldr context README.md --full            # Include full content
+```
+
+### tree
+
+Show file structure or document outline.
+
+```bash
+mdtldr tree                        # List markdown files in current directory
+mdtldr tree ./docs                 # List files in specific directory
+mdtldr tree README.md              # Show document outline (heading hierarchy)
+```
+
+Auto-detection: Directory shows file list, file shows document outline.
+
+### links / backlinks
+
+Analyze link relationships.
+
+```bash
+mdtldr links README.md             # What does this file link to?
+mdtldr backlinks docs/api.md       # What files link to this?
+```
+
+### stats
+
+Show index statistics.
+
+```bash
+mdtldr stats                       # Current directory
+mdtldr stats ./docs                # Specific path
 ```
 
 ---
 
-## Command Reference
+## Workflows
 
-### Exploration
-| Command | What It Does |
-|---------|--------------|
-| `mdtldr tree [dir]` | File tree of markdown files |
-| `mdtldr structure -f <file>` | Document outline (heading hierarchy) |
-| `mdtldr parse -f <file>` | Full parsed JSON output |
-| `mdtldr stats` | Index statistics |
+### Before Adding Context to LLM
 
-### Analysis
-| Command | What It Does |
-|---------|--------------|
-| `mdtldr context -f <file>` | LLM-ready summary |
-| `mdtldr context -f <file> -t 500` | With token budget |
-| `mdtldr summarize -f <file>` | Hierarchical summary |
-| `mdtldr summarize -f <file> --level brief` | Brief (100 tokens) |
+```bash
+mdtldr tree docs/                          # See what's available
+mdtldr tree docs/api.md                    # Check document structure
+mdtldr context docs/api.md -t 500          # Get summary within token budget
+```
 
-### Multi-Document
-| Command | What It Does |
-|---------|--------------|
-| `mdtldr assemble -s "a.md,b.md" -b 2000` | Assemble context from multiple files |
-| `mdtldr links -f <file>` | Outgoing links |
-| `mdtldr backlinks -f <file>` | Incoming links |
+### Finding Documentation
 
-### Indexing
-| Command | What It Does |
-|---------|--------------|
-| `mdtldr index [dir]` | Build/update indexes |
-| `mdtldr index --watch` | Watch for changes |
-| `mdtldr index --force` | Force full rebuild |
-| `mdtldr embed` | Build embedding index |
+```bash
+mdtldr search "authentication"             # By meaning
+mdtldr search "Setup|Install" -s           # By heading pattern
+```
 
-### Search
-| Command | What It Does |
-|---------|--------------|
-| `mdtldr search --heading "pattern"` | Find by heading regex |
-| `mdtldr search --path "*.md"` | Filter by file path |
-| `mdtldr search --has-code` | Sections with code blocks |
-| `mdtldr search --has-table` | Sections with tables |
-| `mdtldr search --has-list` | Sections with lists |
-| `mdtldr semantic -q "query"` | Natural language search |
+### Setting Up Semantic Search
 
-### Output Formats
-
-All commands support:
-- `--json` - JSON output
-- `--pretty` - Pretty-printed JSON
+```bash
+export OPENAI_API_KEY=sk-...
+mdtldr index --embed                       # Build embeddings
+mdtldr search "how to deploy"              # Now works semantically
+```
 
 ---
 
 ## MCP Integration
 
-For AI tools (Claude Desktop, Claude Code):
+For Claude Desktop, add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
-**Claude Desktop** - Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
@@ -200,7 +154,8 @@ For AI tools (Claude Desktop, Claude Code):
 }
 ```
 
-**Claude Code** - Add to `.claude/settings.json`:
+For Claude Code, add to `.claude/settings.json`:
+
 ```json
 {
   "mcpServers": {
@@ -214,8 +169,8 @@ For AI tools (Claude Desktop, Claude Code):
 
 ### MCP Tools
 
-| Tool | What It Does |
-|------|--------------|
+| Tool | Description |
+|------|-------------|
 | `md_search` | Semantic search across indexed docs |
 | `md_context` | Get LLM-ready summary for a file |
 | `md_structure` | Get document outline |
@@ -230,7 +185,6 @@ Indexes are stored in `.md-tldr/` in your project root:
 
 ```
 .md-tldr/
-  config.json         # Configuration
   indexes/
     documents.json    # Document metadata
     sections.json     # Section index
@@ -253,17 +207,6 @@ Indexes are stored in `.md-tldr/` in your project root:
 | Context for single doc | 2,500 tokens | 400 tokens | **84%** |
 | Context for 10 docs | 25,000 tokens | 4,000 tokens | **84%** |
 | Search latency | N/A | <100ms | - |
-
----
-
-## Features
-
-- **GFM Support** - Tables, task lists, strikethrough
-- **YAML Frontmatter** - Extracts metadata
-- **Accurate Token Counting** - Uses tiktoken for precise estimates
-- **Incremental Indexing** - Only re-indexes changed files
-- **File Watching** - Auto-update on changes
-- **Hierarchical Summaries** - Brief/summary/full compression levels
 
 ---
 
