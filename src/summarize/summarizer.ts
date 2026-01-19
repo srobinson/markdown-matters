@@ -45,6 +45,10 @@ export interface DocumentSummary {
   readonly compressionRatio: number
   readonly sections: readonly SectionSummary[]
   readonly keyTopics: readonly string[]
+  /** True if content was truncated to fit budget */
+  readonly truncated?: boolean
+  /** Number of sections that were omitted due to budget constraints */
+  readonly truncatedCount?: number
 }
 
 export interface AssembleContextOptions {
@@ -260,23 +264,78 @@ export const summarizeDocument = (
   const maxTokens = options.maxTokens ?? TOKEN_BUDGETS[level]
 
   // Summarize all sections
-  const sections = document.sections.map((s) => summarizeSection(s, level))
+  const allSections = document.sections.map((s) => summarizeSection(s, level))
 
-  // Calculate totals
+  // Calculate totals and collect all flattened sections with their tokens
   const originalTokens = document.metadata.tokenCount
-  let summaryTokens = sections.reduce((acc, s) => acc + s.summaryTokens, 0)
+  let totalSummaryTokens = 0
+  const flatSections: SectionSummary[] = []
 
-  // If over budget, truncate sections
-  if (summaryTokens > maxTokens) {
-    // Simple truncation: reduce section summaries
-    const ratio = maxTokens / summaryTokens
-    summaryTokens = Math.floor(summaryTokens * ratio)
+  const flattenWithTokens = (section: SectionSummary) => {
+    flatSections.push(section)
+    totalSummaryTokens += section.summaryTokens
+    for (const child of section.children) {
+      flattenWithTokens(child)
+    }
+  }
+
+  for (const section of allSections) {
+    flattenWithTokens(section)
+  }
+
+  // Account for formatting overhead (title, path, token line, topics, etc.)
+  // Estimate ~50 tokens for metadata + overhead
+  const formattingOverhead = 50
+  const contentBudget = maxTokens - formattingOverhead
+
+  // If over budget, truncate sections to fit
+  let truncated = false
+  let truncatedCount = 0
+  let sections: SectionSummary[]
+  let summaryTokens: number
+
+  if (totalSummaryTokens > contentBudget && contentBudget > 0) {
+    // Need to truncate - include sections until we hit the budget
+    // Keep track of which sections to include
+    const includedSections: Set<string> = new Set()
+    let tokensUsed = 0
+
+    // Process sections in order, stopping when we hit budget
+    for (const section of flatSections) {
+      if (tokensUsed + section.summaryTokens <= contentBudget) {
+        includedSections.add(section.heading)
+        tokensUsed += section.summaryTokens
+      } else {
+        truncatedCount++
+      }
+    }
+
+    // Rebuild the section tree with only included sections
+    const filterSections = (sectionList: readonly SectionSummary[]): SectionSummary[] => {
+      const result: SectionSummary[] = []
+      for (const section of sectionList) {
+        if (includedSections.has(section.heading)) {
+          result.push({
+            ...section,
+            children: filterSections(section.children),
+          })
+        }
+      }
+      return result
+    }
+
+    sections = filterSections(allSections)
+    summaryTokens = tokensUsed
+    truncated = truncatedCount > 0
+  } else {
+    sections = allSections
+    summaryTokens = totalSummaryTokens
   }
 
   const compressionRatio =
     originalTokens > 0 ? 1 - summaryTokens / originalTokens : 0
 
-  return {
+  const result: DocumentSummary = {
     path: document.path,
     title: document.title,
     originalTokens,
@@ -285,6 +344,16 @@ export const summarizeDocument = (
     sections,
     keyTopics: extractTopics(document),
   }
+
+  if (truncated) {
+    return {
+      ...result,
+      truncated: true,
+      truncatedCount,
+    }
+  }
+
+  return result
 }
 
 export const summarizeFile = (
@@ -303,7 +372,7 @@ export const summarizeFile = (
 // Format Summary for Output (re-exported from formatters.ts)
 // ============================================================================
 
-export { formatSummary } from './formatters.js'
+export { formatSummary, type FormatSummaryOptions } from './formatters.js'
 
 // ============================================================================
 // Multi-Document Context Assembly

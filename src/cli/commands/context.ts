@@ -65,7 +65,7 @@ export const contextCommand = Command.make(
         if (json) {
           yield* Console.log(formatJson(summary, pretty))
         } else {
-          yield* Console.log(formatSummary(summary))
+          yield* Console.log(formatSummary(summary, { maxTokens: tokens }))
         }
       } else {
         // Multiple files: use assembleContext
