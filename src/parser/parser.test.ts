@@ -64,6 +64,26 @@ Some content.
 
       expect(result.title).toBe('Frontmatter Title')
     })
+
+    it('handles malformed YAML frontmatter gracefully', async () => {
+      const content = `---
+title: Valid Start
+But this is not valid YAML:
+  - missing colon here
+  invalid: [unclosed bracket
+---
+
+# Actual Content
+
+This should still parse.
+`
+
+      const result = await Effect.runPromise(parse(content))
+
+      // Should not throw, should parse with empty frontmatter
+      expect(result.frontmatter).toEqual({})
+      expect(result.title).toBe('Actual Content')
+    })
   })
 
   describe('section hierarchy', () => {

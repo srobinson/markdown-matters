@@ -296,8 +296,19 @@ export const parse = (
     const docId = generateId(path)
     const now = new Date()
 
-    // Extract frontmatter
-    const { data: frontmatter, content: markdownContent } = matter(content)
+    // Extract frontmatter (graceful handling for malformed YAML)
+    let frontmatter: Record<string, unknown> = {}
+    let markdownContent: string = content
+
+    try {
+      const parsed = matter(content)
+      frontmatter = parsed.data
+      markdownContent = parsed.content
+    } catch (error) {
+      // Malformed frontmatter - treat entire content as markdown
+      const msg = error instanceof Error ? error.message : String(error)
+      console.warn(`Warning: Malformed frontmatter in ${path}, skipping: ${msg.split('\n')[0]}`)
+    }
 
     // Parse markdown to AST
     const tree = processor.parse(markdownContent) as Root
