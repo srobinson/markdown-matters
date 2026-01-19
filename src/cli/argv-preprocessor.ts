@@ -8,7 +8,28 @@
  *
  * This preprocessor reorders argv so flags always come first for each
  * subcommand, while preserving the user's intended positional arg order.
+ *
+ * It also validates flags against per-command schemas and provides
+ * helpful error messages for unknown flags with typo suggestions.
  */
+
+import {
+  type CommandSchema,
+  flagTakesValue as schemaFlagTakesValue,
+  getCommandSchema,
+  getValidFlags,
+} from './flag-schemas.js'
+import { formatValidFlags, suggestFlag } from './typo-suggester.js'
+
+/**
+ * Result of preprocessing
+ */
+export interface PreprocessResult {
+  /** Processed argv (reordered) */
+  argv: string[]
+  /** Error if unknown flag detected */
+  error?: string
+}
 
 /**
  * Check if an argument looks like a flag
@@ -18,27 +39,40 @@ const isFlag = (arg: string): boolean => {
 }
 
 /**
- * Check if a flag expects a value (known value flags)
+ * Extract the base flag name (handles --flag=value syntax)
  */
-const flagsWithValues = new Set([
-  '-n',
-  '--limit',
-  '-t',
-  '--tokens',
-  '--threshold',
-  '-r',
-  '--root',
-])
+const extractFlagName = (arg: string): string => {
+  const eqIndex = arg.indexOf('=')
+  return eqIndex >= 0 ? arg.slice(0, eqIndex) : arg
+}
 
 /**
- * Check if this flag takes a value
+ * Validate a flag against a command schema
+ * Returns an error message if invalid, undefined if valid
  */
-const flagTakesValue = (flag: string): boolean => {
-  // Handle --flag=value syntax
-  if (flag.includes('=')) {
-    return false // Value is already embedded
+const validateFlag = (
+  flag: string,
+  schema: CommandSchema,
+): string | undefined => {
+  const flagName = extractFlagName(flag)
+  const validFlags = getValidFlags(schema)
+
+  if (validFlags.has(flagName)) {
+    return undefined // Valid flag
   }
-  return flagsWithValues.has(flag)
+
+  // Unknown flag - build error message with suggestion
+  const suggestion = suggestFlag(flagName, schema)
+
+  let errorMsg = `Unknown option '${flagName}' for '${schema.name}'`
+
+  if (suggestion) {
+    errorMsg += `\nDid you mean '${suggestion.flag}'?`
+  }
+
+  errorMsg += `\n\nValid options for '${schema.name}':\n${formatValidFlags(schema)}`
+
+  return errorMsg
 }
 
 /**
@@ -46,25 +80,51 @@ const flagTakesValue = (flag: string): boolean => {
  *
  * Transforms: ['search', 'query', '--limit', '5', 'path']
  * Into:       ['search', '--limit', '5', 'query', 'path']
+ *
+ * Also validates flags and returns error for unknown flags.
  */
 export const preprocessArgv = (argv: string[]): string[] => {
+  const result = preprocessArgvWithValidation(argv)
+
+  if (result.error) {
+    // Print error and exit
+    console.error(`\nError: ${result.error}`)
+    console.error('\nRun "mdtldr <command> --help" for usage information.')
+    process.exit(1)
+  }
+
+  return result.argv
+}
+
+/**
+ * Preprocess argv with validation (for testing)
+ */
+export const preprocessArgvWithValidation = (argv: string[]): PreprocessResult => {
   // argv[0] = node, argv[1] = script, rest = user args
   const nodeAndScript = argv.slice(0, 2)
   const userArgs = argv.slice(2)
 
   if (userArgs.length === 0) {
-    return argv
+    return { argv }
   }
 
   // Check if first arg is a subcommand (not a flag)
   const firstArg = userArgs[0]
   if (!firstArg || isFlag(firstArg)) {
     // No subcommand, return as-is
-    return argv
+    return { argv }
   }
 
   const subcommand = firstArg
   const restArgs = userArgs.slice(1)
+
+  // Get schema for this command
+  const schema = getCommandSchema(subcommand)
+
+  // If no schema, use legacy behavior (pass through)
+  if (!schema) {
+    return { argv }
+  }
 
   // Separate flags (with their values) from positional args
   const flags: string[] = []
@@ -79,12 +139,37 @@ export const preprocessArgv = (argv: string[]): string[] => {
     }
 
     if (isFlag(arg)) {
-      // It's a flag
+      // Skip --help/-h, let Effect CLI handle it
+      if (arg === '--help' || arg === '-h') {
+        flags.push(arg)
+        i++
+        continue
+      }
+
+      // Skip -- (end of flags marker)
+      if (arg === '--') {
+        // Everything after -- is positional
+        i++
+        while (i < restArgs.length) {
+          const remaining = restArgs[i]
+          if (remaining) positionals.push(remaining)
+          i++
+        }
+        continue
+      }
+
+      // Validate the flag
+      const error = validateFlag(arg, schema)
+      if (error) {
+        return { argv, error }
+      }
+
+      // It's a valid flag
       if (arg.includes('=')) {
         // --flag=value syntax, keep as single arg
         flags.push(arg)
         i++
-      } else if (flagTakesValue(arg)) {
+      } else if (schemaFlagTakesValue(schema, arg)) {
         // Flag with separate value
         flags.push(arg)
         i++
@@ -109,5 +194,7 @@ export const preprocessArgv = (argv: string[]): string[] => {
   }
 
   // Reconstruct: node, script, subcommand, flags, positionals
-  return [...nodeAndScript, subcommand, ...flags, ...positionals]
+  return {
+    argv: [...nodeAndScript, subcommand, ...flags, ...positionals],
+  }
 }

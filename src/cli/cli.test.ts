@@ -221,6 +221,45 @@ describe('mdtldr CLI e2e', () => {
     })
   })
 
+  describe('unknown flag handling', () => {
+    it('shows clear error for unknown flag', () => {
+      const output = run('context -x docs/DESIGN.md', { expectError: true })
+      expect(output).toContain("Unknown option '-x' for 'context'")
+      expect(output).toContain('Valid options for')
+    })
+
+    it('suggests typo correction for --jsno', () => {
+      const output = run('context --jsno docs/DESIGN.md', { expectError: true })
+      expect(output).toContain("Unknown option '--jsno' for 'context'")
+      expect(output).toContain("Did you mean '--json'?")
+    })
+
+    it('suggests typo correction for --limt', () => {
+      const output = run('search --limt 5 "test" docs/', { expectError: true })
+      expect(output).toContain("Unknown option '--limt' for 'search'")
+      expect(output).toContain("Did you mean '--limit'?")
+    })
+
+    it('lists valid options in error message', () => {
+      const output = run('context --invalid docs/DESIGN.md', { expectError: true })
+      expect(output).toContain('--tokens')
+      expect(output).toContain('--brief')
+      expect(output).toContain('--json')
+    })
+
+    it('handles unknown flag with value', () => {
+      const output = run('context --foo=bar docs/DESIGN.md', { expectError: true })
+      expect(output).toContain("Unknown option '--foo'")
+    })
+
+    it('reports first unknown flag only', () => {
+      const output = run('context --foo --bar docs/DESIGN.md', {
+        expectError: true,
+      })
+      expect(output).toContain("Unknown option '--foo'")
+    })
+  })
+
   describe('flexible flag positioning', () => {
     it('search: allows query before flags', () => {
       // Traditional: search -n 3 "query"
