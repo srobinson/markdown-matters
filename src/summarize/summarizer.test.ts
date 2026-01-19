@@ -144,5 +144,131 @@ describe('summarizer token counting', () => {
       expect(output).toContain('80% reduction')
       expect(output).toContain('from 1000')
     })
+
+    it('respects maxTokens budget', () => {
+      const mockSummary: DocumentSummary = {
+        path: '/test/file.md',
+        title: 'Test Document',
+        originalTokens: 1000,
+        summaryTokens: 500,
+        compressionRatio: 0.5,
+        sections: [
+          {
+            heading: 'Section 1',
+            level: 2,
+            originalTokens: 200,
+            summaryTokens: 100,
+            summary:
+              'This is a longer summary that contains many words to test token budget enforcement.',
+            children: [],
+            hasCode: false,
+            hasList: false,
+            hasTable: false,
+          },
+          {
+            heading: 'Section 2',
+            level: 2,
+            originalTokens: 200,
+            summaryTokens: 100,
+            summary: 'Another section with substantial content for testing.',
+            children: [],
+            hasCode: false,
+            hasList: false,
+            hasTable: false,
+          },
+        ],
+        keyTopics: ['test', 'budget'],
+      }
+
+      const output = formatSummary(mockSummary, { maxTokens: 100 })
+      const actualTokens = countTokensApprox(output)
+
+      // Output should stay within budget
+      expect(actualTokens).toBeLessThanOrEqual(100)
+    })
+
+    it('shows truncation warning when sections are omitted', () => {
+      const mockSummary: DocumentSummary = {
+        path: '/test/file.md',
+        title: 'Test',
+        originalTokens: 1000,
+        summaryTokens: 500,
+        compressionRatio: 0.5,
+        sections: [
+          {
+            heading: 'Section 1',
+            level: 2,
+            originalTokens: 200,
+            summaryTokens: 100,
+            summary: 'Long content '.repeat(50),
+            children: [],
+            hasCode: false,
+            hasList: false,
+            hasTable: false,
+          },
+        ],
+        keyTopics: [],
+      }
+
+      const output = formatSummary(mockSummary, { maxTokens: 50 })
+
+      // Should show truncation warning
+      expect(output).toContain('TRUNCATED')
+    })
+  })
+
+  describe('token budget edge cases', () => {
+    it('handles very tight budget gracefully', () => {
+      const mockSummary: DocumentSummary = {
+        path: '/test/file.md',
+        title: 'Test',
+        originalTokens: 100,
+        summaryTokens: 50,
+        compressionRatio: 0.5,
+        sections: [
+          {
+            heading: 'Section',
+            level: 2,
+            originalTokens: 50,
+            summaryTokens: 25,
+            summary: 'Content',
+            children: [],
+            hasCode: false,
+            hasList: false,
+            hasTable: false,
+          },
+        ],
+        keyTopics: [],
+      }
+
+      // Should not throw with very tight budget
+      const output = formatSummary(mockSummary, { maxTokens: 30 })
+      expect(output).toBeTruthy()
+    })
+
+    it('handles long file paths in overhead calculation', () => {
+      const mockSummary: DocumentSummary = {
+        path: '/very/long/path/to/some/deeply/nested/directory/structure/file.md',
+        title: 'A Very Long Document Title That Takes Up Many Tokens',
+        originalTokens: 1000,
+        summaryTokens: 100,
+        compressionRatio: 0.9,
+        sections: [],
+        keyTopics: [
+          'topic1',
+          'topic2',
+          'topic3',
+          'topic4',
+          'topic5',
+          'another-long-topic',
+        ],
+      }
+
+      const output = formatSummary(mockSummary, { maxTokens: 200 })
+      const actualTokens = countTokensApprox(output)
+
+      // Should stay within budget even with long paths/titles
+      expect(actualTokens).toBeLessThanOrEqual(200)
+    })
   })
 })

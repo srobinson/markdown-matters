@@ -143,13 +143,18 @@ An overview of the document.
       const fullContext = await runEffect(
         getContext(TEST_DIR, path.join(TEST_DIR, 'doc1.md')),
       )
+      // Use a limit that's definitely smaller than the full document
+      const limitTokens = Math.max(10, Math.floor(fullContext.totalTokens / 2))
       const limitedContext = await runEffect(
-        getContext(TEST_DIR, path.join(TEST_DIR, 'doc1.md'), { maxTokens: 50 }),
+        getContext(TEST_DIR, path.join(TEST_DIR, 'doc1.md'), { maxTokens: limitTokens }),
       )
-      expect(limitedContext.includedTokens).toBeLessThanOrEqual(50)
-      expect(limitedContext.includedTokens).toBeLessThan(
-        fullContext.totalTokens,
-      )
+      expect(limitedContext.includedTokens).toBeLessThanOrEqual(limitTokens)
+      // Only check for reduction if the full context exceeds the limit
+      if (fullContext.totalTokens > limitTokens) {
+        expect(limitedContext.includedTokens).toBeLessThan(
+          fullContext.totalTokens,
+        )
+      }
     })
   })
 

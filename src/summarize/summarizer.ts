@@ -171,7 +171,9 @@ const summarizeSection = (
 
   if (level === 'full' || originalTokens <= targetTokens) {
     // Include full content for "full" level or if already small
-    summary = section.content
+    // Use plainText instead of content to avoid including the heading markdown
+    // (the heading is output separately by the formatter)
+    summary = section.plainText
   } else if (level === 'brief') {
     // Just heading and metadata for brief
     const meta: string[] = []
@@ -283,9 +285,21 @@ export const summarizeDocument = (
     flattenWithTokens(section)
   }
 
-  // Account for formatting overhead (title, path, token line, topics, etc.)
-  // Estimate ~50 tokens for metadata + overhead
-  const formattingOverhead = 50
+  // Calculate formatting overhead dynamically based on actual content
+  // Header includes: "# {title}\nPath: {path}\nTokens: X (Y% reduction from Z)\n"
+  // Plus topics line if present, plus possible truncation warning
+  const topics = extractTopics(document)
+  const headerTemplate = `# ${document.title}\nPath: ${document.path}\nTokens: 9999 (99% reduction from ${document.metadata.tokenCount})\n`
+  const topicsLine =
+    topics.length > 0 ? `\n**Topics:** ${topics.join(', ')}\n` : ''
+  const truncationWarning =
+    '\n⚠️ TRUNCATED: 999 sections omitted to fit token budget'
+  // Add all possible overhead plus a generous safety margin (20% of overhead + 20 base)
+  // This accounts for variance in token estimation
+  const baseOverhead = countTokensApprox(
+    headerTemplate + topicsLine + truncationWarning,
+  )
+  const formattingOverhead = Math.ceil(baseOverhead * 1.2) + 20
   const contentBudget = maxTokens - formattingOverhead
 
   // If over budget, truncate sections to fit
@@ -295,36 +309,41 @@ export const summarizeDocument = (
   let summaryTokens: number
 
   if (totalSummaryTokens > contentBudget && contentBudget > 0) {
-    // Need to truncate - include sections until we hit the budget
-    // Keep track of which sections to include
-    const includedSections: Set<string> = new Set()
+    // Need to truncate - use greedy tree traversal that can include children
+    // even when parent doesn't fit (orphan rescue)
     let tokensUsed = 0
 
-    // Process sections in order, stopping when we hit budget
-    for (const section of flatSections) {
-      if (tokensUsed + section.summaryTokens <= contentBudget) {
-        includedSections.add(section.heading)
-        tokensUsed += section.summaryTokens
-      } else {
-        truncatedCount++
-      }
-    }
-
-    // Rebuild the section tree with only included sections
-    const filterSections = (sectionList: readonly SectionSummary[]): SectionSummary[] => {
+    // Process tree with orphan rescue: if parent doesn't fit, still try children
+    const truncateSections = (
+      sectionList: readonly SectionSummary[],
+    ): SectionSummary[] => {
       const result: SectionSummary[] = []
+
       for (const section of sectionList) {
-        if (includedSections.has(section.heading)) {
+        const sectionOwnTokens = section.summaryTokens
+        const fitsInBudget = tokensUsed + sectionOwnTokens <= contentBudget
+
+        if (fitsInBudget) {
+          // Section fits - include it and recursively process children
+          tokensUsed += sectionOwnTokens
+          const truncatedChildren = truncateSections(section.children)
           result.push({
             ...section,
-            children: filterSections(section.children),
+            children: truncatedChildren,
           })
+        } else {
+          // Section doesn't fit - but still try to rescue children (orphan rescue)
+          truncatedCount++
+          const rescuedChildren = truncateSections(section.children)
+          // Add rescued children as top-level items in result
+          result.push(...rescuedChildren)
         }
       }
+
       return result
     }
 
-    sections = filterSections(allSections)
+    sections = truncateSections(allSections)
     summaryTokens = tokensUsed
     truncated = truncatedCount > 0
   } else {
@@ -342,7 +361,7 @@ export const summarizeDocument = (
     summaryTokens,
     compressionRatio,
     sections,
-    keyTopics: extractTopics(document),
+    keyTopics: topics,
   }
 
   if (truncated) {
