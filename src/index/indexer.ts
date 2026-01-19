@@ -16,6 +16,7 @@ import {
   initializeIndex,
   loadDocumentIndex,
   loadLinkIndex,
+  loadSectionIndex,
   saveDocumentIndex,
   saveLinkIndex,
   saveSectionIndex,
@@ -179,8 +180,11 @@ export const buildIndex = (
         ? createEmptyDocumentIndex(storage.rootPath)
         : existingDocIndex
 
-    const sectionIndex = createEmptySectionIndex()
-    const linkIndex = createEmptyLinkIndex()
+    // Load existing section and link indexes to preserve data for unchanged files
+    const existingSectionIndex = yield* loadSectionIndex(storage)
+    const existingLinkIndex = yield* loadLinkIndex(storage)
+    const sectionIndex = existingSectionIndex ?? createEmptySectionIndex()
+    const linkIndex = existingLinkIndex ?? createEmptyLinkIndex()
 
     // Discover files
     const exclude = options.exclude ?? ['**/node_modules/**', '**/.*/**']
@@ -197,17 +201,29 @@ export const buildIndex = (
     const mutableDocuments: Record<string, DocumentEntry> = {
       ...docIndex.documents,
     }
-    const mutableSections: Record<string, SectionEntry> = {}
-    const mutableByHeading: Record<string, string[]> = {}
-    const mutableByDocument: Record<string, string[]> = {}
-    const mutableForward: Record<string, string[]> = {}
-    const mutableBackward: Record<string, string[]> = {}
-    const brokenLinks: string[] = []
+    // Initialize with existing data to preserve sections/links for unchanged files
+    const mutableSections: Record<string, SectionEntry> = {
+      ...sectionIndex.sections,
+    }
+    const mutableByHeading: Record<string, string[]> = Object.fromEntries(
+      Object.entries(sectionIndex.byHeading).map(([k, v]) => [k, [...v]]),
+    )
+    const mutableByDocument: Record<string, string[]> = Object.fromEntries(
+      Object.entries(sectionIndex.byDocument).map(([k, v]) => [k, [...v]]),
+    )
+    const mutableForward: Record<string, string[]> = Object.fromEntries(
+      Object.entries(linkIndex.forward).map(([k, v]) => [k, [...v]]),
+    )
+    const mutableBackward: Record<string, string[]> = Object.fromEntries(
+      Object.entries(linkIndex.backward).map(([k, v]) => [k, [...v]]),
+    )
+    const brokenLinks: string[] = [...linkIndex.broken]
 
     for (const filePath of files) {
       const relativePath = path.relative(storage.rootPath, filePath)
 
-      try {
+      // Process each file, collecting errors instead of failing
+      const processFile = Effect.gen(function* () {
         // Read file content and stats
         const [content, stats] = yield* Effect.promise(() =>
           Promise.all([fs.readFile(filePath, 'utf-8'), fs.stat(filePath)]),
@@ -223,7 +239,7 @@ export const buildIndex = (
           existingEntry.hash === hash &&
           existingEntry.mtime === stats.mtime.getTime()
         ) {
-          continue
+          return // File unchanged, skip processing
         }
 
         // Parse document
@@ -235,6 +251,28 @@ export const buildIndex = (
             (e) => new Error(`Parse error in ${relativePath}: ${e.message}`),
           ),
         )
+
+        // Clean up old sections for this document before adding new ones
+        if (existingEntry) {
+          const oldSectionIds = mutableByDocument[existingEntry.id] ?? []
+          for (const sectionId of oldSectionIds) {
+            const oldSection = mutableSections[sectionId]
+            if (oldSection) {
+              // Remove from byHeading
+              const headingKey = oldSection.heading.toLowerCase()
+              const headingList = mutableByHeading[headingKey]
+              if (headingList) {
+                const idx = headingList.indexOf(sectionId)
+                if (idx !== -1) headingList.splice(idx, 1)
+              }
+            }
+            delete mutableSections[sectionId]
+          }
+          delete mutableByDocument[existingEntry.id]
+
+          // Clean up old links
+          delete mutableForward[relativePath]
+        }
 
         // Update document index
         mutableDocuments[relativePath] = {
@@ -294,12 +332,17 @@ export const buildIndex = (
         }
 
         mutableForward[relativePath] = outgoingLinks
-      } catch (error) {
-        errors.push({
-          path: relativePath,
-          message: error instanceof Error ? error.message : String(error),
-        })
-      }
+      }).pipe(
+        Effect.catchAll((error) => {
+          errors.push({
+            path: relativePath,
+            message: error instanceof Error ? error.message : String(error),
+          })
+          return Effect.void
+        }),
+      )
+
+      yield* processFile
     }
 
     // Check for broken links
@@ -334,10 +377,19 @@ export const buildIndex = (
 
     const duration = Date.now() - startTime
 
+    // Calculate totals for all links across all forward entries
+    const totalLinks = Object.values(mutableForward).reduce(
+      (sum, links) => sum + links.length,
+      0,
+    )
+
     return {
       documentsIndexed,
       sectionsIndexed,
       linksIndexed,
+      totalDocuments: Object.keys(mutableDocuments).length,
+      totalSections: Object.keys(mutableSections).length,
+      totalLinks,
       duration,
       errors,
     }

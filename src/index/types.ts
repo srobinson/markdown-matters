@@ -79,6 +79,9 @@ export interface IndexResult {
   readonly documentsIndexed: number
   readonly sectionsIndexed: number
   readonly linksIndexed: number
+  readonly totalDocuments: number
+  readonly totalSections: number
+  readonly totalLinks: number
   readonly duration: number
   readonly errors: readonly IndexBuildError[]
 }

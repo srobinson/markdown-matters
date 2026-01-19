@@ -73,9 +73,16 @@ export const indexCommand = Command.make(
 
         if (!json) {
           yield* Console.log('')
-          yield* Console.log(`Indexed ${result.documentsIndexed} documents`)
-          yield* Console.log(`  Sections: ${result.sectionsIndexed}`)
-          yield* Console.log(`  Links: ${result.linksIndexed}`)
+          // Show totals, with "newly indexed" count if incremental
+          const newlyIndexed =
+            result.documentsIndexed < result.totalDocuments
+              ? ` (${result.documentsIndexed} updated)`
+              : ''
+          yield* Console.log(
+            `Indexed ${result.totalDocuments} documents${newlyIndexed}`,
+          )
+          yield* Console.log(`  Sections: ${result.totalSections}`)
+          yield* Console.log(`  Links: ${result.totalLinks}`)
           yield* Console.log(`  Duration: ${result.duration}ms`)
 
           if (result.errors.length > 0) {
