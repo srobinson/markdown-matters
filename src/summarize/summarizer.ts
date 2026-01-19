@@ -10,6 +10,7 @@ import { Effect } from 'effect'
 import type { MdDocument, MdSection } from '../core/types.js'
 import { parseFile } from '../parser/parser.js'
 import { countTokensApprox } from '../utils/tokens.js'
+import { formatSummary as formatSummaryImpl } from './formatters.js'
 
 // ============================================================================
 // Types
@@ -68,14 +69,50 @@ export interface SourceContext {
 }
 
 // ============================================================================
-// Token Budgets per Level
+// Constants
 // ============================================================================
 
+/** Token budgets per compression level */
 const TOKEN_BUDGETS: Record<CompressionLevel, number> = {
   brief: 100,
   summary: 500,
   full: Infinity,
 }
+
+/** Minimum character length for a sentence to be considered meaningful */
+const MIN_SENTENCE_LENGTH = 10
+
+/** Score weights for sentence importance heuristics */
+const SENTENCE_SCORE_DEFINITION = 2 // sentences with colons (definitions)
+const SENTENCE_SCORE_PROPER_START = 1 // sentences starting with capital
+const SENTENCE_SCORE_MEDIUM_LENGTH = 1 // sentences in ideal length range
+const SENTENCE_SCORE_EMPHASIS = 1 // sentences with emphasis or code
+
+/** Ideal sentence length range for summaries */
+const SENTENCE_LENGTH_MIN = 50
+const SENTENCE_LENGTH_MAX = 200
+
+/** Target compression ratio for summaries (30% of original) */
+const SUMMARY_COMPRESSION_RATIO = 0.3
+
+/** Minimum tokens for any section summary */
+const MIN_SECTION_TOKENS = 20
+
+/** Minimum sentences to include in any summary */
+const MIN_SUMMARY_SENTENCES = 2
+
+/** Approximate tokens per sentence (for calculating max sentences) */
+const TOKENS_PER_SENTENCE_ESTIMATE = 30
+
+/** Topic heading length constraints */
+const MIN_TOPIC_LENGTH = 2
+const MAX_TOPIC_LENGTH = 50
+
+/** Maximum topics to extract from a document */
+const MAX_TOPICS = 10
+
+/** Minimum remaining budget to include partial content */
+const MIN_PARTIAL_BUDGET = 50
 
 // ============================================================================
 // Section Summarization
@@ -86,7 +123,7 @@ const extractKeyPoints = (content: string, maxSentences: number): string[] => {
   const sentences = content
     .replace(/\n+/g, ' ')
     .split(/(?<=[.!?])\s+/)
-    .filter((s) => s.trim().length > 10)
+    .filter((s) => s.trim().length > MIN_SENTENCE_LENGTH)
 
   if (sentences.length <= maxSentences) {
     return sentences
@@ -96,10 +133,11 @@ const extractKeyPoints = (content: string, maxSentences: number): string[] => {
   const scored = sentences.map((s) => {
     let score = 0
     // Prefer sentences with:
-    if (s.includes(':')) score += 2 // definitions/explanations
-    if (/^[A-Z]/.test(s)) score += 1 // proper start
-    if (s.length > 50 && s.length < 200) score += 1 // medium length
-    if (/\*\*|`/.test(s)) score += 1 // has emphasis or code
+    if (s.includes(':')) score += SENTENCE_SCORE_DEFINITION
+    if (/^[A-Z]/.test(s)) score += SENTENCE_SCORE_PROPER_START
+    if (s.length > SENTENCE_LENGTH_MIN && s.length < SENTENCE_LENGTH_MAX)
+      score += SENTENCE_SCORE_MEDIUM_LENGTH
+    if (/\*\*|`/.test(s)) score += SENTENCE_SCORE_EMPHASIS
     return { sentence: s, score }
   })
 
@@ -122,7 +160,7 @@ const summarizeSection = (
   // Calculate target tokens based on level
   const targetTokens = Math.min(
     TOKEN_BUDGETS[level],
-    Math.max(originalTokens * 0.3, 20), // At least 30% or 20 tokens
+    Math.max(originalTokens * SUMMARY_COMPRESSION_RATIO, MIN_SECTION_TOKENS),
   )
 
   let summary: string
@@ -139,7 +177,10 @@ const summarizeSection = (
     summary = meta.length > 0 ? `[${meta.join(', ')}]` : ''
   } else {
     // Summary level: extract key points
-    const maxSentences = Math.max(2, Math.floor(targetTokens / 30))
+    const maxSentences = Math.max(
+      MIN_SUMMARY_SENTENCES,
+      Math.floor(targetTokens / TOKENS_PER_SENTENCE_ESTIMATE),
+    )
     const keyPoints = extractKeyPoints(section.plainText, maxSentences)
 
     if (keyPoints.length > 0) {
@@ -182,7 +223,10 @@ const extractTopics = (document: MdDocument): string[] => {
       .replace(/[:#\-_]/g, ' ')
       .trim()
       .toLowerCase()
-    if (cleanHeading.length > 2 && cleanHeading.length < 50) {
+    if (
+      cleanHeading.length > MIN_TOPIC_LENGTH &&
+      cleanHeading.length < MAX_TOPIC_LENGTH
+    ) {
       topics.add(cleanHeading)
     }
 
@@ -205,7 +249,7 @@ const extractTopics = (document: MdDocument): string[] => {
     }
   }
 
-  return Array.from(topics).slice(0, 10)
+  return Array.from(topics).slice(0, MAX_TOPICS)
 }
 
 export const summarizeDocument = (
@@ -256,46 +300,10 @@ export const summarizeFile = (
   })
 
 // ============================================================================
-// Format Summary for Output
+// Format Summary for Output (re-exported from formatters.ts)
 // ============================================================================
 
-export const formatSummary = (summary: DocumentSummary): string => {
-  const lines: string[] = []
-
-  lines.push(`# ${summary.title}`)
-  lines.push(`Path: ${summary.path}`)
-  lines.push(
-    `Tokens: ${summary.summaryTokens} (${(summary.compressionRatio * 100).toFixed(0)}% reduction from ${summary.originalTokens})`,
-  )
-  lines.push('')
-
-  if (summary.keyTopics.length > 0) {
-    lines.push(`**Topics:** ${summary.keyTopics.join(', ')}`)
-    lines.push('')
-  }
-
-  const formatSection = (section: SectionSummary, depth: number = 0) => {
-    const indent = '  '.repeat(depth)
-    const prefix = '#'.repeat(section.level)
-
-    lines.push(`${indent}${prefix} ${section.heading}`)
-
-    if (section.summary) {
-      lines.push(`${indent}${section.summary}`)
-    }
-
-    for (const child of section.children) {
-      formatSection(child, depth + 1)
-    }
-  }
-
-  for (const section of summary.sections) {
-    formatSection(section)
-    lines.push('')
-  }
-
-  return lines.join('\n')
-}
+export { formatSummary } from './formatters.js'
 
 // ============================================================================
 // Multi-Document Context Assembly
@@ -328,8 +336,9 @@ export const assembleContext = (
           maxTokens: perSourceBudget,
         })
 
-        const content = formatSummary(summary)
-        const tokens = summary.summaryTokens
+        const content = formatSummaryImpl(summary)
+        // Count actual formatted output tokens, not pre-format summary tokens
+        const tokens = countTokensApprox(content)
 
         if (totalTokens + tokens <= budget) {
           sources.push({
@@ -342,21 +351,23 @@ export const assembleContext = (
         } else {
           // Over budget
           const remaining = budget - totalTokens
-          if (remaining > 50) {
+          if (remaining > MIN_PARTIAL_BUDGET) {
             // Include partial if we have some room
             const briefSummary = yield* summarizeFile(resolvedPath, {
               level: 'brief',
               maxTokens: remaining,
             })
-            const briefContent = formatSummary(briefSummary)
+            const briefContent = formatSummaryImpl(briefSummary)
+            // Count actual formatted output tokens, not pre-format summary tokens
+            const briefTokens = countTokensApprox(briefContent)
 
             sources.push({
               path: path.relative(rootPath, resolvedPath),
               title: briefSummary.title,
-              tokens: briefSummary.summaryTokens,
+              tokens: briefTokens,
               content: briefContent,
             })
-            totalTokens += briefSummary.summaryTokens
+            totalTokens += briefTokens
           } else {
             overflow.push(path.relative(rootPath, resolvedPath))
           }
@@ -376,34 +387,10 @@ export const assembleContext = (
   })
 
 // ============================================================================
-// Format Assembled Context
+// Format Assembled Context (re-exported from formatters.ts)
 // ============================================================================
 
-export const formatAssembledContext = (context: AssembledContext): string => {
-  const lines: string[] = []
-
-  lines.push('# Context Assembly')
-  lines.push(`Total tokens: ${context.totalTokens}/${context.budget}`)
-  lines.push(`Sources: ${context.sources.length}`)
-  lines.push('')
-
-  for (const source of context.sources) {
-    lines.push('---')
-    lines.push('')
-    lines.push(source.content)
-  }
-
-  if (context.overflow.length > 0) {
-    lines.push('---')
-    lines.push('')
-    lines.push('## Overflow (not included due to budget)')
-    for (const path of context.overflow) {
-      lines.push(`- ${path}`)
-    }
-  }
-
-  return lines.join('\n')
-}
+export { formatAssembledContext } from './formatters.js'
 
 // ============================================================================
 // Measure Token Reduction

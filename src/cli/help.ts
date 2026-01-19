@@ -72,7 +72,8 @@ export const helpContent: Record<string, CommandHelp> = {
       },
       {
         name: '--threshold <n>',
-        description: 'Similarity threshold 0-1 for semantic search (default: 0.5)',
+        description:
+          'Similarity threshold 0-1 for semantic search (default: 0.5)',
       },
       { name: '--json', description: 'Output results as JSON' },
       { name: '--pretty', description: 'Pretty-print JSON output' },
@@ -103,7 +104,10 @@ export const helpContent: Record<string, CommandHelp> = {
         name: '--brief',
         description: 'Minimal output (headings and key points only)',
       },
-      { name: '--full', description: 'Include full content (no summarization)' },
+      {
+        name: '--full',
+        description: 'Include full content (no summarization)',
+      },
       { name: '--json', description: 'Output as JSON' },
       { name: '--pretty', description: 'Pretty-print JSON output' },
     ],
