@@ -19,7 +19,10 @@
     "format": "biome format --write . && biome check --write .",
     "check": "pnpm format && pnpm lint && pnpm typecheck",
     "clean": "rm -rf dist",
-    "prepublishOnly": "pnpm build"
+    "quality": "pnpm build && npx publint && npx attw --pack .",
+    "prepublishOnly": "pnpm build && pnpm test && pnpm typecheck",
+    "changeset": "changeset",
+    "release": "changeset publish"
   },
   "keywords": [
     "markdown",
@@ -53,6 +56,8 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.11",
+    "@changesets/changelog-github": "^0.5.2",
+    "@changesets/cli": "^2.29.8",
     "@types/mdast": "^4.0.4",
     "@types/node": "^22.10.0",
     "tsup": "^8.5.1",
