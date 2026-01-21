@@ -1,15 +1,20 @@
 # TLDR ignore patterns (gitignore syntax)
+
 # Auto-generated - review and customize for your project
-# Docs: https://git-scm.com/docs/gitignore
+
+# Docs: <https://git-scm.com/docs/gitignore>
 
 # ===================
+
 # Dependencies
+
 # ===================
+
 node_modules/
 .venv/
 venv/
 env/
-__pycache__/
+**pycache**/
 .tox/
 .nox/
 .pytest_cache/
@@ -19,66 +24,89 @@ vendor/
 Pods/
 
 # ===================
+
 # Build outputs
+
 # ===================
+
 dist/
 build/
 out/
 target/
-*.egg-info/
-*.whl
-*.pyc
-*.pyo
+_.egg-info/
+_.whl
+_.pyc
+_.pyo
 
 # ===================
+
 # Binary/large files
-# ===================
-*.so
-*.dylib
-*.dll
-*.exe
-*.bin
-*.o
-*.a
-*.lib
 
 # ===================
-# IDE/editors
+
+_.so
+_.dylib
+_.dll
+_.exe
+_.bin
+_.o
+_.a
+_.lib
+
 # ===================
+
+# IDE/editors
+
+# ===================
+
 .idea/
 .vscode/
-*.swp
-*.swo
-*~
+_.swp
+_.swo
+\*~
 
 # ===================
+
 # Security (always exclude)
-# ===================
-.env
-.env.*
-*.pem
-*.key
-*.p12
-*.pfx
-credentials.*
-secrets.*
 
 # ===================
-# Version control
+
+.env
+.env.\*
+_.pem
+_.key
+_.p12
+_.pfx
+credentials._
+secrets._
+
 # ===================
+
+# Version control
+
+# ===================
+
 .git/
 .hg/
 .svn/
 
 # ===================
+
 # OS files
+
 # ===================
+
 .DS_Store
 Thumbs.db
 
 # ===================
+
 # Project-specific
+
 # Add your custom patterns below
+
 # ===================
+
 # large_test_fixtures/
+
 # data/

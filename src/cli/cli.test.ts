@@ -1,20 +1,31 @@
+// cspell:words jsno limt xyznonexistent123
 /**
  * E2E tests for mdcontext CLI commands
- * Tests actual CLI execution against pre-built test fixtures
+ * Tests actual CLI execution against dynamically generated test fixtures
  *
- * Fixtures in tests/fixtures/cli/ include index + embeddings (committed to repo)
- * No beforeAll/afterAll needed - avoids tiktoken hang issues
+ * Test fixture setup:
+ * - beforeAll: Builds index (documents, sections, links) - fast, no API key needed
+ * - When INCLUDE_EMBED_TESTS=true: Also builds embeddings (requires OPENAI_API_KEY)
+ * - afterAll: Cleans up .mdcontext directory and frees tiktoken encoder
  *
- * Uses concurrent execution for parallel test runs
+ * Running tests:
+ * - `pnpm test` - Runs with keyword search only (no API key needed)
+ * - `pnpm test:full` - Runs all tests including semantic search (requires OPENAI_API_KEY)
  */
 
+import { Effect } from 'effect'
 import { exec } from 'node:child_process'
 import * as path from 'node:path'
 import { promisify } from 'node:util'
-import { describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { buildEmbeddings } from '../embeddings/semantic-search.js'
+import { buildIndex } from '../index/indexer.js'
+import { freeEncoder } from '../utils/tokens.js'
 
 const execAsync = promisify(exec)
 
+const INCLUDE_EMBED_TESTS = process.env.INCLUDE_EMBED_TESTS === 'true'
+const REBUILD_TEST_INDEX = process.env.REBUILD_TEST_INDEX === 'true'
 const TEST_FIXTURE_DIR = path.join(process.cwd(), 'tests', 'fixtures', 'cli')
 const CLI = `node ${path.join(process.cwd(), 'dist', 'cli', 'main.js')}`
 
@@ -39,6 +50,27 @@ const run = async (
 }
 
 describe.concurrent('mdcontext CLI e2e', () => {
+  beforeAll(async () => {
+    if (REBUILD_TEST_INDEX) {
+      // Build the index and embeddings only once for faster tests
+      console.log('Rebuilding test fixture index and embeddings...')
+      // Build the index (fast, no API key needed)
+      await Effect.runPromise(buildIndex(TEST_FIXTURE_DIR, { force: true }))
+
+      if (INCLUDE_EMBED_TESTS) {
+        console.log('Rebuilding test fixture embeddings...')
+        await Effect.runPromise(
+          buildEmbeddings(TEST_FIXTURE_DIR, { force: true }),
+        )
+      }
+    }
+  })
+
+  afterAll(async () => {
+    // Free tiktoken encoder to prevent process hang
+    freeEncoder()
+  })
+
   describe('--version', () => {
     it('shows version number', async () => {
       const output = await run('--version')
@@ -190,10 +222,13 @@ describe.concurrent('mdcontext CLI e2e', () => {
       expect(output).toContain('[keyword]')
     })
 
-    it.skip('auto-creates embeddings when forcing semantic without them', async () => {
-      const output = await run('search --mode semantic "getting started"')
-      expect(output).toContain('[semantic]')
-    })
+    it.skipIf(!INCLUDE_EMBED_TESTS)(
+      'performs semantic search when embeddings exist',
+      async () => {
+        const output = await run('search --mode semantic "getting started"')
+        expect(output).toContain('[semantic]')
+      },
+    )
   })
 
   describe('context command', () => {
@@ -203,7 +238,7 @@ describe.concurrent('mdcontext CLI e2e', () => {
       expect(output).toContain('Tokens:')
     })
 
-    it.skip('summarizes multiple files', async () => {
+    it.skipIf(!INCLUDE_EMBED_TESTS)('summarizes multiple files', async () => {
       const output = await run('context ./README.md ./getting-started.md')
       expect(output).toContain('Context Assembly')
       expect(output).toContain('Sources: 2')
@@ -295,12 +330,16 @@ describe.concurrent('mdcontext CLI e2e', () => {
 
   describe('error handling', () => {
     it('handles non-existent file gracefully', async () => {
-      const output = await run('tree nonexistent-file-xyz.md', { expectError: true })
+      const output = await run('tree nonexistent-file-xyz.md', {
+        expectError: true,
+      })
       expect(output.toLowerCase()).toMatch(/error|not found|no such/i)
     })
 
     it('handles non-existent directory gracefully', async () => {
-      const output = await run('tree nonexistent-dir-xyz/', { expectError: true })
+      const output = await run('tree nonexistent-dir-xyz/', {
+        expectError: true,
+      })
       expect(output.toLowerCase()).toMatch(/error|not found|no such/i)
     })
   })
@@ -313,13 +352,17 @@ describe.concurrent('mdcontext CLI e2e', () => {
     })
 
     it('suggests typo correction for --jsno', async () => {
-      const output = await run('context --jsno README.md', { expectError: true })
+      const output = await run('context --jsno README.md', {
+        expectError: true,
+      })
       expect(output).toContain("Unknown option '--jsno' for 'context'")
       expect(output).toContain("Did you mean '--json'?")
     })
 
     it('suggests typo correction for --limt', async () => {
-      const output = await run('search --limt 5 "test" .', { expectError: true })
+      const output = await run('search --limt 5 "test" .', {
+        expectError: true,
+      })
       expect(output).toContain("Unknown option '--limt' for 'search'")
       expect(output).toContain("Did you mean '--limit'?")
     })

@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "forward": {
+    "README.md": [
+      "getting-started.md"
+    ],
+    "api-reference.md": [],
+    "getting-started.md": []
+  },
+  "backward": {
+    "getting-started.md": [
+      "README.md"
+    ]
+  },
+  "broken": []
+}

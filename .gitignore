@@ -30,6 +30,7 @@ coverage/
 
 # mdcontext indexes (local data)
 .mdcontext/
+!tests/fixtures/cli/.mdcontext/
 
 # Temporary files
 *.tmp
