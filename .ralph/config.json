@@ -1,9 +1,0 @@
-{
-  "version": "2.0",
-  "cli": "claude",
-  "model": "opus",
-  "token_threshold": 0.50,
-  "git": {
-    "auto_commit": true
-  }
-}

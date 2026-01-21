@@ -65,6 +65,15 @@ mdtldr search -n 5 "setup"                 # Limit to 5 results
 mdtldr search --threshold 0.8 "deploy"     # Higher similarity threshold
 ```
 
+#### Context Lines
+
+Show surrounding lines around matches (like grep):
+
+```bash
+mdtldr search "checkpoint" -C 3            # 3 lines before AND after each match
+mdtldr search "error" -B 2 -A 5            # 2 lines before, 5 lines after
+```
+
 Auto-detection: Uses semantic search if embeddings exist and query looks like natural language. Use `-s` to force structural search.
 
 ### context
@@ -79,6 +88,20 @@ mdtldr context -t 500 README.md            # Token budget
 mdtldr context --brief README.md           # Minimal output
 mdtldr context --full README.md            # Include full content
 ```
+
+#### Section Filtering
+
+Extract specific sections instead of entire files:
+
+```bash
+mdtldr context doc.md --sections           # List available sections
+mdtldr context doc.md --section "Setup"    # Extract by section name
+mdtldr context doc.md --section "2.1"      # Extract by section number
+mdtldr context doc.md --section "API*"     # Glob pattern matching
+mdtldr context doc.md --section "Config" --shallow  # Top-level only (no nested subsections)
+```
+
+The `--sections` flag shows all sections with their numbers and token counts, helping you target exactly what you need.
 
 ### tree
 

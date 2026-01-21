@@ -67,6 +67,10 @@ export const helpContent: Record<string, CommandHelp> = {
       'mdtldr search --mode semantic "auth"    # Force semantic mode',
       'mdtldr search -n 5 "setup"              # Limit to 5 results',
       'mdtldr search "config" docs/            # Search in specific directory',
+      '',
+      '# Context lines (like grep):',
+      'mdtldr search "checkpoint" -C 3         # 3 lines before AND after',
+      'mdtldr search "error" -B 2 -A 5         # 2 before, 5 after',
     ],
     options: [
       {
@@ -84,6 +88,18 @@ export const helpContent: Record<string, CommandHelp> = {
       {
         name: '-n, --limit <n>',
         description: 'Maximum number of results (default: 10)',
+      },
+      {
+        name: '-C <n>',
+        description: 'Show N context lines before AND after each match',
+      },
+      {
+        name: '-B <n>',
+        description: 'Show N context lines before each match',
+      },
+      {
+        name: '-A <n>',
+        description: 'Show N context lines after each match',
       },
       {
         name: '--threshold <n>',
@@ -111,6 +127,13 @@ export const helpContent: Record<string, CommandHelp> = {
       'mdtldr context --brief *.md     # Minimal output (headings only)',
       'mdtldr context --full doc.md    # Include full content',
       'mdtldr context *.md | pbcopy    # Copy to clipboard (macOS)',
+      '',
+      '# Section filtering:',
+      'mdtldr context doc.md --sections                # List available sections',
+      'mdtldr context doc.md --section "Setup"         # Extract by section name',
+      'mdtldr context doc.md --section "2.1"           # Extract by section number',
+      'mdtldr context doc.md --section "API*"          # Glob pattern matching',
+      'mdtldr context doc.md --section "Config" --shallow  # Top-level only',
     ],
     options: [
       {
@@ -125,6 +148,18 @@ export const helpContent: Record<string, CommandHelp> = {
         name: '--full',
         description: 'Include full content (no summarization)',
       },
+      {
+        name: '--section <name>',
+        description: 'Extract specific section by name, number, or glob pattern',
+      },
+      {
+        name: '--sections',
+        description: 'List available sections with numbers and token counts',
+      },
+      {
+        name: '--shallow',
+        description: 'Exclude nested subsections when using --section',
+      },
       { name: '--json', description: 'Output as JSON' },
       { name: '--pretty', description: 'Pretty-print JSON output' },
     ],
@@ -132,6 +167,7 @@ export const helpContent: Record<string, CommandHelp> = {
       'Token budget controls how much content is included.',
       'Lower tokens = more aggressive summarization.',
       'Output is formatted for direct use in LLM prompts.',
+      'Use --sections to discover section names before filtering.',
     ],
   },
   tree: {
