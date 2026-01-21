@@ -43,6 +43,10 @@ export interface SearchOptions {
   readonly maxLevel?: number | undefined
   /** Maximum results */
   readonly limit?: number | undefined
+  /** Lines of context before matches */
+  readonly contextBefore?: number | undefined
+  /** Lines of context after matches */
+  readonly contextAfter?: number | undefined
 }
 
 export interface ContentMatch {
@@ -52,6 +56,17 @@ export interface ContentMatch {
   readonly line: string
   /** Snippet showing match context (lines before and after) */
   readonly snippet: string
+  /** Context lines with their line numbers (for JSON output) */
+  readonly contextLines?: readonly ContextLine[]
+}
+
+export interface ContextLine {
+  /** The line number (1-based) */
+  readonly lineNumber: number
+  /** The line text */
+  readonly line: string
+  /** Whether this is the matching line */
+  readonly isMatch: boolean
 }
 
 export interface SearchResult {
@@ -302,6 +317,10 @@ export const searchContent = (
           const matches: ContentMatch[] = []
           const searchRegex = contentRegex || highlightRegex
 
+          // Use configurable context lines (default to 1 if not specified)
+          const contextBefore = options.contextBefore ?? 1
+          const contextAfter = options.contextAfter ?? 1
+
           if (searchRegex) {
             for (let i = 0; i < sectionLines.length; i++) {
               const line = sectionLines[i]
@@ -311,19 +330,33 @@ export const searchContent = (
 
                 const absoluteLineNum = section.startLine + i
 
-                // Create snippet with context (1 line before/after)
-                const snippetStart = Math.max(0, i - 1)
-                const snippetEnd = Math.min(sectionLines.length, i + 2)
+                // Create snippet with configurable context
+                const snippetStart = Math.max(0, i - contextBefore)
+                const snippetEnd = Math.min(sectionLines.length, i + contextAfter + 1)
                 const snippetLines = sectionLines.slice(
                   snippetStart,
                   snippetEnd,
                 )
                 const snippet = snippetLines.join('\n')
 
+                // Build context lines array for JSON output
+                const contextLines: ContextLine[] = []
+                for (let j = snippetStart; j < snippetEnd; j++) {
+                  const ctxLine = sectionLines[j]
+                  if (ctxLine !== undefined) {
+                    contextLines.push({
+                      lineNumber: section.startLine + j,
+                      line: ctxLine,
+                      isMatch: j === i,
+                    })
+                  }
+                }
+
                 matches.push({
                   lineNumber: absoluteLineNum,
                   line: line,
                   snippet,
+                  contextLines,
                 })
               }
             }

@@ -220,6 +220,59 @@ describe('mdtldr CLI e2e', () => {
       const full = run('context docs/DESIGN.md')
       expect(brief.length).toBeLessThan(full.length)
     })
+
+    it('supports --sections flag to list available sections', () => {
+      const output = run('context docs/DESIGN.md --sections')
+      expect(output).toContain('Available sections:')
+      expect(output).toContain('tokens')
+    })
+
+    it('supports --section flag to extract specific section', () => {
+      const output = run('context docs/DESIGN.md --section "1"')
+      expect(output).toContain('Sections:')
+      expect(output).toContain('#')
+    })
+
+    it('supports --sections with --json output', () => {
+      const output = run('context docs/DESIGN.md --sections --json')
+      const parsed = JSON.parse(output)
+      expect(parsed.sections).toBeDefined()
+      expect(Array.isArray(parsed.sections)).toBe(true)
+      expect(parsed.sections[0]).toHaveProperty('number')
+      expect(parsed.sections[0]).toHaveProperty('heading')
+      expect(parsed.sections[0]).toHaveProperty('tokens')
+    })
+
+    it('supports --full flag to disable truncation', () => {
+      // --full should not show truncation warning
+      const output = run('context docs/DESIGN.md --full')
+      // With --full, all content is shown without truncation
+      expect(output).not.toContain('Truncated')
+    })
+  })
+
+  describe('search command context lines', () => {
+    it('supports -C flag for context lines', () => {
+      const output = run('search "TODO" . -C 2')
+      // Should show context around matches
+      expect(output).toContain('[structural]')
+    })
+
+    it('supports -B and -A flags for asymmetric context', () => {
+      const output = run('search "TODO" . -B 1 -A 3')
+      expect(output).toContain('[structural]')
+    })
+
+    it('includes contextLines in JSON output', () => {
+      const output = run('search "TODO" . -C 2 --json -n 1')
+      const parsed = JSON.parse(output)
+      expect(parsed.contextBefore).toBe(2)
+      expect(parsed.contextAfter).toBe(2)
+      // Results should have contextLines array if there are matches
+      if (parsed.results.length > 0 && parsed.results[0].matches) {
+        expect(parsed.results[0].matches[0]).toHaveProperty('contextLines')
+      }
+    })
   })
 
   describe('links command', () => {

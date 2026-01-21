@@ -210,10 +210,11 @@ describe('summarizer token counting', () => {
         keyTopics: [],
       }
 
-      const output = formatSummary(mockSummary, { maxTokens: 50 })
+      // Increased budget to account for enhanced truncation warning with section lists
+      const output = formatSummary(mockSummary, { maxTokens: 150 })
 
-      // Should show truncation warning
-      expect(output).toContain('TRUNCATED')
+      // Should show truncation warning (lowercase in new format)
+      expect(output).toContain('Truncated')
     })
   })
 

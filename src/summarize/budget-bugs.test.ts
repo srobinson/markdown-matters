@@ -53,7 +53,8 @@ describe('token budget enforcement', () => {
       }
 
       // Budget that can't fit parent but can fit children
-      const output = formatSummary(mockSummary, { maxTokens: 100 })
+      // Increased to account for enhanced truncation warning overhead
+      const output = formatSummary(mockSummary, { maxTokens: 200 })
 
       // Children should be rescued and included even though parent was skipped
       expect(output).toContain('Small Child A')
@@ -109,8 +110,8 @@ describe('token budget enforcement', () => {
         keyTopics: [],
       }
 
-      // Budget increased to account for more conservative token counting
-      const output = formatSummary(mockSummary, { maxTokens: 120 })
+      // Budget increased to account for enhanced truncation warning overhead
+      const output = formatSummary(mockSummary, { maxTokens: 200 })
 
       // Parent and first child should be included
       expect(output).toContain('Parent')
@@ -167,7 +168,8 @@ describe('token budget enforcement', () => {
     }
 
     // Budget should fit header + all sections with small content
-    const output = formatSummary(mockSummary, { maxTokens: 150 })
+    // Increased to account for enhanced truncation warning overhead
+    const output = formatSummary(mockSummary, { maxTokens: 250 })
 
     // All sections should be included since they're small
     expect(output).toContain('Introduction')
@@ -407,7 +409,8 @@ describe('token budget enforcement', () => {
         keyTopics: [],
       }
 
-      const output = formatSummary(mockSummary, { maxTokens: 80 })
+      // Increased budget to account for enhanced truncation warning overhead
+      const output = formatSummary(mockSummary, { maxTokens: 180 })
 
       // Deepest child should still be rescued
       expect(output).toContain('Small L3')
@@ -415,7 +418,7 @@ describe('token budget enforcement', () => {
       expect(output).not.toContain('Large L1')
       expect(output).not.toContain('Large L2')
       // And stay within budget
-      expect(countTokensApprox(output)).toBeLessThanOrEqual(80)
+      expect(countTokensApprox(output)).toBeLessThanOrEqual(180)
     })
 
     it('includes multiple siblings when all fit', () => {
@@ -463,13 +466,14 @@ describe('token budget enforcement', () => {
         keyTopics: [],
       }
 
-      const output = formatSummary(mockSummary, { maxTokens: 100 })
+      // Increased budget to account for enhanced truncation warning overhead
+      const output = formatSummary(mockSummary, { maxTokens: 200 })
 
       // All small sections should fit
       expect(output).toContain('A')
       expect(output).toContain('B')
       expect(output).toContain('C')
-      expect(countTokensApprox(output)).toBeLessThanOrEqual(100)
+      expect(countTokensApprox(output)).toBeLessThanOrEqual(200)
     })
   })
 
@@ -513,10 +517,10 @@ describe('token budget enforcement', () => {
         keyTopics: [],
       }
 
-      // Use larger budget so section fits (increased for conservative token counting)
-      const output = formatSummary(mockSummary, { maxTokens: 80 })
+      // Use larger budget so section fits (increased for enhanced truncation warning overhead)
+      const output = formatSummary(mockSummary, { maxTokens: 150 })
       expect(output).toContain('## Empty')
-      expect(countTokensApprox(output)).toBeLessThanOrEqual(80)
+      expect(countTokensApprox(output)).toBeLessThanOrEqual(150)
     })
 
     it('handles unicode characters in path and title', () => {
@@ -576,8 +580,8 @@ describe('token budget enforcement', () => {
 
       // Should stay within budget
       expect(countTokensApprox(output)).toBeLessThanOrEqual(35)
-      // Should NOT contain truncation warning (dropped to fit)
-      expect(output).not.toContain('TRUNCATED')
+      // Should NOT contain truncation warning (dropped to fit) - lowercase in new format
+      expect(output).not.toContain('Truncated')
     })
 
     it('shows truncation warning when budget allows', () => {
@@ -604,13 +608,13 @@ describe('token budget enforcement', () => {
       }
 
       // Larger budget that can fit header AND truncation warning
-      // Increased to account for more conservative token counting
-      const output = formatSummary(mockSummary, { maxTokens: 70 })
+      // Increased to account for enhanced truncation warning with section lists
+      const output = formatSummary(mockSummary, { maxTokens: 150 })
 
       // Should stay within budget
-      expect(countTokensApprox(output)).toBeLessThanOrEqual(70)
-      // Should contain truncation warning (enough room)
-      expect(output).toContain('TRUNCATED')
+      expect(countTokensApprox(output)).toBeLessThanOrEqual(150)
+      // Should contain truncation warning (enough room) - note: lowercase "Truncated" in new format
+      expect(output).toContain('Truncated')
     })
   })
 })

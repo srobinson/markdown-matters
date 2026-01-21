@@ -46,6 +46,25 @@ export const searchCommand = Command.make(
       Options.withDescription('Similarity threshold for semantic search (0-1)'),
       Options.withDefault(0.5),
     ),
+    context: Options.integer('context').pipe(
+      Options.withAlias('C'),
+      Options.withDescription(
+        'Lines of context around matches (like grep -C)',
+      ),
+      Options.optional,
+    ),
+    beforeContext: Options.integer('before-context').pipe(
+      Options.withAlias('B'),
+      Options.withDescription(
+        'Lines of context before matches (like grep -B)',
+      ),
+      Options.optional,
+    ),
+    afterContext: Options.integer('after-context').pipe(
+      Options.withAlias('A'),
+      Options.withDescription('Lines of context after matches (like grep -A)'),
+      Options.optional,
+    ),
     json: jsonOption,
     pretty: prettyOption,
   },
@@ -57,6 +76,9 @@ export const searchCommand = Command.make(
     mode,
     limit,
     threshold,
+    context,
+    beforeContext,
+    afterContext,
     json,
     pretty,
   }) =>
@@ -104,17 +126,33 @@ export const searchCommand = Command.make(
 
       const modeIndicator = useStructural ? '[structural]' : '[semantic]'
 
+      // Calculate context lines
+      // -C sets both before and after; -B and -A override individual sides
+      const contextValue = Option.getOrUndefined(context)
+      const beforeValue = Option.getOrUndefined(beforeContext)
+      const afterValue = Option.getOrUndefined(afterContext)
+
+      const contextBefore = beforeValue ?? contextValue ?? 1
+      const contextAfter = afterValue ?? contextValue ?? 1
+
       if (useStructural) {
         // Structural search - content by default, heading-only if flag set
         const results = headingOnly
           ? yield* search(resolvedDir, { heading: query, limit })
-          : yield* searchContent(resolvedDir, { content: query, limit })
+          : yield* searchContent(resolvedDir, {
+              content: query,
+              limit,
+              contextBefore,
+              contextAfter,
+            })
 
         if (json) {
           const output = {
             mode: 'structural',
             modeReason,
             query,
+            contextBefore,
+            contextAfter,
             results: results.map((r) => ({
               path: r.section.documentPath,
               heading: r.section.heading,
@@ -124,6 +162,7 @@ export const searchCommand = Command.make(
               matches: r.matches?.map((m) => ({
                 lineNumber: m.lineNumber,
                 line: m.line,
+                contextLines: m.contextLines,
               })),
             })),
           }
@@ -150,12 +189,23 @@ export const searchCommand = Command.make(
               yield* Console.log('')
               for (const match of result.matches.slice(0, 3)) {
                 // Show first 3 matches per section
-                yield* Console.log(`    Line ${match.lineNumber}:`)
-                // Indent snippet lines
-                const snippetLines = match.snippet.split('\n')
-                for (const line of snippetLines) {
-                  yield* Console.log(`      ${line}`)
+                // Use contextLines for formatted output with line numbers
+                if (match.contextLines && match.contextLines.length > 0) {
+                  for (const ctxLine of match.contextLines) {
+                    const marker = ctxLine.isMatch ? '>' : ' '
+                    yield* Console.log(
+                      `  ${marker} ${ctxLine.lineNumber}: ${ctxLine.line}`,
+                    )
+                  }
+                } else {
+                  // Fallback to simple snippet display
+                  yield* Console.log(`    Line ${match.lineNumber}:`)
+                  const snippetLines = match.snippet.split('\n')
+                  for (const line of snippetLines) {
+                    yield* Console.log(`      ${line}`)
+                  }
                 }
+                yield* Console.log('')
               }
               if (result.matches.length > 3) {
                 yield* Console.log(

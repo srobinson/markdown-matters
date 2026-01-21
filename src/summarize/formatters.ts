@@ -13,7 +13,7 @@ import type {
 
 export interface FormatSummaryOptions {
   /** Maximum tokens for formatted output. If exceeded, sections will be truncated. */
-  readonly maxTokens?: number
+  readonly maxTokens?: number | undefined
 }
 
 /**
@@ -27,6 +27,11 @@ export interface FormatSummaryOptions {
  *
  * When maxTokens is specified, strictly enforces the budget by iteratively
  * removing sections until the output fits.
+ *
+ * TRUNCATION UX: When truncated, shows a warning at the TOP with:
+ * - Percentage of tokens shown
+ * - List of sections included/excluded
+ * - Actionable guidance for getting more content
  */
 export const formatSummary = (
   summary: DocumentSummary,
@@ -37,40 +42,92 @@ export const formatSummary = (
   // Flatten sections in order for incremental building
   // Uses depth-first order so children follow parents - this enables "orphan rescue"
   // where children can still be included even if their parent was too large
-  const flatSections: { section: SectionSummary; depth: number }[] = []
+  const flatSections: {
+    section: SectionSummary
+    depth: number
+    number: string
+  }[] = []
 
-  const collectSections = (section: SectionSummary, depth: number = 0) => {
-    flatSections.push({ section, depth })
-    for (const child of section.children) {
-      collectSections(child, depth + 1)
-    }
+  // Track section numbers for included/excluded listing
+  const collectSections = (
+    section: SectionSummary,
+    depth: number = 0,
+    parentNumber: string = '',
+    index: number = 0,
+  ) => {
+    const number = parentNumber
+      ? `${parentNumber}.${index + 1}`
+      : `${index + 1}`
+    flatSections.push({ section, depth, number })
+    section.children.forEach((child, i) => {
+      collectSections(child, depth + 1, number, i)
+    })
   }
 
-  for (const section of summary.sections) {
-    collectSections(section)
-  }
+  summary.sections.forEach((section, i) => {
+    collectSections(section, 0, '', i)
+  })
 
   // Helper to build output with a given set of section indices
   const buildOutput = (
     includedSectionIndices: Set<number>,
-    showTruncationWarning: boolean,
-    truncationCount: number,
+    truncationInfo: {
+      showWarning: boolean
+      truncatedCount: number
+      includedNumbers: string[]
+      excludedNumbers: string[]
+      tokensShown: number
+      tokensTotal: number
+    },
     includeTopics: boolean,
   ): string => {
     const lines: string[] = []
+
+    // TRUNCATION WARNING AT TOP (when truncated)
+    if (
+      truncationInfo.showWarning &&
+      truncationInfo.truncatedCount > 0 &&
+      truncationInfo.tokensTotal > 0
+    ) {
+      const pct = Math.round(
+        (truncationInfo.tokensShown / truncationInfo.tokensTotal) * 100,
+      )
+      lines.push(
+        `⚠️ Truncated: Showing ~${truncationInfo.tokensShown}/${truncationInfo.tokensTotal} tokens (${pct}%)`,
+      )
+
+      // Show included sections (first few)
+      if (truncationInfo.includedNumbers.length > 0) {
+        const includedDisplay =
+          truncationInfo.includedNumbers.length <= 6
+            ? truncationInfo.includedNumbers.join(', ')
+            : truncationInfo.includedNumbers.slice(0, 5).join(', ') +
+              `, ... (+${truncationInfo.includedNumbers.length - 5} more)`
+        lines.push(`Sections included: ${includedDisplay}`)
+      }
+
+      // Show excluded sections (first few)
+      if (truncationInfo.excludedNumbers.length > 0) {
+        const excludedDisplay =
+          truncationInfo.excludedNumbers.length <= 6
+            ? truncationInfo.excludedNumbers.join(', ')
+            : truncationInfo.excludedNumbers.slice(0, 5).join(', ') +
+              `, ... (+${truncationInfo.excludedNumbers.length - 5} more)`
+        lines.push(`Sections excluded: ${excludedDisplay}`)
+      }
+
+      lines.push(
+        'Use --full for complete content or --section to target specific sections.',
+      )
+      lines.push('')
+    }
+
     lines.push(`# ${summary.title}`)
     lines.push(`Path: ${summary.path}`)
 
     // Placeholder for token line - we'll calculate actual tokens after building
     const tokenLineIndex = lines.length
     lines.push('PLACEHOLDER')
-
-    if (showTruncationWarning && truncationCount > 0) {
-      const totalTruncated = truncationCount + (summary.truncatedCount ?? 0)
-      lines.push(
-        `⚠️ TRUNCATED: ${totalTruncated} sections omitted to fit token budget`,
-      )
-    }
     lines.push('')
 
     const fullTopicsLine =
@@ -127,7 +184,18 @@ export const formatSummary = (
   if (maxTokens === undefined) {
     const allIndices = new Set(flatSections.map((_, i) => i))
     const hasPriorTruncation = summary.truncated && summary.truncatedCount
-    return buildOutput(allIndices, !!hasPriorTruncation, 0, true)
+    return buildOutput(
+      allIndices,
+      {
+        showWarning: !!hasPriorTruncation,
+        truncatedCount: summary.truncatedCount ?? 0,
+        includedNumbers: flatSections.map((s) => s.number),
+        excludedNumbers: [],
+        tokensShown: summary.summaryTokens,
+        tokensTotal: summary.originalTokens,
+      },
+      true,
+    )
   }
 
   // With budget: greedily add sections, then validate and trim if needed
@@ -160,10 +228,10 @@ export const formatSummary = (
     ? Math.ceil(countTokensApprox(fullTopicsLine) * SAFETY_MARGIN)
     : 0
 
-  // Truncation warning overhead
+  // Truncation warning overhead (larger now with section lists)
   const truncationWarningTokens = Math.ceil(
     countTokensApprox(
-      `⚠️ TRUNCATED: 999 sections omitted to fit token budget\n`,
+      `⚠️ Truncated: Showing ~9999/9999 tokens (99%)\nSections included: 1, 2, 3, 4, 5, ... (+99 more)\nSections excluded: 6, 7, 8, 9, 10, ... (+99 more)\nUse --full for complete content or --section to target specific sections.\n`,
     ) * SAFETY_MARGIN,
   )
 
@@ -206,11 +274,34 @@ export const formatSummary = (
     contentBudget += truncationWarningTokens
   }
 
+  // Collect included/excluded section numbers
+  const includedNumbers: string[] = []
+  const excludedNumbers: string[] = []
+  for (let i = 0; i < flatSections.length; i++) {
+    if (includedIndices.has(i)) {
+      includedNumbers.push(flatSections[i]!.number)
+    } else {
+      excludedNumbers.push(flatSections[i]!.number)
+    }
+  }
+
+  // Calculate tokens shown vs total
+  let tokensShown = 0
+  for (const idx of includedIndices) {
+    tokensShown += flatSections[idx]!.section.summaryTokens
+  }
+
   // Build output and validate it fits
   let output = buildOutput(
     includedIndices,
-    truncatedCount > 0,
-    truncatedCount,
+    {
+      showWarning: truncatedCount > 0,
+      truncatedCount,
+      includedNumbers,
+      excludedNumbers,
+      tokensShown,
+      tokensTotal: summary.originalTokens,
+    },
     includeTopics,
   )
   let actualTokens = countTokensApprox(output)
@@ -227,22 +318,66 @@ export const formatSummary = (
     truncatedCount++
     removalIndex++
 
+    // Update included/excluded lists
+    const removedNumber = flatSections[indexToRemove]!.number
+    const includedIdx = includedNumbers.indexOf(removedNumber)
+    if (includedIdx !== -1) {
+      includedNumbers.splice(includedIdx, 1)
+      excludedNumbers.push(removedNumber)
+    }
+
+    // Update tokens shown
+    tokensShown -= flatSections[indexToRemove]!.section.summaryTokens
+
     // Rebuild and recheck
-    output = buildOutput(includedIndices, true, truncatedCount, includeTopics)
+    output = buildOutput(
+      includedIndices,
+      {
+        showWarning: true,
+        truncatedCount,
+        includedNumbers,
+        excludedNumbers,
+        tokensShown,
+        tokensTotal: summary.originalTokens,
+      },
+      includeTopics,
+    )
     actualTokens = countTokensApprox(output)
   }
 
   // If still over budget and we haven't dropped topics yet, try that
   if (actualTokens > maxTokens && includeTopics) {
     includeTopics = false
-    output = buildOutput(includedIndices, true, truncatedCount, includeTopics)
+    output = buildOutput(
+      includedIndices,
+      {
+        showWarning: truncatedCount > 0,
+        truncatedCount,
+        includedNumbers,
+        excludedNumbers,
+        tokensShown,
+        tokensTotal: summary.originalTokens,
+      },
+      includeTopics,
+    )
     actualTokens = countTokensApprox(output)
   }
 
   // If still over budget, try dropping the truncation warning as last resort
   // (only if we're showing it and have truncated sections)
   if (actualTokens > maxTokens && truncatedCount > 0) {
-    output = buildOutput(includedIndices, false, truncatedCount, includeTopics)
+    output = buildOutput(
+      includedIndices,
+      {
+        showWarning: false,
+        truncatedCount,
+        includedNumbers,
+        excludedNumbers,
+        tokensShown,
+        tokensTotal: summary.originalTokens,
+      },
+      includeTopics,
+    )
     actualTokens = countTokensApprox(output)
   }
 

@@ -52,7 +52,8 @@ describe('verify token budget bugs', () => {
       }
 
       // Budget can't fit parent (~400 tokens) but can fit child (~5 tokens)
-      const output = formatSummary(mockSummary, { maxTokens: 80 })
+      // Increased to account for enhanced truncation warning with section lists
+      const output = formatSummary(mockSummary, { maxTokens: 180 })
 
       // Child should be rescued even though parent doesn't fit
       expect(output).toContain('Tiny Child')
