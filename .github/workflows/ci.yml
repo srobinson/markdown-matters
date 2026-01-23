@@ -70,6 +70,8 @@ jobs:
 
       - name: Run tests (default - no embeddings)
         if: ${{ !inputs.include_embed_tests }}
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: pnpm test
 
       - name: Run full tests (with embeddings)
