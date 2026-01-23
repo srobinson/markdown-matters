@@ -65,18 +65,12 @@ export interface SemanticSearchResult {
 // ============================================================================
 // Errors
 // ============================================================================
-
-export interface EmbedError {
-  readonly _tag: 'EmbedError'
-  readonly cause: 'RateLimit' | 'ApiKey' | 'Network' | 'Unknown'
-  readonly message: string
-}
-
-export const embedError = (
-  cause: EmbedError['cause'],
-  message: string,
-): EmbedError => ({
-  _tag: 'EmbedError',
-  cause,
-  message,
-})
+// NOTE: Embedding-related errors are defined in src/errors/index.ts:
+// - EmbeddingError: For embedding operation failures (rate limits, quota, network)
+// - ApiKeyMissingError: For missing API keys
+// - ApiKeyInvalidError: For invalid/rejected API keys
+//
+// Use these centralized error types instead of defining errors here.
+// Example:
+//   import { EmbeddingError } from '../errors/index.js'
+//   new EmbeddingError({ reason: 'RateLimit', message: 'Rate limited' })

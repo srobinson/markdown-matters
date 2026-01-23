@@ -6,12 +6,22 @@ import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { Effect } from 'effect'
 import {
+  type ApiKeyInvalidError,
+  type ApiKeyMissingError,
+  EmbeddingError,
+  EmbeddingsNotFoundError,
+  type FileReadError,
+  type IndexCorruptedError,
+  IndexNotFoundError,
+  type VectorStoreError,
+} from '../errors/index.js'
+import {
   createStorage,
   loadDocumentIndex,
   loadSectionIndex,
 } from '../index/storage.js'
 import type { SectionEntry } from '../index/types.js'
-import { createOpenAIProvider, InvalidApiKeyError } from './openai-provider.js'
+import { createOpenAIProvider, wrapEmbedding } from './openai-provider.js'
 import type {
   EmbeddingProvider,
   SemanticSearchOptions,
@@ -67,10 +77,24 @@ export interface EmbeddingEstimate {
   readonly byDirectory: readonly DirectoryEstimate[]
 }
 
+/**
+ * Estimate the cost of generating embeddings for a directory.
+ *
+ * @param rootPath - Root directory containing indexed markdown files
+ * @param options - Optional exclude patterns
+ * @returns Estimate with token counts and costs
+ *
+ * @throws IndexNotFoundError - Index doesn't exist at path
+ * @throws FileReadError - Cannot read index files
+ * @throws IndexCorruptedError - Index files are corrupted
+ */
 export const estimateEmbeddingCost = (
   rootPath: string,
   options: { excludePatterns?: readonly string[] | undefined } = {},
-): Effect.Effect<EmbeddingEstimate, Error> =>
+): Effect.Effect<
+  EmbeddingEstimate,
+  IndexNotFoundError | FileReadError | IndexCorruptedError
+> =>
   Effect.gen(function* () {
     const resolvedRoot = path.resolve(rootPath)
     const storage = createStorage(resolvedRoot)
@@ -79,9 +103,7 @@ export const estimateEmbeddingCost = (
     const sectionIndex = yield* loadSectionIndex(storage)
 
     if (!docIndex || !sectionIndex) {
-      return yield* Effect.fail(
-        new Error("Index not found. Run 'mdcontext index' first."),
-      )
+      return yield* Effect.fail(new IndexNotFoundError({ path: resolvedRoot }))
     }
 
     // Group by directory
@@ -178,10 +200,34 @@ export interface BuildEmbeddingsResult {
   readonly estimatedSavings?: number | undefined
 }
 
+/**
+ * Build embeddings for all indexed sections in a directory.
+ *
+ * @param rootPath - Root directory containing indexed markdown files
+ * @param options - Build options (force rebuild, progress callbacks)
+ * @returns Result with embedding counts, costs, and timing
+ *
+ * @throws IndexNotFoundError - Index doesn't exist at path
+ * @throws FileReadError - Cannot read index or source files
+ * @throws IndexCorruptedError - Index files are corrupted
+ * @throws ApiKeyMissingError - OPENAI_API_KEY not set
+ * @throws ApiKeyInvalidError - API key rejected by OpenAI
+ * @throws EmbeddingError - Embedding API failure (rate limit, quota, network)
+ * @throws VectorStoreError - Cannot save vector index
+ */
 export const buildEmbeddings = (
   rootPath: string,
   options: BuildEmbeddingsOptions = {},
-): Effect.Effect<BuildEmbeddingsResult, Error> =>
+): Effect.Effect<
+  BuildEmbeddingsResult,
+  | IndexNotFoundError
+  | FileReadError
+  | IndexCorruptedError
+  | ApiKeyMissingError
+  | ApiKeyInvalidError
+  | EmbeddingError
+  | VectorStoreError
+> =>
   Effect.gen(function* () {
     const startTime = Date.now()
     const resolvedRoot = path.resolve(rootPath)
@@ -192,18 +238,11 @@ export const buildEmbeddings = (
     const sectionIndex = yield* loadSectionIndex(storage)
 
     if (!docIndex || !sectionIndex) {
-      return yield* Effect.fail(
-        new Error("Index not found. Run 'mdcontext index' first."),
-      )
+      return yield* Effect.fail(new IndexNotFoundError({ path: resolvedRoot }))
     }
 
-    // Get or create provider (wrap in Effect.try to catch MissingApiKeyError)
-    const provider =
-      options.provider ??
-      (yield* Effect.try({
-        try: () => createOpenAIProvider(),
-        catch: (e) => e as Error,
-      }))
+    // Get or create provider
+    const provider = options.provider ?? (yield* createOpenAIProvider())
     const dimensions = provider.dimensions
 
     // Create vector store
@@ -321,18 +360,26 @@ export const buildEmbeddings = (
       }
 
       const filePath = path.join(resolvedRoot, docPath)
-      let fileContent: string
-      try {
-        fileContent = yield* Effect.promise(() =>
-          fs.readFile(filePath, 'utf-8'),
-        )
-      } catch {
-        // Skip files that can't be read
+
+      // Note: catchAll is intentional - file read failures during embedding
+      // should skip the file with a warning rather than abort the entire operation.
+      // A warning is logged below when the read fails.
+      const fileContentResult = yield* Effect.promise(() =>
+        fs.readFile(filePath, 'utf-8'),
+      ).pipe(
+        Effect.map((content) => ({ ok: true as const, content })),
+        Effect.catchAll(() =>
+          Effect.succeed({ ok: false as const, content: '' }),
+        ),
+      )
+
+      if (!fileContentResult.ok) {
+        yield* Effect.logWarning(`Skipping file (cannot read): ${docPath}`)
         continue
       }
 
       filesProcessed++
-      const lines = fileContent.split('\n')
+      const lines = fileContentResult.content.split('\n')
 
       for (const { section, parentHeading } of sections) {
         // Extract section content from file
@@ -363,16 +410,7 @@ export const buildEmbeddings = (
 
     // Generate embeddings
     const texts = sectionsToEmbed.map((s) => s.text)
-    const result = yield* Effect.tryPromise({
-      try: () => provider.embed(texts),
-      catch: (e) => {
-        // Preserve InvalidApiKeyError so handleApiKeyError can catch it
-        if (e instanceof InvalidApiKeyError) return e
-        return new Error(
-          `Embedding failed: ${e instanceof Error ? e.message : String(e)}`,
-        )
-      },
-    })
+    const result = yield* wrapEmbedding(provider.embed(texts))
 
     // Create vector entries
     const entries: VectorEntry[] = []
@@ -412,19 +450,37 @@ export const buildEmbeddings = (
 // Semantic Search
 // ============================================================================
 
+/**
+ * Perform semantic search over embedded sections.
+ *
+ * @param rootPath - Root directory containing embeddings
+ * @param query - Natural language search query
+ * @param options - Search options (limit, threshold, path filter)
+ * @returns Ranked list of matching sections by similarity
+ *
+ * @throws EmbeddingsNotFoundError - No embeddings exist (run index --embed first)
+ * @throws ApiKeyMissingError - OPENAI_API_KEY not set
+ * @throws ApiKeyInvalidError - API key rejected by OpenAI
+ * @throws EmbeddingError - Embedding API failure (rate limit, quota, network)
+ * @throws VectorStoreError - Cannot load or search vector index
+ */
 export const semanticSearch = (
   rootPath: string,
   query: string,
   options: SemanticSearchOptions = {},
-): Effect.Effect<readonly SemanticSearchResult[], Error> =>
+): Effect.Effect<
+  readonly SemanticSearchResult[],
+  | EmbeddingsNotFoundError
+  | ApiKeyMissingError
+  | ApiKeyInvalidError
+  | EmbeddingError
+  | VectorStoreError
+> =>
   Effect.gen(function* () {
     const resolvedRoot = path.resolve(rootPath)
 
-    // Get provider for query embedding (wrap in Effect.try to catch MissingApiKeyError)
-    const provider = yield* Effect.try({
-      try: () => createOpenAIProvider(),
-      catch: (e) => e as Error,
-    })
+    // Get provider for query embedding
+    const provider = yield* createOpenAIProvider()
     const dimensions = provider.dimensions
 
     // Load vector store
@@ -433,22 +489,22 @@ export const semanticSearch = (
 
     if (!loaded) {
       return yield* Effect.fail(
-        new Error("Embeddings not found. Run 'mdcontext embed' first."),
+        new EmbeddingsNotFoundError({ path: resolvedRoot }),
       )
     }
 
     // Embed the query
-    const queryResult = yield* Effect.tryPromise({
-      try: () => provider.embed([query]),
-      catch: (e) =>
-        new Error(
-          `Query embedding failed: ${e instanceof Error ? e.message : String(e)}`,
-        ),
-    })
+    const queryResult = yield* wrapEmbedding(provider.embed([query]))
 
     const queryVector = queryResult.embeddings[0]
     if (!queryVector) {
-      return yield* Effect.fail(new Error('Failed to generate query embedding'))
+      return yield* Effect.fail(
+        new EmbeddingError({
+          reason: 'Unknown',
+          message: 'Failed to generate query embedding',
+          provider: 'OpenAI',
+        }),
+      )
     }
 
     // Search
@@ -488,11 +544,36 @@ export const semanticSearch = (
 // Search with Content
 // ============================================================================
 
+/**
+ * Perform semantic search and include section content in results.
+ *
+ * @param rootPath - Root directory containing embeddings
+ * @param query - Natural language search query
+ * @param options - Search options (limit, threshold, path filter)
+ * @returns Ranked list of matching sections with content
+ *
+ * @throws EmbeddingsNotFoundError - No embeddings exist (run index --embed first)
+ * @throws FileReadError - Cannot read index files
+ * @throws IndexCorruptedError - Index files are corrupted
+ * @throws ApiKeyMissingError - OPENAI_API_KEY not set
+ * @throws ApiKeyInvalidError - API key rejected by OpenAI
+ * @throws EmbeddingError - Embedding API failure (rate limit, quota, network)
+ * @throws VectorStoreError - Cannot load or search vector index
+ */
 export const semanticSearchWithContent = (
   rootPath: string,
   query: string,
   options: SemanticSearchOptions = {},
-): Effect.Effect<readonly SemanticSearchResult[], Error> =>
+): Effect.Effect<
+  readonly SemanticSearchResult[],
+  | EmbeddingsNotFoundError
+  | FileReadError
+  | IndexCorruptedError
+  | ApiKeyMissingError
+  | ApiKeyInvalidError
+  | EmbeddingError
+  | VectorStoreError
+> =>
   Effect.gen(function* () {
     const resolvedRoot = path.resolve(rootPath)
     const results = yield* semanticSearch(resolvedRoot, query, options)
@@ -515,23 +596,35 @@ export const semanticSearchWithContent = (
 
       const filePath = path.join(resolvedRoot, result.documentPath)
 
-      try {
-        const fileContent = yield* Effect.promise(() =>
-          fs.readFile(filePath, 'utf-8'),
+      // Note: catchAll is intentional - file read failures during search result
+      // enrichment should skip content loading with a warning, not fail the search.
+      // Results are still returned without content when files can't be read.
+      const fileContentResult = yield* Effect.promise(() =>
+        fs.readFile(filePath, 'utf-8'),
+      ).pipe(
+        Effect.map((content) => ({ ok: true as const, content })),
+        Effect.catchAll(() =>
+          Effect.succeed({ ok: false as const, content: '' }),
+        ),
+      )
+
+      if (!fileContentResult.ok) {
+        yield* Effect.logWarning(
+          `Skipping content load (cannot read): ${result.documentPath}`,
         )
-
-        const lines = fileContent.split('\n')
-        const content = lines
-          .slice(section.startLine - 1, section.endLine)
-          .join('\n')
-
-        resultsWithContent.push({
-          ...result,
-          content,
-        })
-      } catch {
         resultsWithContent.push(result)
+        continue
       }
+
+      const lines = fileContentResult.content.split('\n')
+      const content = lines
+        .slice(section.startLine - 1, section.endLine)
+        .join('\n')
+
+      resultsWithContent.push({
+        ...result,
+        content,
+      })
     }
 
     return resultsWithContent
@@ -550,9 +643,17 @@ export interface EmbeddingStats {
   readonly totalTokens: number
 }
 
+/**
+ * Get statistics about stored embeddings.
+ *
+ * @param rootPath - Root directory containing embeddings
+ * @returns Embedding statistics (count, provider, costs)
+ *
+ * @throws VectorStoreError - Cannot load vector index metadata
+ */
 export const getEmbeddingStats = (
   rootPath: string,
-): Effect.Effect<EmbeddingStats, Error> =>
+): Effect.Effect<EmbeddingStats, VectorStoreError> =>
   Effect.gen(function* () {
     const resolvedRoot = path.resolve(rootPath)
 

@@ -9,9 +9,10 @@ import * as path from 'node:path'
 import { Args, Command } from '@effect/cli'
 import { Console, Effect } from 'effect'
 import type { MdSection } from '../../core/types.js'
+import { FileReadError, ParseError } from '../../errors/index.js'
 import { parseFile } from '../../parser/parser.js'
 import { jsonOption, prettyOption } from '../options.js'
-import { formatJson, walkDir } from '../utils.js'
+import { formatJson, walkDirEffect } from '../utils.js'
 
 export const treeCommand = Command.make(
   'tree',
@@ -28,12 +29,32 @@ export const treeCommand = Command.make(
       const resolvedPath = path.resolve(pathArg)
 
       // Auto-detect: file or directory
-      const stat = yield* Effect.try(() => fs.statSync(resolvedPath))
+      const stat = yield* Effect.try({
+        try: () => fs.statSync(resolvedPath),
+        catch: (e) =>
+          new FileReadError({
+            path: resolvedPath,
+            message: `Cannot access path: ${e instanceof Error ? e.message : String(e)}`,
+            cause: e,
+          }),
+      })
 
       if (stat.isFile()) {
         // Show document outline
         const result = yield* parseFile(resolvedPath).pipe(
-          Effect.mapError((e) => new Error(`${e._tag}: ${e.message}`)),
+          Effect.mapError((e) =>
+            e._tag === 'ParseError'
+              ? new ParseError({
+                  message: e.message,
+                  path: resolvedPath,
+                  ...(e.line !== undefined && { line: e.line }),
+                  ...(e.column !== undefined && { column: e.column }),
+                })
+              : new FileReadError({
+                  path: e.path,
+                  message: e.message,
+                }),
+          ),
         )
 
         const extractStructure = (
@@ -84,9 +105,9 @@ export const treeCommand = Command.make(
         }
       } else {
         // Show file list
-        const files = yield* Effect.promise(() => walkDir(resolvedPath))
+        const files = yield* walkDirEffect(resolvedPath)
 
-        const tree = files.sort().map((f) => ({
+        const tree = [...files].sort().map((f) => ({
           path: f,
           relativePath: path.relative(resolvedPath, f),
         }))

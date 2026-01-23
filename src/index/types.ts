@@ -75,6 +75,35 @@ export interface LinkIndex {
 // Index Result
 // ============================================================================
 
+/**
+ * Reason why a file was skipped during indexing
+ */
+export type SkipReason =
+  | 'unchanged' // File hash and mtime unchanged
+  | 'excluded' // Matches exclude pattern
+  | 'hidden' // Hidden file or directory
+  | 'not-markdown' // Not a markdown file
+  | 'binary' // Binary file detected
+  | 'oversized' // File too large
+
+/**
+ * Information about a skipped file
+ */
+export interface SkippedFile {
+  readonly path: string
+  readonly reason: SkipReason
+}
+
+/**
+ * Summary of skipped files by reason
+ */
+export interface SkipSummary {
+  readonly unchanged: number
+  readonly excluded: number
+  readonly hidden: number
+  readonly total: number
+}
+
 export interface IndexResult {
   readonly documentsIndexed: number
   readonly sectionsIndexed: number
@@ -83,10 +112,19 @@ export interface IndexResult {
   readonly totalSections: number
   readonly totalLinks: number
   readonly duration: number
-  readonly errors: readonly IndexBuildError[]
+  /** Non-fatal file processing errors (files that couldn't be indexed) */
+  readonly errors: readonly FileProcessingError[]
+  readonly skipped: SkipSummary
 }
 
-export interface IndexBuildError {
+/**
+ * Non-fatal error during file processing in index build.
+ * These are collected and reported but don't stop the build.
+ *
+ * Note: This is distinct from IndexBuildError in errors/index.ts,
+ * which is a TaggedError for fatal build failures.
+ */
+export interface FileProcessingError {
   readonly path: string
   readonly message: string
 }

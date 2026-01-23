@@ -7,6 +7,11 @@
 import * as path from 'node:path'
 import { Args, Command, Options } from '@effect/cli'
 import { Console, Effect } from 'effect'
+import {
+  CliValidationError,
+  FileReadError,
+  ParseError,
+} from '../../errors/index.js'
 import { parseFile } from '../../parser/parser.js'
 import {
   buildSectionList,
@@ -68,9 +73,11 @@ export const contextCommand = Command.make(
 
       if (fileList.length === 0) {
         yield* Effect.fail(
-          new Error(
-            'At least one file is required. Usage: mdcontext context <file> [files...]',
-          ),
+          new CliValidationError({
+            message:
+              'At least one file is required. Usage: mdcontext context <file> [files...]',
+            argument: 'files',
+          }),
         )
       }
 
@@ -83,7 +90,19 @@ export const contextCommand = Command.make(
         for (const file of fileList) {
           const filePath = path.resolve(file)
           const document = yield* parseFile(filePath).pipe(
-            Effect.mapError((e) => new Error(`${e._tag}: ${e.message}`)),
+            Effect.mapError((e) =>
+              e._tag === 'ParseError'
+                ? new ParseError({
+                    message: e.message,
+                    path: filePath,
+                    ...(e.line !== undefined && { line: e.line }),
+                    ...(e.column !== undefined && { column: e.column }),
+                  })
+                : new FileReadError({
+                    path: e.path,
+                    message: e.message,
+                  }),
+            ),
           )
 
           const sectionList = buildSectionList(document)
@@ -116,7 +135,19 @@ export const contextCommand = Command.make(
         for (const file of fileList) {
           const filePath = path.resolve(file)
           const document = yield* parseFile(filePath).pipe(
-            Effect.mapError((e) => new Error(`${e._tag}: ${e.message}`)),
+            Effect.mapError((e) =>
+              e._tag === 'ParseError'
+                ? new ParseError({
+                    message: e.message,
+                    path: filePath,
+                    ...(e.line !== undefined && { line: e.line }),
+                    ...(e.column !== undefined && { column: e.column }),
+                  })
+                : new FileReadError({
+                    path: e.path,
+                    message: e.message,
+                  }),
+            ),
           )
 
           const { sections: extractedSections, matchedNumbers } =

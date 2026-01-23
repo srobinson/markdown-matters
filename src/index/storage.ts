@@ -7,6 +7,12 @@ import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { Effect } from 'effect'
 
+import {
+  DirectoryCreateError,
+  FileReadError,
+  FileWriteError,
+  IndexCorruptedError,
+} from '../errors/index.js'
 import type {
   DocumentIndex,
   IndexConfig,
@@ -19,35 +25,82 @@ import { getIndexPaths, INDEX_VERSION } from './types.js'
 // File System Helpers
 // ============================================================================
 
-const ensureDir = (dirPath: string): Effect.Effect<void, Error> =>
+const ensureDir = (
+  dirPath: string,
+): Effect.Effect<void, DirectoryCreateError> =>
   Effect.tryPromise({
     try: () => fs.mkdir(dirPath, { recursive: true }),
-    catch: (e) => new Error(`Failed to create directory ${dirPath}: ${e}`),
+    catch: (e) =>
+      new DirectoryCreateError({
+        path: dirPath,
+        message: e instanceof Error ? e.message : String(e),
+        cause: e,
+      }),
   }).pipe(Effect.map(() => undefined))
 
-const readJsonFile = <T>(filePath: string): Effect.Effect<T | null, Error> =>
-  Effect.tryPromise({
-    try: async () => {
-      try {
-        const content = await fs.readFile(filePath, 'utf-8')
-        return JSON.parse(content) as T
-      } catch {
-        return null
-      }
-    },
-    catch: (e) => new Error(`Failed to read ${filePath}: ${e}`),
+const readJsonFile = <T>(
+  filePath: string,
+): Effect.Effect<T | null, FileReadError | IndexCorruptedError> =>
+  Effect.gen(function* () {
+    // Try to read file content
+    const contentResult = yield* Effect.tryPromise({
+      try: () => fs.readFile(filePath, 'utf-8'),
+      catch: (e) => {
+        // File not found is not an error - return null
+        if (e && typeof e === 'object' && 'code' in e && e.code === 'ENOENT') {
+          return { notFound: true as const }
+        }
+        return new FileReadError({
+          path: filePath,
+          message: e instanceof Error ? e.message : String(e),
+          cause: e,
+        })
+      },
+    }).pipe(
+      Effect.map((content) =>
+        typeof content === 'string' ? { content } : content,
+      ),
+      // Note: catchAll here filters out "file not found" as expected case (returns null),
+      // while other errors are re-thrown to propagate as typed FileReadError
+      Effect.catchAll((e) =>
+        e && 'notFound' in e
+          ? Effect.succeed({ notFound: true as const })
+          : Effect.fail(e),
+      ),
+    )
+
+    // Handle not found
+    if ('notFound' in contentResult) {
+      return null
+    }
+
+    // Parse JSON - corrupted files should fail with IndexCorruptedError
+    return yield* Effect.try({
+      try: () => JSON.parse(contentResult.content) as T,
+      catch: (e) =>
+        new IndexCorruptedError({
+          path: filePath,
+          reason: 'InvalidJson',
+          details: e instanceof Error ? e.message : String(e),
+        }),
+    })
   })
 
 const writeJsonFile = <T>(
   filePath: string,
   data: T,
-): Effect.Effect<void, Error> =>
+): Effect.Effect<void, DirectoryCreateError | FileWriteError> =>
   Effect.gen(function* () {
     const dir = path.dirname(filePath)
     yield* ensureDir(dir)
     yield* Effect.tryPromise({
       try: () => fs.writeFile(filePath, JSON.stringify(data, null, 2)),
-      catch: (e) => new Error(`Failed to write ${filePath}: ${e}`),
+      catch: (e) =>
+        new FileWriteError({
+          path: filePath,
+          message: e instanceof Error ? e.message : String(e),
+          cause: e,
+        }),
     })
   })
 
@@ -75,7 +128,10 @@ export const createStorage = (rootPath: string): IndexStorage => ({
 
 export const initializeIndex = (
   storage: IndexStorage,
-): Effect.Effect<void, Error> =>
+): Effect.Effect<
+  void,
+  DirectoryCreateError | FileReadError | FileWriteError | IndexCorruptedError
+> =>
   Effect.gen(function* () {
     yield* ensureDir(storage.paths.root)
     yield* ensureDir(storage.paths.parsed)
@@ -102,13 +158,13 @@ export const initializeIndex = (
 
 export const loadConfig = (
   storage: IndexStorage,
-): Effect.Effect<IndexConfig | null, Error> =>
+): Effect.Effect<IndexConfig | null, FileReadError | IndexCorruptedError> =>
   readJsonFile<IndexConfig>(storage.paths.config)
 
 export const saveConfig = (
   storage: IndexStorage,
   config: IndexConfig,
-): Effect.Effect<void, Error> =>
+): Effect.Effect<void, DirectoryCreateError | FileWriteError> =>
   writeJsonFile(storage.paths.config, {
     ...config,
     updatedAt: new Date().toISOString(),
@@ -120,13 +176,14 @@ export const saveConfig = (
 
 export const loadDocumentIndex = (
   storage: IndexStorage,
-): Effect.Effect<DocumentIndex | null, Error> =>
+): Effect.Effect<DocumentIndex | null, FileReadError | IndexCorruptedError> =>
   readJsonFile<DocumentIndex>(storage.paths.documents)
 
 export const saveDocumentIndex = (
   storage: IndexStorage,
   index: DocumentIndex,
-): Effect.Effect<void, Error> => writeJsonFile(storage.paths.documents, index)
+): Effect.Effect<void, DirectoryCreateError | FileWriteError> =>
+  writeJsonFile(storage.paths.documents, index)
 
 export const createEmptyDocumentIndex = (rootPath: string): DocumentIndex => ({
   version: INDEX_VERSION,
@@ -140,13 +197,14 @@ export const createEmptyDocumentIndex = (rootPath: string): DocumentIndex => ({
 
 export const loadSectionIndex = (
   storage: IndexStorage,
-): Effect.Effect<SectionIndex | null, Error> =>
+): Effect.Effect<SectionIndex | null, FileReadError | IndexCorruptedError> =>
   readJsonFile<SectionIndex>(storage.paths.sections)
 
 export const saveSectionIndex = (
   storage: IndexStorage,
   index: SectionIndex,
-): Effect.Effect<void, Error> => writeJsonFile(storage.paths.sections, index)
+): Effect.Effect<void, DirectoryCreateError | FileWriteError> =>
+  writeJsonFile(storage.paths.sections, index)
 
 export const createEmptySectionIndex = (): SectionIndex => ({
   version: INDEX_VERSION,
@@ -161,13 +219,14 @@ export const createEmptySectionIndex = (): SectionIndex => ({
 
 export const loadLinkIndex = (
   storage: IndexStorage,
-): Effect.Effect<LinkIndex | null, Error> =>
+): Effect.Effect<LinkIndex | null, FileReadError | IndexCorruptedError> =>
   readJsonFile<LinkIndex>(storage.paths.links)
 
 export const saveLinkIndex = (
   storage: IndexStorage,
   index: LinkIndex,
-): Effect.Effect<void, Error> => writeJsonFile(storage.paths.links, index)
+): Effect.Effect<void, DirectoryCreateError | FileWriteError> =>
+  writeJsonFile(storage.paths.links, index)
 
 export const createEmptyLinkIndex = (): LinkIndex => ({
   version: INDEX_VERSION,
@@ -182,7 +241,7 @@ export const createEmptyLinkIndex = (): LinkIndex => ({
 
 export const indexExists = (
   storage: IndexStorage,
-): Effect.Effect<boolean, Error> =>
+): Effect.Effect<boolean, FileReadError> =>
   Effect.tryPromise({
     try: async () => {
       try {
@@ -192,5 +251,10 @@ export const indexExists = (
         return false
       }
     },
-    catch: (e) => new Error(`Failed to check index existence: ${e}`),
+    catch: (e) =>
+      new FileReadError({
+        path: storage.paths.config,
+        message: e instanceof Error ? e.message : String(e),
+        cause: e,
+      }),
   })

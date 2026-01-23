@@ -7,10 +7,17 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { Effect } from 'effect'
-import type { MdDocument, MdSection } from '../core/types.js'
+import type { MdDocument, MdSection, ParseError } from '../core/types.js'
+import type { FileReadError } from '../errors/index.js'
 import { parseFile } from '../parser/parser.js'
 import { countTokensApprox } from '../utils/tokens.js'
 import { formatSummary as formatSummaryImpl } from './formatters.js'
+
+/**
+ * Error type from parseFile function
+ * Uses centralized errors from src/errors/index.ts
+ */
+type ParseFileError = ParseError | FileReadError
 
 // ============================================================================
 // Types
@@ -375,15 +382,18 @@ export const summarizeDocument = (
   return result
 }
 
+/**
+ * Summarize a markdown file
+ *
+ * @throws ParseError - File content cannot be parsed
+ * @throws FileReadError - File cannot be read from filesystem
+ */
 export const summarizeFile = (
   filePath: string,
   options: SummarizeOptions = {},
-): Effect.Effect<DocumentSummary, Error> =>
+): Effect.Effect<DocumentSummary, ParseFileError> =>
   Effect.gen(function* () {
-    const document = yield* parseFile(filePath).pipe(
-      Effect.mapError((e) => new Error(`${e._tag}: ${e.message}`)),
-    )
-
+    const document = yield* parseFile(filePath)
     return summarizeDocument(document, options)
   })
 
@@ -397,11 +407,17 @@ export { type FormatSummaryOptions, formatSummary } from './formatters.js'
 // Multi-Document Context Assembly
 // ============================================================================
 
+/**
+ * Assemble context from multiple markdown files within a token budget
+ *
+ * @throws ParseError - File content cannot be parsed
+ * @throws FileReadError - File cannot be read from filesystem
+ */
 export const assembleContext = (
   rootPath: string,
   sourcePaths: readonly string[],
   options: AssembleContextOptions,
-): Effect.Effect<AssembledContext, Error> =>
+): Effect.Effect<AssembledContext, ParseFileError> =>
   Effect.gen(function* () {
     const budget = options.budget
     const level = options.level ?? 'summary'
@@ -418,33 +434,60 @@ export const assembleContext = (
         ? sourcePath
         : path.join(rootPath, sourcePath)
 
-      try {
-        const summary = yield* summarizeFile(resolvedPath, {
-          level,
-          maxTokens: perSourceBudget,
+      // Use catchAll for graceful degradation - individual file failures
+      // shouldn't stop the entire context assembly operation
+      const summaryResult = yield* summarizeFile(resolvedPath, {
+        level,
+        maxTokens: perSourceBudget,
+      }).pipe(
+        Effect.map((s): DocumentSummary | null => s),
+        // Log error for observability before gracefully degrading
+        Effect.tapError((error) =>
+          Effect.logError(`Failed to summarize ${sourcePath}`, error),
+        ),
+        // Note: catchAll intentional for batch processing - individual file
+        // failures add to overflow instead of stopping assembly
+        Effect.catchAll(() => Effect.succeed(null as DocumentSummary | null)),
+      )
+
+      if (!summaryResult) {
+        overflow.push(sourcePath)
+        continue
+      }
+
+      const summary = summaryResult
+      const content = formatSummaryImpl(summary)
+      // Count actual formatted output tokens, not pre-format summary tokens
+      const tokens = countTokensApprox(content)
+
+      if (totalTokens + tokens <= budget) {
+        sources.push({
+          path: path.relative(rootPath, resolvedPath),
+          title: summary.title,
+          tokens,
+          content,
         })
+        totalTokens += tokens
+      } else {
+        // Over budget
+        const remaining = budget - totalTokens
+        if (remaining > MIN_PARTIAL_BUDGET) {
+          // Include partial if we have some room
+          const briefSummary = yield* summarizeFile(resolvedPath, {
+            level: 'brief',
+            maxTokens: remaining,
+          }).pipe(
+            Effect.map((s): DocumentSummary | null => s),
+            // Log error for observability before gracefully degrading
+            Effect.tapError((error) =>
+              Effect.logError(`Failed to create brief summary for ${sourcePath}`, error),
+            ),
+            Effect.catchAll(() =>
+              Effect.succeed(null as DocumentSummary | null),
+            ),
+          )
 
-        const content = formatSummaryImpl(summary)
-        // Count actual formatted output tokens, not pre-format summary tokens
-        const tokens = countTokensApprox(content)
-
-        if (totalTokens + tokens <= budget) {
-          sources.push({
-            path: path.relative(rootPath, resolvedPath),
-            title: summary.title,
-            tokens,
-            content,
-          })
-          totalTokens += tokens
-        } else {
-          // Over budget
-          const remaining = budget - totalTokens
-          if (remaining > MIN_PARTIAL_BUDGET) {
-            // Include partial if we have some room
-            const briefSummary = yield* summarizeFile(resolvedPath, {
-              level: 'brief',
-              maxTokens: remaining,
-            })
+          if (briefSummary) {
             const briefContent = formatSummaryImpl(briefSummary)
             // Count actual formatted output tokens, not pre-format summary tokens
             const briefTokens = countTokensApprox(briefContent)
@@ -459,10 +502,9 @@ export const assembleContext = (
           } else {
             overflow.push(path.relative(rootPath, resolvedPath))
           }
+        } else {
+          overflow.push(path.relative(rootPath, resolvedPath))
         }
-      } catch (_e) {
-        // Skip files that can't be processed
-        overflow.push(sourcePath)
       }
     }
 
@@ -500,8 +542,14 @@ export const measureReduction = async (
   const originalTokens = countTokensApprox(originalContent)
 
   // Get summary
+  // Note: catchAll is intentional - measureReduction is a utility function
+  // where failures should return default values (no reduction) rather than throw
   const result = await Effect.runPromise(
     summarizeFile(filePath, { level }).pipe(
+      // Log error for observability before gracefully degrading
+      Effect.tapError((error) =>
+        Effect.logError(`Failed to measure reduction for ${filePath}`, error),
+      ),
       Effect.catchAll(() => Effect.succeed(null)),
     ),
   )

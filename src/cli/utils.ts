@@ -6,6 +6,8 @@
 
 import * as fsPromises from 'node:fs/promises'
 import * as path from 'node:path'
+import { Effect } from 'effect'
+import { DirectoryWalkError } from '../errors/index.js'
 
 /**
  * Format object as JSON string
@@ -22,7 +24,8 @@ export const isMarkdownFile = (filename: string): boolean => {
 }
 
 /**
- * Recursively walk directory and collect markdown files
+ * Recursively walk directory and collect markdown files (async version).
+ * @deprecated Use walkDirEffect for typed error handling
  */
 export const walkDir = async (dir: string): Promise<string[]> => {
   const files: string[] = []
@@ -46,6 +49,49 @@ export const walkDir = async (dir: string): Promise<string[]> => {
 
   return files
 }
+
+/**
+ * Recursively walk directory and collect markdown files.
+ *
+ * @param dir - Directory to walk
+ * @returns List of markdown file paths
+ *
+ * @throws DirectoryWalkError - Cannot read or traverse directory
+ */
+export const walkDirEffect = (
+  dir: string,
+): Effect.Effect<readonly string[], DirectoryWalkError> =>
+  Effect.gen(function* () {
+    const files: string[] = []
+
+    const entries = yield* Effect.tryPromise({
+      try: () => fsPromises.readdir(dir, { withFileTypes: true }),
+      catch: (e) =>
+        new DirectoryWalkError({
+          path: dir,
+          message: `Cannot read directory: ${e instanceof Error ? e.message : String(e)}`,
+          cause: e,
+        }),
+    })
+
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name)
+
+      // Skip hidden directories and node_modules
+      if (entry.name.startsWith('.') || entry.name === 'node_modules') {
+        continue
+      }
+
+      if (entry.isDirectory()) {
+        const subFiles = yield* walkDirEffect(fullPath)
+        files.push(...subFiles)
+      } else if (entry.isFile() && isMarkdownFile(entry.name)) {
+        files.push(fullPath)
+      }
+    }
+
+    return files
+  })
 
 /**
  * Check if a query looks like a regex pattern

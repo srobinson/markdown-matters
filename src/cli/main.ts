@@ -31,6 +31,10 @@ import {
   treeCommand,
 } from './commands/index.js'
 import {
+  formatEffectCliError,
+  isEffectCliValidationError,
+} from './error-handler.js'
+import {
   checkSubcommandHelp,
   shouldShowMainHelp,
   showMainHelp,
@@ -67,47 +71,7 @@ const cliConfigLayer = CliConfig.layer({
 // Error Handling
 // ============================================================================
 
-// Custom error formatter
-const formatCliError = (error: unknown): string => {
-  if (error && typeof error === 'object') {
-    // Handle Effect CLI validation errors
-    const err = error as Record<string, unknown>
-    if (err._tag === 'ValidationError' && err.error) {
-      const validationError = err.error as Record<string, unknown>
-      // Extract the actual error message
-      if (validationError._tag === 'Paragraph' && validationError.value) {
-        const paragraph = validationError.value as Record<string, unknown>
-        if (paragraph._tag === 'Text' && typeof paragraph.value === 'string') {
-          return paragraph.value
-        }
-      }
-    }
-    // Handle MissingValue errors
-    if (err._tag === 'MissingValue' && err.error) {
-      const missingError = err.error as Record<string, unknown>
-      if (missingError._tag === 'Paragraph' && missingError.value) {
-        const paragraph = missingError.value as Record<string, unknown>
-        if (paragraph._tag === 'Text' && typeof paragraph.value === 'string') {
-          return paragraph.value
-        }
-      }
-    }
-  }
-  return String(error)
-}
-
-// Check if error is a CLI validation error (should show friendly message)
-const isValidationError = (error: unknown): boolean => {
-  if (error && typeof error === 'object') {
-    const err = error as Record<string, unknown>
-    return (
-      err._tag === 'ValidationError' ||
-      err._tag === 'MissingValue' ||
-      err._tag === 'InvalidValue'
-    )
-  }
-  return false
-}
+// Note: Error formatting and validation checking moved to error-handler.ts
 
 // ============================================================================
 // Custom Help Handling
@@ -130,9 +94,9 @@ Effect.suspend(() => cli(processedArgv)).pipe(
   Effect.provide(Layer.merge(NodeContext.layer, cliConfigLayer)),
   Effect.catchAll((error) =>
     Effect.sync(() => {
-      // Only show friendly error for validation errors
-      if (isValidationError(error)) {
-        const message = formatCliError(error)
+      // Only show friendly error for Effect CLI validation errors
+      if (isEffectCliValidationError(error)) {
+        const message = formatEffectCliError(error)
         console.error(`\nError: ${message}`)
         console.error('\nRun "mdcontext --help" for usage information.')
         process.exit(1)

@@ -8,8 +8,8 @@ import * as path from 'node:path'
 import * as readline from 'node:readline'
 import { Args, Command, Options } from '@effect/cli'
 import { Console, Effect } from 'effect'
-import { handleApiKeyError } from '../../embeddings/openai-provider.js'
 import {
+  type BuildEmbeddingsResult,
   buildEmbeddings,
   estimateEmbeddingCost,
 } from '../../embeddings/semantic-search.js'
@@ -129,6 +129,21 @@ export const indexCommand = Command.make(
           yield* Console.log(`  Links: ${result.totalLinks}`)
           yield* Console.log(`  Duration: ${result.duration}ms`)
 
+          // Show skip summary if any files were skipped
+          if (result.skipped.total > 0) {
+            const skipParts: string[] = []
+            if (result.skipped.unchanged > 0) {
+              skipParts.push(`${result.skipped.unchanged} unchanged`)
+            }
+            if (result.skipped.hidden > 0) {
+              skipParts.push(`${result.skipped.hidden} hidden`)
+            }
+            if (result.skipped.excluded > 0) {
+              skipParts.push(`${result.skipped.excluded} excluded`)
+            }
+            yield* Console.log(`  Skipped: ${skipParts.join(', ')}`)
+          }
+
           if (result.errors.length > 0) {
             yield* Console.log('')
             yield* Console.log(`Errors (${result.errors.length}):`)
@@ -147,10 +162,10 @@ export const indexCommand = Command.make(
         if (embed) {
           yield* Console.log('')
 
-          // Show cost estimate first
+          // Show cost estimate first - errors propagate to CLI boundary
           const estimate = yield* estimateEmbeddingCost(resolvedDir, {
             excludePatterns,
-          }).pipe(handleApiKeyError)
+          })
 
           if (!json) {
             yield* Console.log(`Found ${estimate.totalFiles} files to embed:`)
@@ -176,6 +191,7 @@ export const indexCommand = Command.make(
             yield* Console.log('Rebuilding embeddings (--force specified)...')
           }
 
+          // Build embeddings - errors propagate to CLI boundary
           const embedResult = yield* buildEmbeddings(resolvedDir, {
             force,
             excludePatterns,
@@ -186,7 +202,7 @@ export const indexCommand = Command.make(
                 )
               }
             },
-          }).pipe(handleApiKeyError)
+          })
 
           if (!json) {
             // Clear the progress line
@@ -228,8 +244,30 @@ export const indexCommand = Command.make(
           yield* Console.log('')
 
           // Get cost estimate for the prompt
+          // Note: We gracefully handle errors here since this is optional information
+          // for the user prompt. IndexNotFoundError is expected if index doesn't exist.
           const estimate = yield* estimateEmbeddingCost(resolvedDir).pipe(
-            Effect.catchAll(() => Effect.succeed(null)),
+            Effect.catchTags({
+              IndexNotFoundError: () => Effect.succeed(null),
+              FileReadError: (e) => {
+                // Log file read errors for debugging
+                Effect.runSync(
+                  Effect.logWarning(
+                    `Could not read index files: ${e.message}`,
+                  ),
+                )
+                return Effect.succeed(null)
+              },
+              IndexCorruptedError: (e) => {
+                // Log corruption errors for debugging
+                Effect.runSync(
+                  Effect.logWarning(
+                    `Index is corrupted: ${e.details ?? e.reason}`,
+                  ),
+                )
+                return Effect.succeed(null)
+              },
+            }),
           )
 
           if (estimate) {
@@ -260,6 +298,8 @@ export const indexCommand = Command.make(
               yield* Console.log('')
               yield* Console.log('Building embeddings...')
 
+              // Note: We gracefully handle errors here since embedding failure
+              // shouldn't block the main index operation. Errors are logged for debugging.
               const embedResult = yield* buildEmbeddings(resolvedDir, {
                 force: false,
                 onFileProgress: (progress) => {
@@ -268,8 +308,48 @@ export const indexCommand = Command.make(
                   )
                 },
               }).pipe(
-                handleApiKeyError,
-                Effect.catchAll(() => Effect.succeed(null)),
+                Effect.map((r): BuildEmbeddingsResult | null => r),
+                Effect.catchTags({
+                  // API key errors - user needs to set up API key
+                  ApiKeyMissingError: (e) => {
+                    Effect.runSync(Console.error(`\n${e.message}`))
+                    return Effect.succeed(null as BuildEmbeddingsResult | null)
+                  },
+                  ApiKeyInvalidError: (e) => {
+                    Effect.runSync(Console.error(`\n${e.message}`))
+                    return Effect.succeed(null as BuildEmbeddingsResult | null)
+                  },
+                  // Index not found - shouldn't happen after buildIndex but handle gracefully
+                  IndexNotFoundError: () =>
+                    Effect.succeed(null as BuildEmbeddingsResult | null),
+                  // File system errors
+                  FileReadError: (e) => {
+                    Effect.runSync(
+                      Console.error(`\nCannot read index files: ${e.message}`),
+                    )
+                    return Effect.succeed(null as BuildEmbeddingsResult | null)
+                  },
+                  IndexCorruptedError: (e) => {
+                    Effect.runSync(
+                      Console.error(`\nIndex is corrupted: ${e.details ?? e.reason}`),
+                    )
+                    return Effect.succeed(null as BuildEmbeddingsResult | null)
+                  },
+                  // Embedding errors - network, rate limit, etc
+                  EmbeddingError: (e) => {
+                    Effect.runSync(
+                      Console.error(`\nEmbedding failed: ${e.message}`),
+                    )
+                    return Effect.succeed(null as BuildEmbeddingsResult | null)
+                  },
+                  // Vector store errors
+                  VectorStoreError: (e) => {
+                    Effect.runSync(
+                      Console.error(`\nVector store error: ${e.message}`),
+                    )
+                    return Effect.succeed(null as BuildEmbeddingsResult | null)
+                  },
+                }),
               )
 
               if (embedResult) {

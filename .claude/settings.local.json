@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": ["mcp__linear-server", "Read", "Edit", "Write", "Bash", "WebFetch"]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "WebFetch|Read|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/alphab/Dev/LLM/DEV/TMP/nancy/skills/check-directives/check-directives.sh",
+            "env": {
+              "NANCY_CURRENT_TASK_DIR": "/Users/alphab/Dev/LLM/DEV/mdcontext/.nancy/tasks/ALP-76"
+            }
+          },
+          {
+            "type": "command",
+            "command": "/Users/alphab/Dev/LLM/DEV/TMP/nancy/skills/check-tokens/check-tokens.sh",
+            "env": {
+              "NANCY_CURRENT_TASK_DIR": "/Users/alphab/Dev/LLM/DEV/mdcontext/.nancy/tasks/ALP-76"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

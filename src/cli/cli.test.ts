@@ -177,48 +177,66 @@ describe.concurrent('mdcontext CLI e2e', () => {
       expect(output).toContain('Results:')
     })
 
-    it.skipIf(!INCLUDE_EMBED_TESTS)('handles no results gracefully', async () => {
-      const output = await run('search "xyznonexistent123"')
-      expect(output).toContain('Results: 0')
-    })
+    it.skipIf(!INCLUDE_EMBED_TESTS)(
+      'handles no results gracefully',
+      async () => {
+        const output = await run('search "xyznonexistent123"')
+        expect(output).toContain('Results: 0')
+      },
+    )
 
     it('supports -k flag for explicit keyword search', async () => {
       const output = await run('search -k "API Reference"')
       expect(output).toContain('Content search')
     })
 
-    it.skipIf(!INCLUDE_EMBED_TESTS)('supports -n flag to limit results', async () => {
-      const output = await run('search -n 2 "the"')
-      const lines = output
-        .split('\n')
-        .filter((l) => l.trim().match(/^\w+.*\.md/))
-      expect(lines.length).toBeLessThanOrEqual(2)
-    })
+    it.skipIf(!INCLUDE_EMBED_TESTS)(
+      'supports -n flag to limit results',
+      async () => {
+        const output = await run('search -n 2 "the"')
+        const lines = output
+          .split('\n')
+          .filter((l) => l.trim().match(/^\w+.*\.md/))
+        expect(lines.length).toBeLessThanOrEqual(2)
+      },
+    )
 
     it('shows mode indicator in output', async () => {
       const output = await run('search -k "getting started"')
       expect(output).toContain('[keyword]')
     })
 
-    it.skipIf(!INCLUDE_EMBED_TESTS)('supports boolean AND operator', async () => {
-      const output = await run('search "test AND fixture"')
-      expect(output).toContain('Results:')
-    })
+    it.skipIf(!INCLUDE_EMBED_TESTS)(
+      'supports boolean AND operator',
+      async () => {
+        const output = await run('search "test AND fixture"')
+        expect(output).toContain('Results:')
+      },
+    )
 
-    it.skipIf(!INCLUDE_EMBED_TESTS)('supports boolean OR operator', async () => {
-      const output = await run('search "installation OR endpoints"')
-      expect(output).toContain('Results:')
-    })
+    it.skipIf(!INCLUDE_EMBED_TESTS)(
+      'supports boolean OR operator',
+      async () => {
+        const output = await run('search "installation OR endpoints"')
+        expect(output).toContain('Results:')
+      },
+    )
 
-    it.skipIf(!INCLUDE_EMBED_TESTS)('supports boolean NOT operator', async () => {
-      const output = await run('search "test NOT endpoints"')
-      expect(output).toContain('Results:')
-    })
+    it.skipIf(!INCLUDE_EMBED_TESTS)(
+      'supports boolean NOT operator',
+      async () => {
+        const output = await run('search "test NOT endpoints"')
+        expect(output).toContain('Results:')
+      },
+    )
 
-    it.skipIf(!INCLUDE_EMBED_TESTS)('supports quoted phrase search', async () => {
-      const output = await run('search \'"Getting Started"\' .')
-      expect(output).toContain('Results:')
-    })
+    it.skipIf(!INCLUDE_EMBED_TESTS)(
+      'supports quoted phrase search',
+      async () => {
+        const output = await run('search \'"Getting Started"\' .')
+        expect(output).toContain('Results:')
+      },
+    )
 
     it('supports --mode flag', async () => {
       const output = await run('search --mode keyword "getting started"')
@@ -292,10 +310,13 @@ describe.concurrent('mdcontext CLI e2e', () => {
       expect(output).toContain('[keyword]')
     })
 
-    it.skipIf(!INCLUDE_EMBED_TESTS)('supports -B and -A flags for asymmetric context', async () => {
-      const output = await run('search "test" . -B 1 -A 3')
-      expect(output).toContain('[semantic]')
-    })
+    it.skipIf(!INCLUDE_EMBED_TESTS)(
+      'supports -B and -A flags for asymmetric context',
+      async () => {
+        const output = await run('search "test" . -B 1 -A 3')
+        expect(output).toContain('[semantic]')
+      },
+    )
 
     it('includes contextLines in JSON output', async () => {
       const output = await run('search -k "test" . -C 2 --json -n 1')

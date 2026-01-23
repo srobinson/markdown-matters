@@ -21,6 +21,7 @@ import type {
   MdSection,
   ParseError,
 } from '../core/types.js'
+import { FileReadError } from '../errors/index.js'
 import { countTokensApprox, countWords } from '../utils/tokens.js'
 
 // ============================================================================
@@ -362,31 +363,29 @@ export const parse = (
 
 /**
  * Parse a markdown file from the filesystem
+ *
+ * @throws ParseError - File content cannot be parsed
+ * @throws FileReadError - File cannot be read from filesystem
  */
 export const parseFile = (
   filePath: string,
-): Effect.Effect<
-  MdDocument,
-  ParseError | { _tag: 'IoError'; message: string; path: string }
-> =>
+): Effect.Effect<MdDocument, ParseError | FileReadError> =>
   Effect.gen(function* () {
     const fs = yield* Effect.promise(() => import('node:fs/promises'))
 
-    let content: string
-    let stats: Awaited<ReturnType<typeof fs.stat>>
-
-    try {
-      ;[content, stats] = yield* Effect.all([
-        Effect.promise(() => fs.readFile(filePath, 'utf-8')),
-        Effect.promise(() => fs.stat(filePath)),
-      ])
-    } catch (error) {
-      return yield* Effect.fail({
-        _tag: 'IoError' as const,
-        message: error instanceof Error ? error.message : 'Unknown error',
-        path: filePath,
-      })
-    }
+    const [content, stats] = yield* Effect.tryPromise({
+      try: () =>
+        Promise.all([
+          fs.readFile(filePath, 'utf-8'),
+          fs.stat(filePath),
+        ] as const),
+      catch: (error) =>
+        new FileReadError({
+          path: filePath,
+          message: error instanceof Error ? error.message : 'Unknown error',
+          cause: error,
+        }),
+    })
 
     return yield* parse(content, {
       path: filePath,

@@ -1,13 +1,51 @@
 /**
  * File watcher for automatic re-indexing
+ *
+ * ## Why Not Effect Streams?
+ *
+ * We evaluated using Effect Streams (ALP-101) but decided the current approach is better:
+ *
+ * 1. **chokidar is battle-tested** - Handles OS-specific quirks (FSEvents on macOS,
+ *    inotify on Linux, ReadDirectoryChangesW on Windows)
+ *
+ * 2. **Debouncing handles backpressure** - The 300ms debounce already batches rapid
+ *    changes, so Stream backpressure isn't needed
+ *
+ * 3. **Simple use case** - File change → rebuild index. No complex transformations
+ *    or compositions that would benefit from Stream operators
+ *
+ * 4. **Already Effect-based** - The setup/teardown is wrapped in Effect for proper
+ *    error handling, and we use typed errors (WatchError, IndexBuildError)
+ *
+ * If future requirements need more sophisticated event processing (filtering by
+ * content type, incremental updates, event replay), reconsider Streams then.
  */
 
 import * as path from 'node:path'
 import { watch } from 'chokidar'
 import { Effect } from 'effect'
 
+import {
+  type DirectoryCreateError,
+  type DirectoryWalkError,
+  type FileReadError,
+  type FileWriteError,
+  type IndexCorruptedError,
+  WatchError,
+} from '../errors/index.js'
 import { buildIndex, type IndexOptions } from './indexer.js'
 import { createStorage, indexExists } from './storage.js'
+
+/**
+ * Union of errors that can occur during watch operations
+ */
+export type WatchDirectoryError =
+  | WatchError
+  | DirectoryWalkError
+  | DirectoryCreateError
+  | FileReadError
+  | FileWriteError
+  | IndexCorruptedError
 
 // ============================================================================
 // Watcher Types
@@ -19,7 +57,7 @@ export interface WatcherOptions extends IndexOptions {
     documentsIndexed: number
     duration: number
   }) => void
-  readonly onError?: (error: Error) => void
+  readonly onError?: (error: WatchError) => void
 }
 
 export interface Watcher {
@@ -36,7 +74,7 @@ const isMarkdownFile = (filePath: string): boolean =>
 export const watchDirectory = (
   rootPath: string,
   options: WatcherOptions = {},
-): Effect.Effect<Watcher, Error> =>
+): Effect.Effect<Watcher, WatchDirectoryError> =>
   Effect.gen(function* () {
     const resolvedRoot = path.resolve(rootPath)
     const storage = createStorage(resolvedRoot)
@@ -77,7 +115,12 @@ export const watchDirectory = (
           })
         } catch (error) {
           options.onError?.(
-            error instanceof Error ? error : new Error(String(error)),
+            new WatchError({
+              path: resolvedRoot,
+              message:
+                error instanceof Error ? error.message : 'Index rebuild failed',
+              cause: error,
+            }),
           )
         }
       }, debounceMs)
@@ -116,7 +159,12 @@ export const watchDirectory = (
 
     watcher.on('error', (error: unknown) => {
       options.onError?.(
-        error instanceof Error ? error : new Error(String(error)),
+        new WatchError({
+          path: resolvedRoot,
+          message:
+            error instanceof Error ? error.message : 'File watcher error',
+          cause: error,
+        }),
       )
     })
 

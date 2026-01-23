@@ -6,6 +6,14 @@ import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { Effect } from 'effect'
 import type { MdSection } from '../core/types.js'
+import {
+  type DirectoryCreateError,
+  DirectoryWalkError,
+  type FileReadError,
+  type FileWriteError,
+  type IndexCorruptedError,
+  ParseError,
+} from '../errors/index.js'
 import { parse } from '../parser/parser.js'
 import {
   computeHash,
@@ -24,9 +32,10 @@ import {
 import type {
   DocumentEntry,
   DocumentIndex,
-  IndexBuildError,
+  FileProcessingError,
   IndexResult,
   SectionEntry,
+  SkipSummary,
 } from './types.js'
 
 // ============================================================================
@@ -55,33 +64,52 @@ const shouldExclude = (
   return false
 }
 
+/**
+ * Result of directory walk including tracked skip counts
+ */
+interface WalkResult {
+  readonly files: string[]
+  readonly skipped: {
+    hidden: number
+    excluded: number
+  }
+}
+
 const walkDirectory = async (
   dir: string,
   exclude: readonly string[],
-): Promise<string[]> => {
+): Promise<WalkResult> => {
   const files: string[] = []
+  let hiddenCount = 0
+  let excludedCount = 0
   const entries = await fs.readdir(dir, { withFileTypes: true })
 
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name)
 
     if (entry.name.startsWith('.') || entry.name === 'node_modules') {
+      if (entry.isDirectory()) {
+        hiddenCount++
+      }
       continue
     }
 
     if (shouldExclude(fullPath, exclude)) {
+      excludedCount++
       continue
     }
 
     if (entry.isDirectory()) {
-      const subFiles = await walkDirectory(fullPath, exclude)
-      files.push(...subFiles)
+      const subResult = await walkDirectory(fullPath, exclude)
+      files.push(...subResult.files)
+      hiddenCount += subResult.skipped.hidden
+      excludedCount += subResult.skipped.excluded
     } else if (entry.isFile() && isMarkdownFile(entry.name)) {
       files.push(fullPath)
     }
   }
 
-  return files
+  return { files, skipped: { hidden: hiddenCount, excluded: excludedCount } }
 }
 
 // ============================================================================
@@ -164,11 +192,18 @@ export interface IndexOptions {
 export const buildIndex = (
   rootPath: string,
   options: IndexOptions = {},
-): Effect.Effect<IndexResult, Error> =>
+): Effect.Effect<
+  IndexResult,
+  | DirectoryWalkError
+  | DirectoryCreateError
+  | FileReadError
+  | FileWriteError
+  | IndexCorruptedError
+> =>
   Effect.gen(function* () {
     const startTime = Date.now()
     const storage = createStorage(rootPath)
-    const errors: IndexBuildError[] = []
+    const errors: FileProcessingError[] = []
 
     // Initialize storage
     yield* initializeIndex(storage)
@@ -188,15 +223,23 @@ export const buildIndex = (
 
     // Discover files
     const exclude = options.exclude ?? ['**/node_modules/**', '**/.*/**']
-    const files = yield* Effect.tryPromise({
+    const walkResult = yield* Effect.tryPromise({
       try: () => walkDirectory(storage.rootPath, exclude),
-      catch: (e) => new Error(`Failed to walk directory: ${e}`),
+      catch: (e) =>
+        new DirectoryWalkError({
+          path: storage.rootPath,
+          message: `Failed to traverse directory: ${e instanceof Error ? e.message : String(e)}`,
+          cause: e,
+        }),
     })
+
+    const { files, skipped: walkSkipped } = walkResult
 
     // Process each file
     let documentsIndexed = 0
     let sectionsIndexed = 0
     let linksIndexed = 0
+    let unchangedCount = 0
 
     const mutableDocuments: Record<string, DocumentEntry> = {
       ...docIndex.documents,
@@ -239,6 +282,7 @@ export const buildIndex = (
           existingEntry.hash === hash &&
           existingEntry.mtime === stats.mtime.getTime()
         ) {
+          unchangedCount++
           return // File unchanged, skip processing
         }
 
@@ -248,7 +292,13 @@ export const buildIndex = (
           lastModified: stats.mtime,
         }).pipe(
           Effect.mapError(
-            (e) => new Error(`Parse error in ${relativePath}: ${e.message}`),
+            (e) =>
+              new ParseError({
+                message: e.message,
+                path: relativePath,
+                ...(e.line !== undefined && { line: e.line }),
+                ...(e.column !== undefined && { column: e.column }),
+              }),
           ),
         )
 
@@ -333,10 +383,18 @@ export const buildIndex = (
 
         mutableForward[relativePath] = outgoingLinks
       }).pipe(
+        // Note: catchAll is intentional for batch file processing.
+        // Individual file failures should be collected in errors array
+        // rather than stopping the entire index build operation.
         Effect.catchAll((error) => {
+          // Extract message from typed errors or generic errors
+          const message =
+            'message' in error && typeof error.message === 'string'
+              ? error.message
+              : String(error)
           errors.push({
             path: relativePath,
-            message: error instanceof Error ? error.message : String(error),
+            message,
           })
           return Effect.void
         }),
@@ -383,6 +441,14 @@ export const buildIndex = (
       0,
     )
 
+    // Build skip summary
+    const skipped: SkipSummary = {
+      unchanged: unchangedCount,
+      excluded: walkSkipped.excluded,
+      hidden: walkSkipped.hidden,
+      total: unchangedCount + walkSkipped.excluded + walkSkipped.hidden,
+    }
+
     return {
       documentsIndexed,
       sectionsIndexed,
@@ -392,6 +458,7 @@ export const buildIndex = (
       totalLinks,
       duration,
       errors,
+      skipped,
     }
   })
 
@@ -402,7 +469,7 @@ export const buildIndex = (
 export const getOutgoingLinks = (
   rootPath: string,
   filePath: string,
-): Effect.Effect<readonly string[], Error> =>
+): Effect.Effect<readonly string[], FileReadError | IndexCorruptedError> =>
   Effect.gen(function* () {
     const storage = createStorage(rootPath)
     const linkIndex = yield* loadLinkIndex(storage)
@@ -418,7 +485,7 @@ export const getOutgoingLinks = (
 export const getIncomingLinks = (
   rootPath: string,
   filePath: string,
-): Effect.Effect<readonly string[], Error> =>
+): Effect.Effect<readonly string[], FileReadError | IndexCorruptedError> =>
   Effect.gen(function* () {
     const storage = createStorage(rootPath)
     const linkIndex = yield* loadLinkIndex(storage)
@@ -433,7 +500,7 @@ export const getIncomingLinks = (
 
 export const getBrokenLinks = (
   rootPath: string,
-): Effect.Effect<readonly string[], Error> =>
+): Effect.Effect<readonly string[], FileReadError | IndexCorruptedError> =>
   Effect.gen(function* () {
     const storage = createStorage(rootPath)
     const linkIndex = yield* loadLinkIndex(storage)

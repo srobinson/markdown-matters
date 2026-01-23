@@ -169,6 +169,9 @@ const handleMdSearch = async (
   const pathFilter = args.path_filter as string | undefined
   const threshold = (args.threshold as number) ?? 0.5
 
+  // Note: catchAll is intentional at this MCP boundary layer.
+  // MCP protocol requires JSON error responses, so we convert typed errors
+  // to { error: message } format for protocol compliance.
   const result = await Effect.runPromise(
     semanticSearch(rootPath, query, {
       limit,
@@ -228,6 +231,7 @@ const handleMdContext = async (
     ? filePath
     : path.join(rootPath, filePath)
 
+  // Note: catchAll is intentional - MCP boundary converts errors to JSON format
   const result = await Effect.runPromise(
     summarizeFile(resolvedPath, { level, maxTokens }).pipe(
       Effect.catchAll((e) => Effect.succeed({ error: e.message })),
@@ -255,9 +259,9 @@ const handleMdStructure = async (
     ? filePath
     : path.join(rootPath, filePath)
 
+  // Note: catchAll is intentional - MCP boundary converts errors to JSON format
   const result = await Effect.runPromise(
     parseFile(resolvedPath).pipe(
-      Effect.mapError((e) => new Error(`${e._tag}: ${e.message}`)),
       Effect.catchAll((e) => Effect.succeed({ error: e.message })),
     ),
   )
@@ -310,6 +314,7 @@ const handleMdKeywordSearch = async (
   const hasTable = args.has_table as boolean | undefined
   const limit = (args.limit as number) ?? 20
 
+  // Note: catchAll is intentional - MCP boundary converts errors to JSON format
   const result = await Effect.runPromise(
     search(rootPath, {
       heading,
@@ -381,6 +386,7 @@ const handleMdIndex = async (
     ? indexPath
     : path.join(rootPath, indexPath)
 
+  // Note: catchAll is intentional - MCP boundary converts errors to JSON format
   const result = await Effect.runPromise(
     buildIndex(resolvedPath, { force }).pipe(
       Effect.catchAll((e) => Effect.succeed({ error: e.message })),

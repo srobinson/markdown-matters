@@ -2,8 +2,13 @@
  * OpenAI embedding provider
  */
 
-import { Console, Effect } from 'effect'
+import { Effect } from 'effect'
 import OpenAI from 'openai'
+import {
+  ApiKeyInvalidError,
+  ApiKeyMissingError,
+  EmbeddingError,
+} from '../errors/index.js'
 import type { EmbeddingProvider, EmbeddingResult } from './types.js'
 
 // ============================================================================
@@ -15,24 +20,6 @@ const PRICING: Record<string, number> = {
   'text-embedding-3-small': 0.02,
   'text-embedding-3-large': 0.13,
   'text-embedding-ada-002': 0.1,
-}
-
-// ============================================================================
-// Error Classes
-// ============================================================================
-
-export class MissingApiKeyError extends Error {
-  constructor() {
-    super('OPENAI_API_KEY not set')
-    this.name = 'MissingApiKeyError'
-  }
-}
-
-export class InvalidApiKeyError extends Error {
-  constructor(message?: string) {
-    super(message ?? 'Invalid OPENAI_API_KEY')
-    this.name = 'InvalidApiKeyError'
-  }
 }
 
 // ============================================================================
@@ -53,17 +40,31 @@ export class OpenAIProvider implements EmbeddingProvider {
   private readonly model: string
   private readonly batchSize: number
 
-  constructor(options: OpenAIProviderOptions = {}) {
-    const apiKey = options.apiKey ?? process.env.OPENAI_API_KEY
-    if (!apiKey) {
-      throw new MissingApiKeyError()
-    }
-
+  private constructor(apiKey: string, options: OpenAIProviderOptions = {}) {
     this.client = new OpenAI({ apiKey })
     this.model = options.model ?? 'text-embedding-3-small'
     this.batchSize = options.batchSize ?? 100
     this.name = `openai:${this.model}`
     this.dimensions = 512
+  }
+
+  /**
+   * Create an OpenAI provider instance.
+   * Returns an Effect that fails with ApiKeyMissingError if no API key is available.
+   */
+  static create(
+    options: OpenAIProviderOptions = {},
+  ): Effect.Effect<OpenAIProvider, ApiKeyMissingError> {
+    const apiKey = options.apiKey ?? process.env.OPENAI_API_KEY
+    if (!apiKey) {
+      return Effect.fail(
+        new ApiKeyMissingError({
+          provider: 'OpenAI',
+          envVar: 'OPENAI_API_KEY',
+        }),
+      )
+    }
+    return Effect.succeed(new OpenAIProvider(apiKey, options))
   }
 
   async embed(texts: string[]): Promise<EmbeddingResult> {
@@ -94,7 +95,10 @@ export class OpenAIProvider implements EmbeddingProvider {
     } catch (error) {
       // Check for authentication errors (401 Unauthorized, invalid API key)
       if (error instanceof OpenAI.AuthenticationError) {
-        throw new InvalidApiKeyError(error.message)
+        throw new ApiKeyInvalidError({
+          provider: 'OpenAI',
+          details: error.message,
+        })
       }
       throw error
     }
@@ -112,54 +116,47 @@ export class OpenAIProvider implements EmbeddingProvider {
 }
 
 // ============================================================================
-// Factory
-// ============================================================================
-
-export const createOpenAIProvider = (
-  options?: OpenAIProviderOptions,
-): EmbeddingProvider => new OpenAIProvider(options)
-
-// ============================================================================
-// Error Handler Utility
+// Factory Functions
 // ============================================================================
 
 /**
- * Catches OpenAI API key errors and displays helpful messages.
- * Use with Effect.pipe after operations that may throw MissingApiKeyError or InvalidApiKeyError.
+ * Create an OpenAI embedding provider.
+ * Returns an Effect that fails with ApiKeyMissingError if no API key is available.
+ *
+ * Usage:
+ * ```typescript
+ * const provider = yield* createOpenAIProvider()
+ * const result = yield* Effect.tryPromise(() => provider.embed(texts))
+ * ```
  */
-export const handleApiKeyError = <A, E>(
-  effect: Effect.Effect<A, E | MissingApiKeyError | InvalidApiKeyError>,
-): Effect.Effect<A, E | Error> =>
-  effect.pipe(
-    Effect.catchIf(
-      (e): e is MissingApiKeyError => e instanceof MissingApiKeyError,
-      () =>
-        Effect.gen(function* () {
-          yield* Console.error('')
-          yield* Console.error('Error: OPENAI_API_KEY not set')
-          yield* Console.error('')
-          yield* Console.error(
-            'To use semantic search, set your OpenAI API key:',
-          )
-          yield* Console.error('  export OPENAI_API_KEY=sk-...')
-          yield* Console.error('')
-          yield* Console.error('Or add to .env file in project root.')
-          return yield* Effect.fail(new Error('Missing API key'))
-        }),
-    ),
-    Effect.catchIf(
-      (e): e is InvalidApiKeyError => e instanceof InvalidApiKeyError,
-      (e) =>
-        Effect.gen(function* () {
-          yield* Console.error('')
-          yield* Console.error('Error: Invalid OPENAI_API_KEY')
-          yield* Console.error('')
-          yield* Console.error('The provided API key was rejected by OpenAI.')
-          yield* Console.error('Please check your API key is correct:')
-          yield* Console.error('  export OPENAI_API_KEY=sk-...')
-          yield* Console.error('')
-          yield* Console.error(`Details: ${e.message}`)
-          return yield* Effect.fail(new Error('Invalid API key'))
-        }),
-    ),
-  )
+export const createOpenAIProvider = (
+  options?: OpenAIProviderOptions,
+): Effect.Effect<EmbeddingProvider, ApiKeyMissingError> =>
+  OpenAIProvider.create(options)
+
+/**
+ * Wrap an embedding operation to catch InvalidApiKeyError thrown during embed().
+ * Use this when calling provider.embed() to convert thrown errors to Effect failures.
+ *
+ * Usage:
+ * ```typescript
+ * const result = yield* wrapEmbedding(provider.embed(texts))
+ * ```
+ */
+export const wrapEmbedding = (
+  embedPromise: Promise<EmbeddingResult>,
+): Effect.Effect<EmbeddingResult, ApiKeyInvalidError | EmbeddingError> =>
+  Effect.tryPromise({
+    try: () => embedPromise,
+    catch: (e) => {
+      if (e instanceof ApiKeyInvalidError) {
+        return e
+      }
+      return new EmbeddingError({
+        reason: 'Unknown',
+        message: e instanceof Error ? e.message : String(e),
+        provider: 'OpenAI',
+        cause: e,
+      })
+    },
+  })

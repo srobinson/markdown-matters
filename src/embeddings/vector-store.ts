@@ -6,6 +6,7 @@ import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { Effect } from 'effect'
 import HierarchicalNSW from 'hnswlib-node'
+import { VectorStoreError } from '../errors/index.js'
 import { INDEX_DIR } from '../index/types.js'
 import type { VectorEntry, VectorIndex } from './types.js'
 
@@ -24,14 +25,14 @@ const INDEX_VERSION = 1
 export interface VectorStore {
   readonly rootPath: string
   readonly dimensions: number
-  add(entries: VectorEntry[]): Effect.Effect<void, Error>
+  add(entries: VectorEntry[]): Effect.Effect<void, VectorStoreError>
   search(
     vector: number[],
     limit: number,
     threshold?: number,
-  ): Effect.Effect<VectorSearchResult[], Error>
-  save(): Effect.Effect<void, Error>
-  load(): Effect.Effect<boolean, Error>
+  ): Effect.Effect<VectorSearchResult[], VectorStoreError>
+  save(): Effect.Effect<void, VectorStoreError>
+  load(): Effect.Effect<boolean, VectorStoreError>
   getStats(): VectorStoreStats
 }
 
@@ -96,27 +97,35 @@ class HnswVectorStore implements VectorStore {
     return this.index
   }
 
-  add(entries: VectorEntry[]): Effect.Effect<void, Error> {
-    return Effect.sync(() => {
-      const index = this.ensureIndex()
+  add(entries: VectorEntry[]): Effect.Effect<void, VectorStoreError> {
+    return Effect.try({
+      try: () => {
+        const index = this.ensureIndex()
 
-      for (const entry of entries) {
-        // Skip if already exists
-        if (this.idToIndex.has(entry.id)) {
-          continue
+        for (const entry of entries) {
+          // Skip if already exists
+          if (this.idToIndex.has(entry.id)) {
+            continue
+          }
+
+          const idx = this.nextIndex++
+
+          // Resize if needed
+          if (idx >= index.getMaxElements()) {
+            index.resizeIndex(index.getMaxElements() * 2)
+          }
+
+          index.addPoint(entry.embedding as number[], idx)
+          this.entries.set(idx, entry)
+          this.idToIndex.set(entry.id, idx)
         }
-
-        const idx = this.nextIndex++
-
-        // Resize if needed
-        if (idx >= index.getMaxElements()) {
-          index.resizeIndex(index.getMaxElements() * 2)
-        }
-
-        index.addPoint(entry.embedding as number[], idx)
-        this.entries.set(idx, entry)
-        this.idToIndex.set(entry.id, idx)
-      }
+      },
+      catch: (e) =>
+        new VectorStoreError({
+          operation: 'add',
+          message: e instanceof Error ? e.message : String(e),
+          cause: e,
+        }),
     })
   }
 
@@ -124,51 +133,59 @@ class HnswVectorStore implements VectorStore {
     vector: number[],
     limit: number,
     threshold = 0,
-  ): Effect.Effect<VectorSearchResult[], Error> {
-    return Effect.sync(() => {
-      if (!this.index || this.entries.size === 0) {
-        return []
-      }
-
-      const result = this.index.searchKnn(
-        vector,
-        Math.min(limit, this.entries.size),
-      )
-      const results: VectorSearchResult[] = []
-
-      for (let i = 0; i < result.neighbors.length; i++) {
-        const idx = result.neighbors[i]
-        const distance = result.distances[i]
-
-        if (idx === undefined || distance === undefined) {
-          continue
+  ): Effect.Effect<VectorSearchResult[], VectorStoreError> {
+    return Effect.try({
+      try: () => {
+        if (!this.index || this.entries.size === 0) {
+          return []
         }
 
-        // Convert distance to similarity (cosine distance to cosine similarity)
-        // hnswlib returns 1 - cosine_similarity for cosine space
-        const similarity = 1 - distance
+        const result = this.index.searchKnn(
+          vector,
+          Math.min(limit, this.entries.size),
+        )
+        const results: VectorSearchResult[] = []
 
-        if (similarity < threshold) {
-          continue
+        for (let i = 0; i < result.neighbors.length; i++) {
+          const idx = result.neighbors[i]
+          const distance = result.distances[i]
+
+          if (idx === undefined || distance === undefined) {
+            continue
+          }
+
+          // Convert distance to similarity (cosine distance to cosine similarity)
+          // hnswlib returns 1 - cosine_similarity for cosine space
+          const similarity = 1 - distance
+
+          if (similarity < threshold) {
+            continue
+          }
+
+          const entry = this.entries.get(idx)
+          if (entry) {
+            results.push({
+              id: entry.id,
+              sectionId: entry.sectionId,
+              documentPath: entry.documentPath,
+              heading: entry.heading,
+              similarity,
+            })
+          }
         }
 
-        const entry = this.entries.get(idx)
-        if (entry) {
-          results.push({
-            id: entry.id,
-            sectionId: entry.sectionId,
-            documentPath: entry.documentPath,
-            heading: entry.heading,
-            similarity,
-          })
-        }
-      }
-
-      return results
+        return results
+      },
+      catch: (e) =>
+        new VectorStoreError({
+          operation: 'search',
+          message: e instanceof Error ? e.message : String(e),
+          cause: e,
+        }),
     })
   }
 
-  save(): Effect.Effect<void, Error> {
+  save(): Effect.Effect<void, VectorStoreError> {
     return Effect.gen(
       function* (this: HnswVectorStore) {
         if (!this.index) {
@@ -176,12 +193,26 @@ class HnswVectorStore implements VectorStore {
         }
 
         const indexDir = this.getIndexDir()
-        yield* Effect.promise(() => fs.mkdir(indexDir, { recursive: true }))
+        yield* Effect.tryPromise({
+          try: () => fs.mkdir(indexDir, { recursive: true }),
+          catch: (e) =>
+            new VectorStoreError({
+              operation: 'save',
+              message: `Failed to create directory: ${e instanceof Error ? e.message : String(e)}`,
+              cause: e,
+            }),
+        })
 
         // Save the hnswlib index
-        yield* Effect.promise(() =>
-          this.index!.writeIndex(this.getVectorPath()),
-        )
+        yield* Effect.tryPromise({
+          try: () => this.index!.writeIndex(this.getVectorPath()),
+          catch: (e) =>
+            new VectorStoreError({
+              operation: 'save',
+              message: `Failed to write index: ${e instanceof Error ? e.message : String(e)}`,
+              cause: e,
+            }),
+        })
 
         // Save metadata
         const meta: VectorIndex = {
@@ -200,38 +231,66 @@ class HnswVectorStore implements VectorStore {
           updatedAt: new Date().toISOString(),
         }
 
-        yield* Effect.promise(() =>
-          fs.writeFile(this.getMetaPath(), JSON.stringify(meta, null, 2)),
-        )
+        yield* Effect.tryPromise({
+          try: () =>
+            fs.writeFile(this.getMetaPath(), JSON.stringify(meta, null, 2)),
+          catch: (e) =>
+            new VectorStoreError({
+              operation: 'save',
+              message: `Failed to write metadata: ${e instanceof Error ? e.message : String(e)}`,
+              cause: e,
+            }),
+        })
       }.bind(this),
     )
   }
 
-  load(): Effect.Effect<boolean, Error> {
+  load(): Effect.Effect<boolean, VectorStoreError> {
     return Effect.gen(
       function* (this: HnswVectorStore) {
         const vectorPath = this.getVectorPath()
         const metaPath = this.getMetaPath()
 
-        // Check if files exist
+        // Check if files exist - catch file not found gracefully
         const filesExist = yield* Effect.tryPromise({
           try: async () => {
             await fs.access(vectorPath)
             await fs.access(metaPath)
             return true
           },
-          catch: () => false as const,
-        }).pipe(Effect.catchAll(() => Effect.succeed(false)))
+          catch: () =>
+            new VectorStoreError({
+              operation: 'load',
+              message: 'Files not found',
+            }),
+        }).pipe(
+          Effect.catchTag('VectorStoreError', () => Effect.succeed(false)),
+        )
 
         if (!filesExist) {
           return false
         }
 
         // Load metadata first
-        const metaContent = yield* Effect.promise(() =>
-          fs.readFile(metaPath, 'utf-8'),
-        )
-        const meta = JSON.parse(metaContent) as VectorIndex
+        const metaContent = yield* Effect.tryPromise({
+          try: () => fs.readFile(metaPath, 'utf-8'),
+          catch: (e) =>
+            new VectorStoreError({
+              operation: 'load',
+              message: `Failed to read metadata: ${e instanceof Error ? e.message : String(e)}`,
+              cause: e,
+            }),
+        })
+
+        const meta = yield* Effect.try({
+          try: () => JSON.parse(metaContent) as VectorIndex,
+          catch: (e) =>
+            new VectorStoreError({
+              operation: 'load',
+              message: `Failed to parse metadata: ${e instanceof Error ? e.message : String(e)}`,
+              cause: e,
+            }),
+        })
 
         // Verify dimensions match
         if (meta.dimensions !== this.dimensions) {
@@ -243,7 +302,15 @@ class HnswVectorStore implements VectorStore {
           'cosine',
           this.dimensions,
         )
-        yield* Effect.promise(() => this.index!.readIndex(vectorPath))
+        yield* Effect.tryPromise({
+          try: () => this.index!.readIndex(vectorPath),
+          catch: (e) =>
+            new VectorStoreError({
+              operation: 'load',
+              message: `Failed to read index: ${e instanceof Error ? e.message : String(e)}`,
+              cause: e,
+            }),
+        })
 
         // Restore entries
         this.entries.clear()

@@ -8,8 +8,8 @@ import * as path from 'node:path'
 import * as readline from 'node:readline'
 import { Args, Command, Options } from '@effect/cli'
 import { Console, Effect, Option } from 'effect'
-import { handleApiKeyError } from '../../embeddings/openai-provider.js'
 import {
+  type BuildEmbeddingsResult,
   buildEmbeddings,
   estimateEmbeddingCost,
   semanticSearch,
@@ -295,11 +295,11 @@ export const searchCommand = Command.make(
           }
         }
       } else {
-        // Semantic search
+        // Semantic search - errors will propagate to CLI boundary
         const results = yield* semanticSearch(resolvedDir, query, {
           limit,
           threshold,
-        }).pipe(handleApiKeyError)
+        })
 
         if (json) {
           const output = {
@@ -344,8 +344,30 @@ const handleMissingEmbeddings = (
 ): Effect.Effect<boolean, Error> =>
   Effect.gen(function* () {
     // Get cost estimate
+    // Note: We gracefully handle errors since this is an optional auto-index feature.
+    // IndexNotFoundError is expected if index doesn't exist.
     const estimate = yield* estimateEmbeddingCost(resolvedDir).pipe(
-      Effect.catchAll(() => Effect.succeed(null)),
+      Effect.catchTags({
+        IndexNotFoundError: () => Effect.succeed(null),
+        FileReadError: (e) => {
+          // Log file read errors for debugging
+          Effect.runSync(
+            Effect.logWarning(
+              `Could not read index files: ${e.message}`,
+            ),
+          )
+          return Effect.succeed(null)
+        },
+        IndexCorruptedError: (e) => {
+          // Log corruption errors for debugging
+          Effect.runSync(
+            Effect.logWarning(
+              `Index is corrupted: ${e.details ?? e.reason}`,
+            ),
+          )
+          return Effect.succeed(null)
+        },
+      }),
     )
 
     if (!estimate) {
@@ -364,6 +386,7 @@ const handleMissingEmbeddings = (
         )
       }
 
+      // Note: Graceful degradation - embedding errors fall back to keyword search
       const result = yield* buildEmbeddings(resolvedDir, {
         force: false,
         onFileProgress: (progress) => {
@@ -374,8 +397,47 @@ const handleMissingEmbeddings = (
           }
         },
       }).pipe(
-        handleApiKeyError,
-        Effect.catchAll(() => Effect.succeed(null)),
+        Effect.map((r): BuildEmbeddingsResult | null => r),
+        Effect.catchTags({
+          ApiKeyMissingError: (e) => {
+            if (!json) {
+              Effect.runSync(Console.error(`\n${e.message}`))
+            }
+            return Effect.succeed(null as BuildEmbeddingsResult | null)
+          },
+          ApiKeyInvalidError: (e) => {
+            if (!json) {
+              Effect.runSync(Console.error(`\n${e.message}`))
+            }
+            return Effect.succeed(null as BuildEmbeddingsResult | null)
+          },
+          IndexNotFoundError: () =>
+            Effect.succeed(null as BuildEmbeddingsResult | null),
+          FileReadError: (e) => {
+            if (!json) {
+              Effect.runSync(Console.error(`\nCannot read index files: ${e.message}`))
+            }
+            return Effect.succeed(null as BuildEmbeddingsResult | null)
+          },
+          IndexCorruptedError: (e) => {
+            if (!json) {
+              Effect.runSync(Console.error(`\nIndex is corrupted: ${e.details ?? e.reason}`))
+            }
+            return Effect.succeed(null as BuildEmbeddingsResult | null)
+          },
+          EmbeddingError: (e) => {
+            if (!json) {
+              Effect.runSync(Console.error(`\nEmbedding failed: ${e.message}`))
+            }
+            return Effect.succeed(null as BuildEmbeddingsResult | null)
+          },
+          VectorStoreError: (e) => {
+            if (!json) {
+              Effect.runSync(Console.error(`\nVector store error: ${e.message}`))
+            }
+            return Effect.succeed(null as BuildEmbeddingsResult | null)
+          },
+        }),
       )
 
       if (!result) {
@@ -415,6 +477,7 @@ const handleMissingEmbeddings = (
         yield* Console.log('Building embeddings...')
       }
 
+      // Note: Graceful degradation - embedding errors fall back to keyword search
       const result = yield* buildEmbeddings(resolvedDir, {
         force: false,
         onFileProgress: (progress) => {
@@ -425,8 +488,47 @@ const handleMissingEmbeddings = (
           }
         },
       }).pipe(
-        handleApiKeyError,
-        Effect.catchAll(() => Effect.succeed(null)),
+        Effect.map((r): BuildEmbeddingsResult | null => r),
+        Effect.catchTags({
+          ApiKeyMissingError: (e) => {
+            if (!json) {
+              Effect.runSync(Console.error(`\n${e.message}`))
+            }
+            return Effect.succeed(null as BuildEmbeddingsResult | null)
+          },
+          ApiKeyInvalidError: (e) => {
+            if (!json) {
+              Effect.runSync(Console.error(`\n${e.message}`))
+            }
+            return Effect.succeed(null as BuildEmbeddingsResult | null)
+          },
+          IndexNotFoundError: () =>
+            Effect.succeed(null as BuildEmbeddingsResult | null),
+          FileReadError: (e) => {
+            if (!json) {
+              Effect.runSync(Console.error(`\nCannot read index files: ${e.message}`))
+            }
+            return Effect.succeed(null as BuildEmbeddingsResult | null)
+          },
+          IndexCorruptedError: (e) => {
+            if (!json) {
+              Effect.runSync(Console.error(`\nIndex is corrupted: ${e.details ?? e.reason}`))
+            }
+            return Effect.succeed(null as BuildEmbeddingsResult | null)
+          },
+          EmbeddingError: (e) => {
+            if (!json) {
+              Effect.runSync(Console.error(`\nEmbedding failed: ${e.message}`))
+            }
+            return Effect.succeed(null as BuildEmbeddingsResult | null)
+          },
+          VectorStoreError: (e) => {
+            if (!json) {
+              Effect.runSync(Console.error(`\nVector store error: ${e.message}`))
+            }
+            return Effect.succeed(null as BuildEmbeddingsResult | null)
+          },
+        }),
       )
 
       if (!result) {

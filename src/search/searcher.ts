@@ -7,6 +7,12 @@ import * as path from 'node:path'
 import { Effect } from 'effect'
 
 import {
+  DocumentNotFoundError,
+  type FileReadError,
+  type IndexCorruptedError,
+  IndexNotFoundError,
+} from '../errors/index.js'
+import {
   createStorage,
   loadDocumentIndex,
   loadSectionIndex,
@@ -96,10 +102,23 @@ const matchPath = (filePath: string, pattern: string): boolean => {
 // Search Implementation
 // ============================================================================
 
+/**
+ * Search for sections by metadata (heading, path, content flags).
+ *
+ * @param rootPath - Root directory containing indexed markdown files
+ * @param options - Search filters (heading, path pattern, code/list/table flags)
+ * @returns Matching sections
+ *
+ * @throws FileReadError - Cannot read index files
+ * @throws IndexCorruptedError - Index files are corrupted
+ */
 export const search = (
   rootPath: string,
   options: SearchOptions = {},
-): Effect.Effect<readonly SearchResult[], Error> =>
+): Effect.Effect<
+  readonly SearchResult[],
+  FileReadError | IndexCorruptedError
+> =>
   Effect.gen(function* () {
     const storage = createStorage(rootPath)
 
@@ -184,11 +203,21 @@ export const search = (
  * Search within section content.
  * Supports boolean operators (AND, OR, NOT) and quoted phrases.
  * Falls back to regex for simple patterns.
+ *
+ * @param rootPath - Root directory containing indexed markdown files
+ * @param options - Search options including content pattern
+ * @returns Matching sections with match highlights
+ *
+ * @throws FileReadError - Cannot read index or source files
+ * @throws IndexCorruptedError - Index files are corrupted
  */
 export const searchContent = (
   rootPath: string,
   options: SearchOptions = {},
-): Effect.Effect<readonly SearchResult[], Error> =>
+): Effect.Effect<
+  readonly SearchResult[],
+  FileReadError | IndexCorruptedError
+> =>
   Effect.gen(function* () {
     const storage = createStorage(rootPath)
 
@@ -404,10 +433,23 @@ export const searchContent = (
 // Search with Content (legacy, uses heading-only search)
 // ============================================================================
 
+/**
+ * Search for sections by metadata and include section content.
+ *
+ * @param rootPath - Root directory containing indexed markdown files
+ * @param options - Search filters
+ * @returns Matching sections with content
+ *
+ * @throws FileReadError - Cannot read index or source files
+ * @throws IndexCorruptedError - Index files are corrupted
+ */
 export const searchWithContent = (
   rootPath: string,
   options: SearchOptions = {},
-): Effect.Effect<readonly SearchResult[], Error> =>
+): Effect.Effect<
+  readonly SearchResult[],
+  FileReadError | IndexCorruptedError
+> =>
   Effect.gen(function* () {
     const storage = createStorage(rootPath)
     const results = yield* search(rootPath, options)
@@ -471,11 +513,30 @@ export interface SectionContext {
   readonly hasTable: boolean
 }
 
+/**
+ * Get context information for a document.
+ *
+ * @param rootPath - Root directory containing indexed markdown files
+ * @param filePath - Path to the document
+ * @param options - Context options (max tokens, include content)
+ * @returns Document context with sections
+ *
+ * @throws IndexNotFoundError - Index doesn't exist
+ * @throws DocumentNotFoundError - Document not in index
+ * @throws FileReadError - Cannot read index or source files
+ * @throws IndexCorruptedError - Index files are corrupted
+ */
 export const getContext = (
   rootPath: string,
   filePath: string,
   options: ContextOptions = {},
-): Effect.Effect<DocumentContext, Error> =>
+): Effect.Effect<
+  DocumentContext,
+  | IndexNotFoundError
+  | DocumentNotFoundError
+  | FileReadError
+  | IndexCorruptedError
+> =>
   Effect.gen(function* () {
     const storage = createStorage(rootPath)
     const resolvedFile = path.resolve(filePath)
@@ -486,14 +547,17 @@ export const getContext = (
 
     if (!docIndex || !sectionIndex) {
       return yield* Effect.fail(
-        new Error("Index not found. Run 'mdcontext index' first."),
+        new IndexNotFoundError({ path: storage.rootPath }),
       )
     }
 
     const document = docIndex.documents[relativePath]
     if (!document) {
       return yield* Effect.fail(
-        new Error(`Document not found in index: ${relativePath}`),
+        new DocumentNotFoundError({
+          path: relativePath,
+          indexPath: storage.rootPath,
+        }),
       )
     }
 

@@ -1,0 +1,216 @@
+# Task: embeddings-ux
+
+## Goal
+
+Improve the embeddings/semantic search UX with graceful fallback messaging and clear status indicators.
+
+## Context
+
+Agent A2 in validation experiment was confused when semantic searches returned 0 results with no explanation. The tool silently fell back to structural search (or failed) without indicating embeddings weren't available.
+
+**Codebase location:** `/Users/alphab/Dev/LLM/DEV/md-tldr/`
+
+## Success Criteria
+
+### Phase 1: Graceful Fallback
+- [ ] Search shows clear message when embeddings unavailable
+- [ ] `mdtldr stats` shows embeddings status
+- [ ] Graceful fallback from semantic to structural with explanation
+- [ ] All existing tests pass
+- [ ] New tests cover embeddings status detection
+
+### Phase 2: Auto-Index & Messaging
+- [ ] `index --embed` shows batch progress and timing
+- [ ] Search prompts to create index when missing (with time estimate)
+- [ ] Auto-indexes without prompt if estimated time < threshold
+- [ ] Time estimation is reasonably accurate (within 2x)
+
+## Implementation
+
+### Single Phase: Graceful Embeddings Fallback (P0 Critical)
+
+**Problem:** Semantic searches silently failed or returned 0 results when embeddings weren't built.
+
+**Current behavior (assumed):**
+- User runs `mdtldr search "how to deploy"` expecting semantic search
+- No embeddings exist
+- Returns 0 results or falls back silently
+- User confused about why it didn't work
+
+**Desired behavior:**
+1. Detect if embeddings exist in index
+2. If semantic search attempted without embeddings:
+   - Show clear message explaining the situation
+   - Fall back to structural search
+   - Indicate which mode was used
+3. Add embeddings status to `mdtldr stats`
+
+**Implementation steps:**
+
+1. **Add embeddings detection function**
+   ```typescript
+   function hasEmbeddings(indexPath: string): boolean {
+     // Check if embeddings file/data exists in .md-tldr/
+   }
+   ```
+
+2. **Update search command fallback logic**
+   ```typescript
+   if (isSemanticQuery(query) && !hasEmbeddings(indexPath)) {
+     console.log("ℹ️  Semantic search unavailable (no embeddings).");
+     console.log("   Using structural search instead.");
+     console.log("   Run 'mdtldr index --embed' to enable semantic search.\n");
+     // Fall back to structural search
+   }
+   ```
+
+3. **Add embeddings status to stats command**
+   ```bash
+   mdtldr stats
+   # Output includes:
+   # Embeddings: No (run 'mdtldr index --embed' to enable)
+   # -- or --
+   # Embeddings: Yes (1024 sections indexed)
+   ```
+
+4. **Add search mode to output header**
+   ```bash
+   mdtldr search "how to deploy"
+   # [structural search - embeddings not found]
+   # Results:
+   # ...
+   ```
+
+**Acceptance:**
+```bash
+# Without embeddings:
+mdtldr search "how to deploy"
+# Output:
+# ℹ️  Semantic search unavailable (no embeddings).
+#    Using structural search instead.
+#    Run 'mdtldr index --embed' to enable semantic search.
+#
+# [structural search]
+# Results:
+# ...
+
+# Stats shows embeddings status:
+mdtldr stats
+# Files: 25
+# Sections: 1024
+# Tokens: 156,000
+# Embeddings: No (run 'mdtldr index --embed' to enable)
+
+# After building embeddings:
+mdtldr index --embed
+mdtldr stats
+# Embeddings: Yes (1024 sections)
+
+mdtldr search "how to deploy"
+# [semantic search]
+# Results:
+# ...
+```
+
+**Tests to add:**
+- Fallback message appears when no embeddings
+- Stats shows embeddings status correctly
+- Search mode indicator reflects actual mode used
+- Fallback still returns useful structural results
+- No message when embeddings exist and semantic search works
+
+---
+
+### Phase 2: Auto-Index Prompt & Better Messaging
+
+**Problem:** When user tries semantic search without embeddings, they must manually run `index --embed`. Also, `index --embed` has no progress feedback.
+
+**Desired behavior:**
+
+1. **Auto-index prompt on missing embeddings:**
+   ```bash
+   mdtldr search "how to deploy" /path/to/docs
+
+   # No semantic index found. Options:
+   # 1. Create index now (recommended, ~5s for 150 sections)
+   # 2. Use keyword search instead
+   # > 1
+   # Indexing 150 sections... done
+   # [semantic search]
+   # Results: ...
+   ```
+
+2. **Smart auto-index:** If estimated time < threshold (e.g., 10s), skip prompt and just index:
+   ```bash
+   mdtldr search "how to deploy" /path/to/small-docs
+
+   # No semantic index. Creating now (estimated ~3s)...
+   # Indexing 50 sections... done
+   # [semantic search]
+   # Results: ...
+   ```
+
+3. **Better `index --embed` progress messaging:**
+   ```bash
+   mdtldr index --embed /path/to/docs
+
+   # Indexing 150 sections...
+   # Batch 1/2 (100 sections)... done
+   # Batch 2/2 (50 sections)... done
+   #
+   # Embedded 150 sections in 4.2s
+   # Tokens: 12,500 | Cost: $0.00025
+   ```
+
+**Time estimation logic:**
+- Count embeddable sections (>10 tokens) from existing index
+- Estimate: ~30ms per section (API call overhead + network)
+- Formula: `sections * 0.03` seconds (adjust based on actual measurements)
+- Auto-index threshold: configurable, default 10 seconds
+
+**Implementation steps:**
+
+1. Add `estimateEmbeddingTime(sectionCount: number): number` helper
+2. Add progress callback to `buildEmbeddings()` for batch progress
+3. Update search command to detect missing embeddings and prompt/auto-index
+4. Add `--auto-index-threshold` option (default 10s, 0 to disable auto)
+
+## Technical Notes
+
+- Embeddings stored in `.md-tldr/vectors.bin` + `.md-tldr/vectors.meta.json`
+- Check for embeddings file/database presence
+- May need to handle partial embeddings (some files embedded, some not)
+- Keep fallback message concise but actionable
+- Batch size is 100 sections per API call
+
+## Edge Cases
+
+1. **Partial embeddings:** Some files embedded, others not
+   - Show: "Embeddings: Partial (500/1024 sections). Re-run 'mdtldr index --embed' to complete."
+
+2. **Stale embeddings:** Files changed since embeddings built
+   - Show: "Embeddings: Stale (index modified). Run 'mdtldr index --embed --force' to refresh."
+
+3. **Embeddings in progress:** Large corpus being indexed
+   - This is likely not applicable (sync operation), but consider if relevant
+
+## Validation
+
+After implementation:
+```bash
+# Test without embeddings
+rm -rf /Users/alphab/Dev/LLM/DEV/TMP/memory/mdtldr-exp-1/.md-tldr
+mdtldr index /Users/alphab/Dev/LLM/DEV/TMP/memory/mdtldr-exp-1
+mdtldr stats /Users/alphab/Dev/LLM/DEV/TMP/memory/mdtldr-exp-1
+mdtldr search "how to deploy" /Users/alphab/Dev/LLM/DEV/TMP/memory/mdtldr-exp-1
+
+# Test with embeddings
+mdtldr index --embed /Users/alphab/Dev/LLM/DEV/TMP/memory/mdtldr-exp-1
+mdtldr stats /Users/alphab/Dev/LLM/DEV/TMP/memory/mdtldr-exp-1
+mdtldr search "how to deploy" /Users/alphab/Dev/LLM/DEV/TMP/memory/mdtldr-exp-1
+```
+
+## References
+
+- BACKLOG.md item: #2
+- Agent feedback: A2, FINAL-SYNTHESIS

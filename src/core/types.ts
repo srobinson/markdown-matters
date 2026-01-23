@@ -84,24 +84,17 @@ export interface MdCodeBlock {
 // Error Types
 // ============================================================================
 
+/**
+ * Parse error from markdown parsing
+ *
+ * Note: This interface is used by parser.ts. For the TaggedError version
+ * that works with Effect's error handling, see src/errors/index.ts ParseError.
+ */
 export interface ParseError {
   readonly _tag: 'ParseError'
   readonly message: string
   readonly line?: number | undefined
   readonly column?: number | undefined
-}
-
-export interface IoError {
-  readonly _tag: 'IoError'
-  readonly message: string
-  readonly path: string
-  readonly cause?: unknown
-}
-
-export interface IndexError {
-  readonly _tag: 'IndexError'
-  readonly cause: 'DiskFull' | 'Permission' | 'Corrupted' | 'Unknown'
-  readonly message: string
 }
 
 // ============================================================================
@@ -117,24 +110,4 @@ export const ParseError = (
   message,
   line,
   column,
-})
-
-export const IoError = (
-  message: string,
-  path: string,
-  cause?: unknown,
-): IoError => ({
-  _tag: 'IoError',
-  message,
-  path,
-  cause,
-})
-
-export const IndexError = (
-  cause: IndexError['cause'],
-  message: string,
-): IndexError => ({
-  _tag: 'IndexError',
-  cause,
-  message,
 })
