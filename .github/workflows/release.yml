@@ -103,4 +103,4 @@ jobs:
           publish: pnpm changeset publish
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # No NPM_TOKEN needed with OIDC trusted publishing
+          NPM_CONFIG_PROVENANCE: true
