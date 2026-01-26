@@ -49,7 +49,7 @@ export const helpContent: Record<string, CommandHelp> = {
       {
         name: '--provider <name>',
         description:
-          'Embedding provider: openai, ollama, lm-studio, openrouter',
+          'Embedding provider: openai, ollama, lm-studio, openrouter, voyage',
       },
       {
         name: '--provider-model <model>',
@@ -69,7 +69,7 @@ export const helpContent: Record<string, CommandHelp> = {
     ],
     notes: [
       'After indexing, prompts to enable semantic search (use --no-embed to skip).',
-      'Providers: openai (default), ollama (free/local), lm-studio, openrouter.',
+      'Providers: openai (default), ollama (free/local), lm-studio, openrouter, voyage.',
       'Set API keys: OPENAI_API_KEY, OPENROUTER_API_KEY, or use local providers.',
       'Index is stored in .mdcontext/ directory.',
     ],
@@ -94,6 +94,16 @@ export const helpContent: Record<string, CommandHelp> = {
       '# Context lines (like grep):',
       'mdcontext search "checkpoint" -C 3         # 3 lines before AND after',
       'mdcontext search "error" -B 2 -A 5         # 2 before, 5 after',
+      '',
+      '# Quality modes (speed vs recall tradeoff):',
+      'mdcontext search "auth" --quality fast       # Faster, slight recall reduction',
+      'mdcontext search "auth" -q thorough          # Best recall, ~30% slower',
+      '',
+      '# Re-ranking for precision:',
+      'mdcontext search "auth" --rerank           # Re-rank with cross-encoder',
+      '',
+      '# HyDE for complex queries:',
+      'mdcontext search "how to implement auth" --hyde   # Expands query semantically',
       '',
       '# AI summarization:',
       'mdcontext search "auth" --summarize        # Get AI summary of results',
@@ -138,6 +148,26 @@ export const helpContent: Record<string, CommandHelp> = {
         name: '--provider <name>',
         description: 'Embedding provider for semantic search',
       },
+      {
+        name: '-r, --rerank',
+        description:
+          'Re-rank results with cross-encoder for better precision. Downloads ~90MB model on first use.',
+      },
+      {
+        name: '--rerank-init',
+        description:
+          'Pre-download cross-encoder model (~90MB) before first search to avoid latency.',
+      },
+      {
+        name: '-q, --quality <mode>',
+        description:
+          'Search quality: fast (quicker), balanced (default), thorough (best recall)',
+      },
+      {
+        name: '--hyde',
+        description:
+          'Use HyDE query expansion for complex queries. Improves recall 10-30% at cost of ~1-2s latency.',
+      },
       { name: '--json', description: 'Output results as JSON' },
       { name: '--pretty', description: 'Pretty-print JSON output' },
       {
@@ -165,6 +195,23 @@ export const helpContent: Record<string, CommandHelp> = {
       '  If 0 results: content may exist below threshold. Try --threshold 0.25.',
       '  Typical scores: single words ~30-40%, phrases ~50-70%.',
       '  Higher threshold = stricter matching. Lower = more results.',
+      '',
+      'Re-ranking (--rerank):',
+      '  Cross-encoder model improves precision by 20-35%.',
+      '  Requires: npm install @huggingface/transformers',
+      '  Model is downloaded on first use (~90MB) and cached locally.',
+      '  Use --rerank-init to pre-download and avoid latency on first search.',
+      '',
+      'Quality modes (--quality):',
+      '  fast: efSearch=64, ~40% faster, slight recall reduction.',
+      '  balanced: efSearch=100 (default), good balance of speed and recall.',
+      '  thorough: efSearch=256, ~30% slower, best recall for large corpora.',
+      '',
+      'HyDE (--hyde):',
+      '  Generates hypothetical document using LLM, searches with that embedding.',
+      '  Best for: "how to" questions, complex queries, ambiguous searches.',
+      '  Requires: OPENAI_API_KEY (uses gpt-4o-mini by default).',
+      '  Adds ~1-2s latency, improves recall 10-30% on complex queries.',
     ],
   },
   context: {

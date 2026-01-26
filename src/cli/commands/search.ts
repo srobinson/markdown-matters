@@ -18,6 +18,9 @@ import {
   estimateEmbeddingCost,
   semanticSearchWithStats,
 } from '../../embeddings/semantic-search.js'
+import type { SearchQuality } from '../../embeddings/types.js'
+import { INDEX_DIR } from '../../index/types.js'
+import { initializeReranker } from '../../search/cross-encoder.js'
 import {
   detectSearchModes,
   hybridSearch,
@@ -119,11 +122,38 @@ export const searchCommand = Command.make(
       'ollama',
       'lm-studio',
       'openrouter',
+      'voyage',
     ]).pipe(
       Options.withDescription(
-        'Embedding provider for semantic search: openai, ollama, lm-studio, or openrouter',
+        'Embedding provider for semantic search: openai, ollama, lm-studio, openrouter, or voyage',
       ),
       Options.optional,
+    ),
+    rerank: Options.boolean('rerank').pipe(
+      Options.withAlias('r'),
+      Options.withDescription(
+        'Re-rank results using cross-encoder for improved precision. Downloads ~90MB model on first use. Requires @huggingface/transformers.',
+      ),
+      Options.withDefault(false),
+    ),
+    quality: Options.choice('quality', ['fast', 'balanced', 'thorough']).pipe(
+      Options.withAlias('q'),
+      Options.withDescription(
+        'Search quality mode: fast (quicker, lower recall), balanced (default), thorough (slower, better recall)',
+      ),
+      Options.optional,
+    ),
+    hyde: Options.boolean('hyde').pipe(
+      Options.withDescription(
+        'Use HyDE (Hypothetical Document Embeddings) for complex queries. Generates a hypothetical answer with LLM, then searches using that embedding. Improves recall 10-30% on complex/ambiguous queries at cost of ~1-2s latency and LLM API usage.',
+      ),
+      Options.withDefault(false),
+    ),
+    rerankInit: Options.boolean('rerank-init').pipe(
+      Options.withDescription(
+        'Pre-download the cross-encoder model (~90MB) for re-ranking. Use this before first search to avoid latency.',
+      ),
+      Options.withDefault(false),
     ),
     json: jsonOption,
     pretty: prettyOption,
@@ -155,6 +185,10 @@ export const searchCommand = Command.make(
     afterContext,
     autoIndexThreshold,
     provider,
+    rerank,
+    quality,
+    hyde,
+    rerankInit,
     json,
     pretty,
     summarize,
@@ -162,13 +196,53 @@ export const searchCommand = Command.make(
     stream,
   }) =>
     Effect.gen(function* () {
+      const resolvedDir = path.resolve(dirPath)
+
+      // Handle --rerank-init: pre-download model and exit
+      if (rerankInit) {
+        yield* Console.log(
+          'Initializing cross-encoder model (~90MB download)...',
+        )
+
+        const cacheDir = path.join(resolvedDir, INDEX_DIR, 'models')
+
+        const result = yield* initializeReranker(cacheDir, (progress) => {
+          if (progress.status === 'loading' && progress.file) {
+            const pct = progress.progress
+              ? ` (${Math.round(progress.progress)}%)`
+              : ''
+            process.stdout.write(`\r  Downloading: ${progress.file}${pct}`)
+          }
+        }).pipe(
+          Effect.map(() => true),
+          Effect.catchTag('RerankerError', (e) => {
+            if (e.reason === 'DependencyMissing') {
+              return Effect.succeed(false)
+            }
+            return Effect.fail(e)
+          }),
+        )
+
+        if (!result) {
+          yield* Console.log('')
+          yield* Console.log('Error: @huggingface/transformers not installed.')
+          yield* Console.log(
+            'Install with: npm install @huggingface/transformers',
+          )
+          return
+        }
+
+        yield* Console.log('')
+        yield* Console.log('Cross-encoder model initialized successfully.')
+        yield* Console.log('Use --rerank on searches for improved precision.')
+        return
+      }
+
       // Get configuration (with fallback to defaults if not available)
       const config = yield* Effect.serviceOption(ConfigService).pipe(
         Effect.map(Option.getOrElse(() => defaultConfig)),
       )
       const searchConfig = config.search
-
-      const resolvedDir = path.resolve(dirPath)
 
       // Apply config-based defaults when CLI options use their static defaults
       // Note: CLI options have static defaults for help text; config overrides those defaults
@@ -277,11 +351,27 @@ export const searchCommand = Command.make(
 
       if (effectiveMode === 'hybrid') {
         // Hybrid search - combines BM25 and semantic with RRF
+        const effectiveQuality = Option.getOrUndefined(quality) as
+          | SearchQuality
+          | undefined
         const { results, stats } = yield* hybridSearch(resolvedDir, query, {
           limit: effectiveLimit,
           threshold: effectiveThreshold,
           mode: 'hybrid',
+          rerank,
+          quality: effectiveQuality,
         })
+
+        // Warn if reranking was requested but not applied
+        if (rerank && !stats.reranked && !json) {
+          yield* Console.log(
+            'Note: --rerank requested but @huggingface/transformers not installed',
+          )
+          yield* Console.log(
+            '      Install with: npm install @huggingface/transformers',
+          )
+          yield* Console.log('')
+        }
 
         if (json) {
           const output = {
@@ -461,11 +551,15 @@ export const searchCommand = Command.make(
                 | 'openai'
                 | 'ollama'
                 | 'lm-studio'
-                | 'openrouter',
+                | 'openrouter'
+                | 'voyage',
             }
           : undefined
 
         // Semantic search with stats for below-threshold feedback
+        const semanticQuality = Option.getOrUndefined(quality) as
+          | SearchQuality
+          | undefined
         const searchResult = yield* semanticSearchWithStats(
           resolvedDir,
           query,
@@ -473,6 +567,8 @@ export const searchCommand = Command.make(
             limit: effectiveLimit,
             threshold: effectiveThreshold,
             providerConfig,
+            quality: semanticQuality,
+            hyde,
           },
         )
         const { results, belowThresholdCount, belowThresholdHighest } =
@@ -483,6 +579,7 @@ export const searchCommand = Command.make(
             mode: 'semantic',
             modeReason,
             query,
+            hyde,
             results,
             belowThresholdCount,
             belowThresholdHighest,
@@ -493,7 +590,10 @@ export const searchCommand = Command.make(
           const semanticModeStr = showSemanticReason
             ? `${modeIndicator} (${modeReason})`
             : modeIndicator
-          yield* Console.log(`${semanticModeStr} Semantic search: "${query}"`)
+          const hydeIndicator = hyde ? ' [HyDE]' : ''
+          yield* Console.log(
+            `${semanticModeStr}${hydeIndicator} Semantic search: "${query}"`,
+          )
           yield* Console.log(`Results: ${results.length}`)
           yield* Console.log('')
 

@@ -145,7 +145,12 @@ export type SearchConfig = Config.Config.Success<typeof SearchConfig>
  * - lm-studio: LM Studio's local embedding server
  * - openrouter: OpenRouter API gateway for multiple providers
  */
-export type EmbeddingProvider = 'openai' | 'ollama' | 'lm-studio' | 'openrouter'
+export type EmbeddingProvider =
+  | 'openai'
+  | 'ollama'
+  | 'lm-studio'
+  | 'openrouter'
+  | 'voyage'
 
 /**
  * Supported OpenAI embedding models
@@ -168,6 +173,7 @@ export const EmbeddingsConfig = Config.all({
     'ollama',
     'lm-studio',
     'openrouter',
+    'voyage',
   )('provider').pipe(Config.withDefault('openai' as const)),
 
   /**
@@ -224,6 +230,28 @@ export const EmbeddingsConfig = Config.all({
    * No default - must be provided
    */
   apiKey: Config.option(Config.string('apiKey')),
+
+  // HNSW Index Build Parameters
+  // These control the vector index structure and affect build time and search quality.
+  // Changing these requires rebuilding the index.
+
+  /**
+   * HNSW M parameter: maximum connections per node
+   * Higher M = better recall but larger index and slower builds
+   * Recommended: 12 (speed), 16 (balanced), 24 (quality)
+   * Default: 16
+   */
+  hnswM: Config.number('hnswM').pipe(Config.withDefault(16)),
+
+  /**
+   * HNSW efConstruction: construction-time search width
+   * Higher values = better index quality but slower builds
+   * Recommended: 128 (speed), 200 (balanced), 256 (quality)
+   * Default: 200
+   */
+  hnswEfConstruction: Config.number('hnswEfConstruction').pipe(
+    Config.withDefault(200),
+  ),
 })
 
 /**
@@ -541,6 +569,8 @@ export const defaultConfig: MdContextConfig = {
     retryDelayMs: 1000,
     timeoutMs: 30000,
     apiKey: Option.none(),
+    hnswM: 16,
+    hnswEfConstruction: 200,
   },
   summarization: {
     briefTokenBudget: 100,

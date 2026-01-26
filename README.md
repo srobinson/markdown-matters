@@ -37,7 +37,7 @@ mdcontext context README.md           # Get LLM-ready summary
 npm install -g mdcontext
 ```
 
-Requires Node.js 18+. Semantic search requires an embedding provider (OpenAI, Ollama, LM Studio, or OpenRouter). See [docs/CONFIG.md](./docs/CONFIG.md#embedding-providers) for provider setup.
+Requires Node.js 18+. Semantic search requires an embedding provider (OpenAI, Ollama, LM Studio, OpenRouter, or Voyage). See [docs/CONFIG.md](./docs/CONFIG.md#embedding-providers) for provider setup.
 
 ---
 
@@ -92,6 +92,25 @@ mdcontext search "error" -B 2 -A 5            # 2 lines before, 5 lines after
 ```
 
 Auto-detection: Uses semantic search if embeddings exist and query looks like natural language. Use `-k` to force keyword search.
+
+#### Advanced Search
+
+**Quality Modes** - Control speed vs. accuracy tradeoff:
+```bash
+mdcontext search "query" --quality fast       # 40% faster, good recall
+mdcontext search "query" -q thorough          # Best recall, 30% slower
+```
+
+**Re-ranking** - Boost precision by 20-35%:
+```bash
+mdcontext search "query" --rerank             # First use downloads 90MB model
+npm install @huggingface/transformers         # Required dependency
+```
+
+**HyDE** - Better results for complex questions:
+```bash
+mdcontext search "how to implement auth" --hyde   # Expands query semantically
+```
 
 #### AI Summarization
 
@@ -189,6 +208,7 @@ mdcontext supports multiple embedding providers for semantic search:
 - **Ollama** - Free, local, daemon-based
 - **LM Studio** - Free, local, GUI-based (development only)
 - **OpenRouter** - Multi-provider gateway
+- **Voyage** - Premium quality, competitive pricing
 
 Quick start with OpenAI:
 ```bash
@@ -335,7 +355,7 @@ Based on the search results, here are the key findings...
 | Provider | Command | Subscription Required |
 |----------|---------|----------------------|
 | Claude Code | `claude` | Claude Pro/Team |
-| GitHub Copilot | `gh copilot` | Copilot subscription |
+| GitHub Copilot | `copilot` | Copilot subscription |
 | OpenCode | `opencode` | BYOK (any provider) |
 
 **API Providers (pay-per-use):**

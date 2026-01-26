@@ -13,6 +13,7 @@ import type { ApiKeyMissingError } from '../errors/index.js'
 import { createOpenAIProvider } from './openai-provider.js'
 import { PROVIDER_BASE_URLS } from './provider-constants.js'
 import type { EmbeddingProvider as EmbeddingProviderInterface } from './types.js'
+import { createVoyageProvider } from './voyage-provider.js'
 
 // Re-export provider constants for backward compatibility
 export { PROVIDER_BASE_URLS } from './provider-constants.js'
@@ -137,8 +138,16 @@ export const createEmbeddingProvider = (
       ? embeddingsConfig.apiKey.value
       : undefined
 
-    // For now, all providers use OpenAI-compatible API
-    // Future: Could return different provider classes here (e.g., native Ollama SDK)
+    // Voyage AI uses its own native API, not OpenAI-compatible
+    if (provider === 'voyage') {
+      return yield* createVoyageProvider({
+        model: embeddingsConfig.model,
+        batchSize: embeddingsConfig.batchSize,
+        apiKey,
+      })
+    }
+
+    // All other providers use OpenAI-compatible API
     return yield* createOpenAIProvider({
       model: embeddingsConfig.model,
       dimensions: embeddingsConfig.dimensions,
@@ -167,6 +176,16 @@ export const createEmbeddingProviderDirect = (
       normalizeBaseURL(config.baseURL),
     )
 
+    // Voyage AI uses its own native API, not OpenAI-compatible
+    if (provider === 'voyage') {
+      return yield* createVoyageProvider({
+        model: config.model,
+        batchSize: config.batchSize,
+        apiKey: normalizeApiKey(config.apiKey),
+      })
+    }
+
+    // All other providers use OpenAI-compatible API
     return yield* createOpenAIProvider({
       model: config.model,
       dimensions: config.dimensions,

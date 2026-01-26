@@ -22,6 +22,11 @@ const INDEX_VERSION = 1
 // Vector Store
 // ============================================================================
 
+export interface VectorSearchOptions {
+  /** efSearch parameter for HNSW (controls recall/speed tradeoff, default: 100) */
+  readonly efSearch?: number | undefined
+}
+
 export interface VectorStore {
   readonly rootPath: string
   readonly dimensions: number
@@ -30,6 +35,7 @@ export interface VectorStore {
     vector: number[],
     limit: number,
     threshold?: number,
+    options?: VectorSearchOptions,
   ): Effect.Effect<VectorSearchResult[], VectorStoreError>
   /**
    * Search with additional stats about below-threshold results.
@@ -39,15 +45,19 @@ export interface VectorStore {
     vector: number[],
     limit: number,
     threshold?: number,
+    options?: VectorSearchOptions,
   ): Effect.Effect<VectorSearchResultWithStats, VectorStoreError>
   save(): Effect.Effect<void, VectorStoreError>
   /**
    * Load the vector store from disk.
    *
-   * @returns true if loaded successfully, false if no index exists
+   * @returns VectorStoreLoadResult with loaded status and any warnings
    * @throws DimensionMismatchError if the stored dimensions don't match current provider
    */
-  load(): Effect.Effect<boolean, VectorStoreError | DimensionMismatchError>
+  load(): Effect.Effect<
+    VectorStoreLoadResult,
+    VectorStoreError | DimensionMismatchError
+  >
   getStats(): VectorStoreStats
 }
 
@@ -80,6 +90,27 @@ export interface VectorStoreStats {
   readonly totalTokens: number
 }
 
+/**
+ * Result of loading a vector store, including any warnings about config mismatches.
+ */
+export interface VectorStoreLoadResult {
+  /** Whether the index was loaded successfully */
+  readonly loaded: boolean
+  /** Warning about HNSW parameter mismatch (if any) */
+  readonly hnswMismatch?: HnswMismatchWarning | undefined
+}
+
+/**
+ * Warning when HNSW parameters in config differ from stored index parameters.
+ * The index was built with different parameters than currently configured.
+ */
+export interface HnswMismatchWarning {
+  /** Current config values */
+  readonly configParams: { m: number; efConstruction: number }
+  /** Values stored in the index */
+  readonly indexParams: { m: number; efConstruction: number }
+}
+
 // ============================================================================
 // Implementation
 // ============================================================================
@@ -98,9 +129,19 @@ class HnswVectorStore implements VectorStore {
   private totalCost = 0
   private totalTokens = 0
 
-  constructor(rootPath: string, dimensions: number) {
+  // HNSW build parameters
+  private readonly hnswM: number
+  private readonly hnswEfConstruction: number
+
+  constructor(
+    rootPath: string,
+    dimensions: number,
+    hnswOptions?: HnswBuildOptions,
+  ) {
     this.rootPath = path.resolve(rootPath)
     this.dimensions = dimensions
+    this.hnswM = hnswOptions?.m ?? 16
+    this.hnswEfConstruction = hnswOptions?.efConstruction ?? 200
   }
 
   private getIndexDir(): string {
@@ -122,7 +163,8 @@ class HnswVectorStore implements VectorStore {
         'cosine',
         this.dimensions,
       )
-      this.index.initIndex(10000, 16, 200, 100)
+      // Use configured HNSW parameters (M, efConstruction, randomSeed)
+      this.index.initIndex(10000, this.hnswM, this.hnswEfConstruction, 100)
     }
     return this.index
   }
@@ -163,11 +205,17 @@ class HnswVectorStore implements VectorStore {
     vector: number[],
     limit: number,
     threshold = 0,
+    options?: VectorSearchOptions,
   ): Effect.Effect<VectorSearchResult[], VectorStoreError> {
     return Effect.try({
       try: () => {
         if (!this.index || this.entries.size === 0) {
           return []
+        }
+
+        // Set efSearch if provided (controls recall/speed tradeoff)
+        if (options?.efSearch !== undefined) {
+          this.index.setEf(options.efSearch)
         }
 
         const result = this.index.searchKnn(
@@ -219,6 +267,7 @@ class HnswVectorStore implements VectorStore {
     vector: number[],
     limit: number,
     threshold = 0,
+    options?: VectorSearchOptions,
   ): Effect.Effect<VectorSearchResultWithStats, VectorStoreError> {
     return Effect.try({
       try: () => {
@@ -228,6 +277,11 @@ class HnswVectorStore implements VectorStore {
             belowThresholdCount: 0,
             belowThresholdHighest: null,
           }
+        }
+
+        // Set efSearch if provided (controls recall/speed tradeoff)
+        if (options?.efSearch !== undefined) {
+          this.index.setEf(options.efSearch)
         }
 
         const result = this.index.searchKnn(
@@ -335,6 +389,11 @@ class HnswVectorStore implements VectorStore {
           totalTokens: this.totalTokens,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
+          // Store HNSW build parameters for validation on load
+          hnswParams: {
+            m: this.hnswM,
+            efConstruction: this.hnswEfConstruction,
+          },
         }
 
         yield* Effect.tryPromise({
@@ -351,7 +410,10 @@ class HnswVectorStore implements VectorStore {
     )
   }
 
-  load(): Effect.Effect<boolean, VectorStoreError | DimensionMismatchError> {
+  load(): Effect.Effect<
+    VectorStoreLoadResult,
+    VectorStoreError | DimensionMismatchError
+  > {
     return Effect.gen(
       function* (this: HnswVectorStore) {
         const vectorPath = this.getVectorPath()
@@ -374,7 +436,7 @@ class HnswVectorStore implements VectorStore {
         )
 
         if (!filesExist) {
-          return false
+          return { loaded: false }
         }
 
         // Load metadata first
@@ -451,7 +513,23 @@ class HnswVectorStore implements VectorStore {
         this.totalCost = meta.totalCost
         this.totalTokens = meta.totalTokens
 
-        return true
+        // Check for HNSW parameter mismatch
+        let hnswMismatch: HnswMismatchWarning | undefined
+        if (meta.hnswParams) {
+          const indexM = meta.hnswParams.m
+          const indexEf = meta.hnswParams.efConstruction
+          if (indexM !== this.hnswM || indexEf !== this.hnswEfConstruction) {
+            hnswMismatch = {
+              configParams: {
+                m: this.hnswM,
+                efConstruction: this.hnswEfConstruction,
+              },
+              indexParams: { m: indexM, efConstruction: indexEf },
+            }
+          }
+        }
+
+        return { loaded: true, hnswMismatch }
       }.bind(this),
     )
   }
@@ -483,10 +561,22 @@ class HnswVectorStore implements VectorStore {
 // Factory
 // ============================================================================
 
+/**
+ * HNSW build parameters for index construction.
+ * These affect index quality and build time - changes require index rebuild.
+ */
+export interface HnswBuildOptions {
+  /** Max connections per node (default: 16). Higher = better recall, larger index. */
+  readonly m?: number | undefined
+  /** Construction-time search width (default: 200). Higher = better quality, slower builds. */
+  readonly efConstruction?: number | undefined
+}
+
 export const createVectorStore = (
   rootPath: string,
   dimensions: number,
-): VectorStore => new HnswVectorStore(rootPath, dimensions)
+  hnswOptions?: HnswBuildOptions,
+): VectorStore => new HnswVectorStore(rootPath, dimensions, hnswOptions)
 
 // Export the class for type access
 export { HnswVectorStore }

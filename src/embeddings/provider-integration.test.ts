@@ -407,7 +407,13 @@ describe('Provider Integration Tests', () => {
   // ==========================================================================
 
   describe('All Provider Types', () => {
-    const providers = ['openai', 'ollama', 'lm-studio', 'openrouter'] as const
+    const providers = [
+      'openai',
+      'ollama',
+      'lm-studio',
+      'openrouter',
+      'voyage',
+    ] as const
 
     for (const providerType of providers) {
       it(`${providerType} provider can be created with factory`, async () => {

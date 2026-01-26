@@ -31,13 +31,14 @@ describe('Provider Factory', () => {
       expect(PROVIDER_BASE_URLS.openrouter).toBe('https://openrouter.ai/api/v1')
     })
 
-    it('should have all four providers defined', () => {
+    it('should have all five providers defined', () => {
       const providers = Object.keys(PROVIDER_BASE_URLS)
-      expect(providers).toHaveLength(4)
+      expect(providers).toHaveLength(5)
       expect(providers).toContain('openai')
       expect(providers).toContain('ollama')
       expect(providers).toContain('lm-studio')
       expect(providers).toContain('openrouter')
+      expect(providers).toContain('voyage')
     })
   })
 

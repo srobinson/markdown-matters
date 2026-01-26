@@ -22,6 +22,7 @@ import {
   loadSectionIndex,
 } from '../index/storage.js'
 import { INDEX_DIR, type SectionEntry } from '../index/types.js'
+import { generateHypotheticalDocument, type HydeResult } from './hyde.js'
 import {
   checkPricingFreshness,
   getPricingDate,
@@ -33,15 +34,23 @@ import {
   type ProviderFactoryConfig,
 } from './provider-factory.js'
 import {
+  calculateHeadingBoost,
   type EmbeddingProvider,
   hasProviderMetadata,
+  preprocessQuery,
+  QUALITY_EF_SEARCH,
   type SemanticSearchOptions,
   type SemanticSearchResult,
   type SemanticSearchResultWithStats,
   type VectorEntry,
   type VectorIndex,
 } from './types.js'
-import { createVectorStore, type HnswVectorStore } from './vector-store.js'
+import {
+  createVectorStore,
+  type HnswBuildOptions,
+  type HnswMismatchWarning,
+  type HnswVectorStore,
+} from './vector-store.js'
 
 // ============================================================================
 // Provider Mismatch Warning
@@ -50,6 +59,25 @@ import { createVectorStore, type HnswVectorStore } from './vector-store.js'
 interface VectorStoreStats {
   readonly provider: string
   readonly providerModel?: string | undefined
+}
+
+/**
+ * Check for HNSW parameter mismatch and log a warning if found.
+ * This helps users understand when their config doesn't match the stored index.
+ */
+const checkHnswMismatch = (
+  mismatch: HnswMismatchWarning | undefined,
+): Effect.Effect<void, never, never> => {
+  if (!mismatch) {
+    return Effect.void
+  }
+
+  const { configParams, indexParams } = mismatch
+  return Effect.logWarning(
+    `HNSW parameter mismatch: Index was built with M=${indexParams.m}, efConstruction=${indexParams.efConstruction}, ` +
+      `but config specifies M=${configParams.m}, efConstruction=${configParams.efConstruction}. ` +
+      `HNSW parameters only affect index construction. Run 'mdcontext index --embed --force' to rebuild with new parameters.`,
+  )
 }
 
 /**
@@ -250,6 +278,8 @@ export interface BuildEmbeddingsOptions {
   readonly providerConfig?: ProviderFactoryConfig | undefined
   readonly excludePatterns?: readonly string[] | undefined
   readonly onFileProgress?: ((progress: FileProgress) => void) | undefined
+  /** HNSW build parameters for vector index construction */
+  readonly hnswOptions?: HnswBuildOptions | undefined
 }
 
 export interface BuildEmbeddingsResult {
@@ -313,10 +343,11 @@ export const buildEmbeddings = (
       options.provider ?? (yield* createEmbeddingProviderDirect(providerConfig))
     const dimensions = provider.dimensions
 
-    // Create vector store
+    // Create vector store with optional HNSW build parameters
     const vectorStore = createVectorStore(
       resolvedRoot,
       dimensions,
+      options.hnswOptions,
     ) as HnswVectorStore
     // Use type guard to safely access extended provider metadata
     if (hasProviderMetadata(provider)) {
@@ -327,8 +358,8 @@ export const buildEmbeddings = (
 
     // Load existing if not forcing
     if (!options.force) {
-      const loaded = yield* vectorStore.load()
-      if (loaded) {
+      const loadResult = yield* vectorStore.load()
+      if (loadResult.loaded) {
         const stats = vectorStore.getStats()
         // Skip if any embeddings exist
         if (stats.count > 0) {
@@ -565,9 +596,9 @@ export const semanticSearch = (
 
     // Load vector store
     const vectorStore = createVectorStore(resolvedRoot, dimensions)
-    const loaded = yield* vectorStore.load()
+    const loadResult = yield* vectorStore.load()
 
-    if (!loaded) {
+    if (!loadResult.loaded) {
       return yield* Effect.fail(
         new EmbeddingsNotFoundError({ path: resolvedRoot }),
       )
@@ -580,9 +611,33 @@ export const semanticSearch = (
     const currentProvider = options.providerConfig?.provider ?? 'openai'
     yield* checkProviderMismatch(stats, currentProvider, currentProviderModel)
 
-    // Embed the query
+    // Check for HNSW parameter mismatch
+    yield* checkHnswMismatch(loadResult.hnswMismatch)
+
+    // Determine the text to embed
+    // If HyDE is enabled, generate a hypothetical document first
+    let textToEmbed: string
+    let hydeResult: HydeResult | undefined
+
+    if (options.hyde) {
+      // Generate hypothetical document using LLM
+      hydeResult = yield* generateHypotheticalDocument(query, {
+        model: options.hydeOptions?.model,
+        maxTokens: options.hydeOptions?.maxTokens,
+        temperature: options.hydeOptions?.temperature,
+      })
+      textToEmbed = hydeResult.hypotheticalDocument
+      yield* Effect.logDebug(
+        `HyDE generated ${hydeResult.tokensUsed} tokens ($${hydeResult.cost.toFixed(6)})`,
+      )
+    } else {
+      // Preprocess query for better recall (unless disabled)
+      textToEmbed = options.skipPreprocessing ? query : preprocessQuery(query)
+    }
+
+    // Embed the query (or hypothetical document)
     const queryResult = yield* wrapEmbedding(
-      provider.embed([query]),
+      provider.embed([textToEmbed]),
       currentProvider,
     )
 
@@ -601,10 +656,16 @@ export const semanticSearch = (
     const limit = options.limit ?? 10
     const threshold = options.threshold ?? 0
 
+    // Convert quality mode to efSearch value
+    const efSearch = options.quality
+      ? QUALITY_EF_SEARCH[options.quality]
+      : undefined
+
     const searchResults = yield* vectorStore.search(
       queryVector,
       limit * 2,
       threshold,
+      { efSearch },
     )
 
     // Apply path filter if specified
@@ -617,8 +678,21 @@ export const semanticSearch = (
       filteredResults = searchResults.filter((r) => regex.test(r.documentPath))
     }
 
-    // Convert to SemanticSearchResult
-    const results: SemanticSearchResult[] = filteredResults
+    // Apply heading boost (enabled by default)
+    const applyHeadingBoost = options.headingBoost !== false
+    const boostedResults = applyHeadingBoost
+      ? filteredResults.map((r) => ({
+          ...r,
+          similarity: Math.min(
+            1,
+            r.similarity + calculateHeadingBoost(r.heading, query),
+          ),
+        }))
+      : filteredResults
+
+    // Re-sort by boosted similarity and convert to SemanticSearchResult
+    const results: SemanticSearchResult[] = boostedResults
+      .sort((a, b) => b.similarity - a.similarity)
       .slice(0, limit)
       .map((r) => ({
         sectionId: r.sectionId,
@@ -671,9 +745,9 @@ export const semanticSearchWithStats = (
 
     // Load vector store
     const vectorStore = createVectorStore(resolvedRoot, dimensions)
-    const loaded = yield* vectorStore.load()
+    const loadResult = yield* vectorStore.load()
 
-    if (!loaded) {
+    if (!loadResult.loaded) {
       return yield* Effect.fail(
         new EmbeddingsNotFoundError({ path: resolvedRoot }),
       )
@@ -686,9 +760,33 @@ export const semanticSearchWithStats = (
     const currentProvider = options.providerConfig?.provider ?? 'openai'
     yield* checkProviderMismatch(stats, currentProvider, currentProviderModel)
 
-    // Embed the query
+    // Check for HNSW parameter mismatch
+    yield* checkHnswMismatch(loadResult.hnswMismatch)
+
+    // Determine the text to embed
+    // If HyDE is enabled, generate a hypothetical document first
+    let textToEmbed: string
+    let hydeResult: HydeResult | undefined
+
+    if (options.hyde) {
+      // Generate hypothetical document using LLM
+      hydeResult = yield* generateHypotheticalDocument(query, {
+        model: options.hydeOptions?.model,
+        maxTokens: options.hydeOptions?.maxTokens,
+        temperature: options.hydeOptions?.temperature,
+      })
+      textToEmbed = hydeResult.hypotheticalDocument
+      yield* Effect.logDebug(
+        `HyDE generated ${hydeResult.tokensUsed} tokens ($${hydeResult.cost.toFixed(6)})`,
+      )
+    } else {
+      // Preprocess query for better recall (unless disabled)
+      textToEmbed = options.skipPreprocessing ? query : preprocessQuery(query)
+    }
+
+    // Embed the query (or hypothetical document)
     const queryResult = yield* wrapEmbedding(
-      provider.embed([query]),
+      provider.embed([textToEmbed]),
       currentProvider,
     )
 
@@ -707,10 +805,16 @@ export const semanticSearchWithStats = (
     const limit = options.limit ?? 10
     const threshold = options.threshold ?? 0
 
+    // Convert quality mode to efSearch value
+    const efSearch = options.quality
+      ? QUALITY_EF_SEARCH[options.quality]
+      : undefined
+
     const searchResultWithStats = yield* vectorStore.searchWithStats(
       queryVector,
       limit * 2,
       threshold,
+      { efSearch },
     )
 
     // Apply path filter if specified
@@ -725,8 +829,21 @@ export const semanticSearchWithStats = (
       )
     }
 
-    // Convert to SemanticSearchResult
-    const results: SemanticSearchResult[] = filteredResults
+    // Apply heading boost (enabled by default)
+    const applyHeadingBoost = options.headingBoost !== false
+    const boostedResults = applyHeadingBoost
+      ? filteredResults.map((r) => ({
+          ...r,
+          similarity: Math.min(
+            1,
+            r.similarity + calculateHeadingBoost(r.heading, query),
+          ),
+        }))
+      : filteredResults
+
+    // Re-sort by boosted similarity and convert to SemanticSearchResult
+    const results: SemanticSearchResult[] = boostedResults
+      .sort((a, b) => b.similarity - a.similarity)
       .slice(0, limit)
       .map((r) => ({
         sectionId: r.sectionId,

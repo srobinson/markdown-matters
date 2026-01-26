@@ -72,9 +72,10 @@ export const indexCommand = Command.make(
       'ollama',
       'lm-studio',
       'openrouter',
+      'voyage',
     ]).pipe(
       Options.withDescription(
-        'Embedding provider: openai, ollama, lm-studio, or openrouter',
+        'Embedding provider: openai, ollama, lm-studio, openrouter, or voyage',
       ),
       Options.optional,
     ),
@@ -84,6 +85,18 @@ export const indexCommand = Command.make(
     ),
     providerModel: Options.text('provider-model').pipe(
       Options.withDescription('Embedding model to use'),
+      Options.optional,
+    ),
+    hnswM: Options.integer('hnsw-m').pipe(
+      Options.withDescription(
+        'HNSW M parameter: max connections per node. Higher = better recall, larger index. Recommended: 12 (speed), 16 (balanced, default), 24 (quality)',
+      ),
+      Options.optional,
+    ),
+    hnswEfConstruction: Options.integer('hnsw-ef-construction').pipe(
+      Options.withDescription(
+        'HNSW efConstruction: construction-time search width. Higher = better quality, slower builds. Recommended: 128 (speed), 200 (balanced, default), 256 (quality)',
+      ),
       Options.optional,
     ),
     watch: Options.boolean('watch').pipe(
@@ -104,6 +117,8 @@ export const indexCommand = Command.make(
     provider,
     providerBaseUrl,
     providerModel,
+    hnswM,
+    hnswEfConstruction,
     watch: watchMode,
     force,
     json,
@@ -247,17 +262,28 @@ export const indexCommand = Command.make(
                   | 'openai'
                   | 'ollama'
                   | 'lm-studio'
-                  | 'openrouter',
+                  | 'openrouter'
+                  | 'voyage',
                 baseURL: Option.getOrUndefined(providerBaseUrl),
                 model: Option.getOrUndefined(providerModel),
               }
             : undefined
+
+          // Build HNSW options from CLI flags if specified
+          const hnswOptions =
+            Option.isSome(hnswM) || Option.isSome(hnswEfConstruction)
+              ? {
+                  m: Option.getOrUndefined(hnswM),
+                  efConstruction: Option.getOrUndefined(hnswEfConstruction),
+                }
+              : undefined
 
           // Build embeddings - errors propagate to CLI boundary
           const embedResult = yield* buildEmbeddings(resolvedDir, {
             force,
             excludePatterns: cliExcludePatterns,
             providerConfig,
+            hnswOptions,
             onFileProgress: (progress) => {
               if (!json) {
                 process.stdout.write(
@@ -368,10 +394,20 @@ export const indexCommand = Command.make(
               yield* Console.log('')
               yield* Console.log('Building embeddings...')
 
+              // Build HNSW options from CLI flags if specified
+              const hnswOptionsPrompt =
+                Option.isSome(hnswM) || Option.isSome(hnswEfConstruction)
+                  ? {
+                      m: Option.getOrUndefined(hnswM),
+                      efConstruction: Option.getOrUndefined(hnswEfConstruction),
+                    }
+                  : undefined
+
               // Note: We gracefully handle errors here since embedding failure
               // shouldn't block the main index operation. Errors are logged for debugging.
               const embedResult = yield* buildEmbeddings(resolvedDir, {
                 force: false,
+                hnswOptions: hnswOptionsPrompt,
                 onFileProgress: (progress) => {
                   process.stdout.write(
                     `\r  [${progress.fileIndex}/${progress.totalFiles}] ${progress.filePath} (${progress.sectionCount} sections)...`,

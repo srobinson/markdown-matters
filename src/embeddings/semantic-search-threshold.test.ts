@@ -35,8 +35,8 @@ describe('Semantic Search Threshold', () => {
         TEST_CORPUS_PATH,
         TEST_CORPUS_DIMENSIONS,
       )
-      const loaded = await Effect.runPromise(vectorStore.load())
-      expect(loaded).toBe(true)
+      const loadResult = await Effect.runPromise(vectorStore.load())
+      expect(loadResult.loaded).toBe(true)
 
       const stats = vectorStore.getStats()
       expect(stats.count).toBeGreaterThan(0)
@@ -110,8 +110,8 @@ describe('Semantic Search Threshold', () => {
 
     it('should return empty results when no embeddings exist', async () => {
       const vectorStore = createVectorStore('/nonexistent/path', 1536)
-      const loaded = await Effect.runPromise(vectorStore.load())
-      expect(loaded).toBe(false)
+      const loadResult = await Effect.runPromise(vectorStore.load())
+      expect(loadResult.loaded).toBe(false)
 
       const result = await Effect.runPromise(
         vectorStore.searchWithStats(
@@ -266,9 +266,9 @@ describe('Semantic Search Threshold', () => {
         TEST_CORPUS_PATH,
         TEST_CORPUS_DIMENSIONS,
       )
-      const loaded = await Effect.runPromise(vectorStore.load())
+      const loadResult = await Effect.runPromise(vectorStore.load())
 
-      expect(loaded).toBe(true)
+      expect(loadResult.loaded).toBe(true)
       const stats = vectorStore.getStats()
       // Test corpus has 6 documents with multiple sections each
       expect(stats.count).toBeGreaterThan(10)
@@ -392,6 +392,153 @@ describe('Hybrid Search Threshold', () => {
     const { hybridSearch } = await import('../search/hybrid-search.js')
     expect(hybridSearch).toBeDefined()
     expect(typeof hybridSearch).toBe('function')
+  })
+})
+
+describe('Search Quality Modes', () => {
+  describe('QUALITY_EF_SEARCH constants', () => {
+    it('should export quality mode constants', async () => {
+      const { QUALITY_EF_SEARCH } = await import('./types.js')
+      expect(QUALITY_EF_SEARCH).toBeDefined()
+      expect(QUALITY_EF_SEARCH.fast).toBe(64)
+      expect(QUALITY_EF_SEARCH.balanced).toBe(100)
+      expect(QUALITY_EF_SEARCH.thorough).toBe(256)
+    })
+
+    it('should have fast mode with lowest efSearch', async () => {
+      const { QUALITY_EF_SEARCH } = await import('./types.js')
+      expect(QUALITY_EF_SEARCH.fast).toBeLessThan(QUALITY_EF_SEARCH.balanced)
+    })
+
+    it('should have thorough mode with highest efSearch', async () => {
+      const { QUALITY_EF_SEARCH } = await import('./types.js')
+      expect(QUALITY_EF_SEARCH.thorough).toBeGreaterThan(
+        QUALITY_EF_SEARCH.balanced,
+      )
+    })
+  })
+
+  describe('VectorStore efSearch support', () => {
+    it('should accept efSearch option in search method', async () => {
+      const vectorStore = createVectorStore(
+        TEST_CORPUS_PATH,
+        TEST_CORPUS_DIMENSIONS,
+      )
+      await Effect.runPromise(vectorStore.load())
+
+      // Should not throw when passing efSearch
+      const result = await Effect.runPromise(
+        vectorStore.search(new Array(TEST_CORPUS_DIMENSIONS).fill(0.1), 10, 0, {
+          efSearch: 64,
+        }),
+      )
+
+      expect(Array.isArray(result)).toBe(true)
+    })
+
+    it('should accept efSearch option in searchWithStats method', async () => {
+      const vectorStore = createVectorStore(
+        TEST_CORPUS_PATH,
+        TEST_CORPUS_DIMENSIONS,
+      )
+      await Effect.runPromise(vectorStore.load())
+
+      // Should not throw when passing efSearch
+      const result = await Effect.runPromise(
+        vectorStore.searchWithStats(
+          new Array(TEST_CORPUS_DIMENSIONS).fill(0.1),
+          10,
+          0,
+          { efSearch: 256 },
+        ),
+      )
+
+      expect(result.results).toBeDefined()
+      expect(Array.isArray(result.results)).toBe(true)
+    })
+
+    it('should work without efSearch option (defaults)', async () => {
+      const vectorStore = createVectorStore(
+        TEST_CORPUS_PATH,
+        TEST_CORPUS_DIMENSIONS,
+      )
+      await Effect.runPromise(vectorStore.load())
+
+      // Should not throw without efSearch option
+      const result = await Effect.runPromise(
+        vectorStore.search(new Array(TEST_CORPUS_DIMENSIONS).fill(0.1), 10, 0),
+      )
+
+      expect(Array.isArray(result)).toBe(true)
+    })
+
+    it('should return consistent results for same query with different efSearch', async () => {
+      const vectorStore = createVectorStore(
+        TEST_CORPUS_PATH,
+        TEST_CORPUS_DIMENSIONS,
+      )
+      await Effect.runPromise(vectorStore.load())
+
+      const queryVector = new Array(TEST_CORPUS_DIMENSIONS).fill(0.1)
+
+      const fastResult = await Effect.runPromise(
+        vectorStore.search(queryVector, 5, 0, { efSearch: 64 }),
+      )
+
+      const thoroughResult = await Effect.runPromise(
+        vectorStore.search(queryVector, 5, 0, { efSearch: 256 }),
+      )
+
+      // Both should return results
+      expect(fastResult.length).toBeGreaterThan(0)
+      expect(thoroughResult.length).toBeGreaterThan(0)
+
+      // Top result should likely be the same (though not guaranteed with HNSW)
+      // At minimum, both should return valid results
+      expect(fastResult[0]?.sectionId).toBeDefined()
+      expect(thoroughResult[0]?.sectionId).toBeDefined()
+    })
+  })
+
+  describe('SemanticSearchOptions quality field', () => {
+    it('should accept quality in SemanticSearchOptions type', async () => {
+      // Type check - if this compiles, the type has the quality field
+      const options: import('./types.js').SemanticSearchOptions = {
+        limit: 10,
+        threshold: 0.35,
+        quality: 'balanced',
+      }
+      expect(options.quality).toBe('balanced')
+    })
+
+    it('should accept all three quality modes', async () => {
+      const fastOptions: import('./types.js').SemanticSearchOptions = {
+        quality: 'fast',
+      }
+      const balancedOptions: import('./types.js').SemanticSearchOptions = {
+        quality: 'balanced',
+      }
+      const thoroughOptions: import('./types.js').SemanticSearchOptions = {
+        quality: 'thorough',
+      }
+
+      expect(fastOptions.quality).toBe('fast')
+      expect(balancedOptions.quality).toBe('balanced')
+      expect(thoroughOptions.quality).toBe('thorough')
+    })
+  })
+
+  describe('HybridSearchOptions quality field', () => {
+    it('should accept quality in HybridSearchOptions type', async () => {
+      type HybridSearchOptions =
+        import('../search/hybrid-search.js').HybridSearchOptions
+
+      const options: HybridSearchOptions = {
+        limit: 10,
+        quality: 'thorough',
+      }
+      expect(options.quality).toBe('thorough')
+    })
   })
 })
 

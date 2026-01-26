@@ -19,7 +19,7 @@
   },
   "scripts": {
     "postinstall": "node scripts/rebuild-hnswlib.js",
-    "build": "tsup src/cli/main.ts src/mcp/server.ts src/index.ts --format esm --dts",
+    "build": "tsup src/cli/main.ts src/mcp/server.ts src/index.ts --format esm --dts --external @huggingface/transformers",
     "dev": "tsc --watch",
     "test": "vitest run",
     "test:all": "INCLUDE_EMBED_TESTS=true vitest run",

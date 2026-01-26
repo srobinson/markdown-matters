@@ -33,6 +33,14 @@ export const MODEL_DIMENSIONS: Record<string, number> = {
   'bge-m3': 1024,
   'all-minilm': 384,
   'snowflake-arctic-embed': 1024,
+
+  // Voyage AI models (fixed native dimensions)
+  'voyage-3.5-lite': 1024, // Best value: $0.02/1M tokens
+  'voyage-3': 1024, // Higher quality: $0.06/1M tokens
+  'voyage-code-3': 1024, // Code-optimized: $0.18/1M tokens
+  'voyage-2': 1024,
+  'voyage-large-2': 1536,
+  'voyage-code-2': 1536,
 } as const
 
 /**
@@ -126,6 +134,7 @@ export const validateModelDimensions = (
  * - ollama: Local Ollama server
  * - lm-studio: Local LM Studio server
  * - openrouter: OpenRouter API gateway
+ * - voyage: Voyage AI API (uses native SDK, not OpenAI-compatible)
  */
 export const PROVIDER_BASE_URLS: Record<EmbeddingProvider, string | undefined> =
   {
@@ -133,6 +142,7 @@ export const PROVIDER_BASE_URLS: Record<EmbeddingProvider, string | undefined> =
     ollama: 'http://localhost:11434/v1',
     'lm-studio': 'http://localhost:1234/v1',
     openrouter: 'https://openrouter.ai/api/v1',
+    voyage: 'https://api.voyageai.com/v1', // Native API, handled by VoyageProvider
   } as const
 
 // ============================================================================

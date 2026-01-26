@@ -11,7 +11,10 @@
 import * as path from 'node:path'
 import { Effect } from 'effect'
 import { semanticSearch } from '../embeddings/semantic-search.js'
-import type { SemanticSearchResult } from '../embeddings/types.js'
+import type {
+  SearchQuality,
+  SemanticSearchResult,
+} from '../embeddings/types.js'
 import type {
   ApiKeyInvalidError,
   ApiKeyMissingError,
@@ -24,6 +27,11 @@ import {
   bm25IndexExists,
   bm25Search,
 } from './bm25-store.js'
+import {
+  isRerankerAvailable,
+  type RerankerError,
+  rerankResults,
+} from './cross-encoder.js'
 
 // ============================================================================
 // Types
@@ -46,6 +54,10 @@ export interface HybridSearchOptions {
   readonly semanticWeight?: number
   /** RRF k constant (default: 60) */
   readonly rrfK?: number
+  /** Enable cross-encoder re-ranking for improved precision */
+  readonly rerank?: boolean
+  /** Search quality mode: fast, balanced (default), or thorough */
+  readonly quality?: SearchQuality | undefined
 }
 
 export interface HybridSearchResult {
@@ -60,6 +72,8 @@ export interface HybridSearchResult {
   readonly bm25Score?: number
   /** Which search methods contributed to this result */
   readonly sources: readonly ('semantic' | 'keyword')[]
+  /** Cross-encoder re-ranking score (if reranking was enabled) */
+  readonly rerankerScore?: number
 }
 
 export interface HybridSearchStats {
@@ -70,6 +84,8 @@ export interface HybridSearchStats {
   readonly combinedResults: number
   readonly bm25Available: boolean
   readonly embeddingsAvailable: boolean
+  /** Whether re-ranking was applied */
+  readonly reranked?: boolean
 }
 
 // ============================================================================
@@ -212,6 +228,7 @@ export const hybridSearch = (
   | ApiKeyInvalidError
   | EmbeddingError
   | VectorStoreError
+  | RerankerError
 > =>
   Effect.gen(function* () {
     const resolvedRoot = path.resolve(rootPath)
@@ -234,6 +251,7 @@ export const hybridSearch = (
         limit: limit * 2, // Get more for better fusion
         threshold,
         pathPattern: options.pathPattern,
+        quality: options.quality,
       })
 
       const semanticTry = yield* Effect.either(semanticEffect)
@@ -302,6 +320,29 @@ export const hybridSearch = (
       }))
     }
 
+    // Apply cross-encoder re-ranking if enabled
+    let reranked = false
+    if (options.rerank && results.length > 0) {
+      // Check if reranker is available
+      const rerankerAvailable = yield* isRerankerAvailable()
+      if (rerankerAvailable) {
+        // Re-rank using cross-encoder (top 20 -> top N)
+        const rerankedResults = yield* rerankResults(
+          query,
+          results,
+          (r) => `${r.heading} (${r.documentPath})`,
+          { topK: 20, returnTopN: limit },
+        )
+
+        // Update results with reranker scores
+        results = rerankedResults.map((rr) => ({
+          ...rr.item,
+          rerankerScore: rr.rerankerScore,
+        }))
+        reranked = true
+      }
+    }
+
     const stats: HybridSearchStats = {
       mode: effectiveMode,
       modeReason,
@@ -310,6 +351,7 @@ export const hybridSearch = (
       combinedResults: results.length,
       bm25Available: hasBM25,
       embeddingsAvailable: hasEmbeddings,
+      reranked,
     }
 
     return { results, stats }

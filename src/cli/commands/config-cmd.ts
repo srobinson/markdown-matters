@@ -121,7 +121,7 @@ export default {
 
   // Embeddings settings - configure semantic search
   embeddings: {
-    // Embedding provider: 'openai' (default), 'ollama', 'lm-studio', or 'openrouter'
+    // Embedding provider: 'openai' (default), 'ollama', 'lm-studio', 'openrouter', or 'voyage'
     provider: 'openai',
 
     // Embedding model (varies by provider - default for OpenAI: 'text-embedding-3-small')
