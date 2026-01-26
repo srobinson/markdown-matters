@@ -2,7 +2,7 @@
  * OpenAI embedding provider
  */
 
-import { Effect } from 'effect'
+import { Effect, Redacted } from 'effect'
 import OpenAI from 'openai'
 import {
   ApiKeyInvalidError,
@@ -75,7 +75,13 @@ export const getPricingDate = (): string => PRICING_DATA.lastUpdated
 // ============================================================================
 
 export interface OpenAIProviderOptions {
-  readonly apiKey?: string | undefined
+  /**
+   * API key for the provider. Can be a plain string or a Redacted<string>.
+   * If not provided, falls back to environment variables:
+   * - OPENROUTER_API_KEY (if using OpenRouter)
+   * - OPENAI_API_KEY (default)
+   */
+  readonly apiKey?: string | Redacted.Redacted<string> | undefined
   readonly model?: string | undefined
   readonly batchSize?: number | undefined
   readonly baseURL?: string | undefined
@@ -104,10 +110,13 @@ export class OpenAIProvider implements EmbeddingProvider {
   private readonly client: OpenAI
   private readonly batchSize: number
 
-  private constructor(apiKey: string, options: OpenAIProviderOptions = {}) {
+  private constructor(
+    apiKey: Redacted.Redacted<string>,
+    options: OpenAIProviderOptions = {},
+  ) {
     this.baseURL = options.baseURL
     this.client = new OpenAI({
-      apiKey,
+      apiKey: Redacted.value(apiKey), // Only expose API key when creating client
       baseURL: options.baseURL, // If undefined, SDK uses default https://api.openai.com/v1
     })
     this.model = options.model ?? 'text-embedding-3-small'
@@ -133,6 +142,9 @@ export class OpenAIProvider implements EmbeddingProvider {
   /**
    * Create an OpenAI provider instance.
    * Returns an Effect that fails with ApiKeyMissingError if no API key is available.
+   *
+   * API keys are handled securely using Effect's Redacted type to prevent
+   * accidental logging of sensitive values.
    */
   static create(
     options: OpenAIProviderOptions = {},
@@ -141,12 +153,24 @@ export class OpenAIProvider implements EmbeddingProvider {
     const isOpenRouter =
       options.baseURL?.includes('openrouter') ||
       options.providerName === 'openrouter'
-    const apiKey =
-      options.apiKey ??
-      (isOpenRouter ? process.env.OPENROUTER_API_KEY : undefined) ??
-      process.env.OPENAI_API_KEY
 
-    if (!apiKey) {
+    // Normalize API key to Redacted<string>
+    // If apiKey is already Redacted, use it; if string, wrap it; if undefined, check env vars
+    const resolveApiKey = ():
+      | Redacted.Redacted<string>
+      | string
+      | undefined => {
+      if (options.apiKey !== undefined) {
+        return options.apiKey
+      }
+      return (
+        (isOpenRouter ? process.env.OPENROUTER_API_KEY : undefined) ??
+        process.env.OPENAI_API_KEY
+      )
+    }
+
+    const rawApiKey = resolveApiKey()
+    if (!rawApiKey) {
       return Effect.fail(
         new ApiKeyMissingError({
           provider: isOpenRouter ? 'OpenRouter' : 'OpenAI',
@@ -155,9 +179,17 @@ export class OpenAIProvider implements EmbeddingProvider {
       )
     }
 
-    // Warn if using OpenAI key format with OpenRouter
+    // Wrap in Redacted if it's a plain string
+    const redactedApiKey = Redacted.isRedacted(rawApiKey)
+      ? rawApiKey
+      : Redacted.make(rawApiKey)
+
+    // Check key format for warnings (need to access value temporarily)
+    const apiKeyValue = Redacted.value(redactedApiKey)
     const shouldWarnOpenRouter =
-      isOpenRouter && apiKey.startsWith('sk-') && !apiKey.startsWith('sk-or-')
+      isOpenRouter &&
+      apiKeyValue.startsWith('sk-') &&
+      !apiKeyValue.startsWith('sk-or-')
 
     // Validate dimensions if explicitly set
     const model = options.model ?? 'text-embedding-3-small'
@@ -165,7 +197,7 @@ export class OpenAIProvider implements EmbeddingProvider {
       ? validateModelDimensions(model, options.dimensions)
       : { isValid: true }
 
-    return Effect.succeed(new OpenAIProvider(apiKey, options)).pipe(
+    return Effect.succeed(new OpenAIProvider(redactedApiKey, options)).pipe(
       shouldWarnOpenRouter
         ? Effect.tap(() =>
             Effect.logWarning(

@@ -6,7 +6,12 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { calculateHeadingBoost, type SemanticSearchOptions } from './types.js'
+import {
+  calculateFileImportanceBoost,
+  calculateHeadingBoost,
+  calculateRankingBoost,
+  type SemanticSearchOptions,
+} from './types.js'
 
 describe('Heading Match Boost', () => {
   describe('calculateHeadingBoost function', () => {
@@ -104,6 +109,92 @@ describe('Heading Match Boost', () => {
   })
 })
 
+describe('File Importance Boost', () => {
+  describe('calculateFileImportanceBoost function', () => {
+    it('should return boost for README files', () => {
+      expect(calculateFileImportanceBoost('README.md')).toBe(0.03)
+      expect(calculateFileImportanceBoost('docs/README.md')).toBe(0.03)
+      expect(calculateFileImportanceBoost('readme.md')).toBe(0.03)
+    })
+
+    it('should return boost for index files', () => {
+      expect(calculateFileImportanceBoost('index.md')).toBe(0.03)
+      expect(calculateFileImportanceBoost('docs/index.md')).toBe(0.03)
+    })
+
+    it('should return boost for getting started guides', () => {
+      expect(calculateFileImportanceBoost('getting-started.md')).toBe(0.03)
+      expect(calculateFileImportanceBoost('Getting-Started.md')).toBe(0.03)
+      expect(calculateFileImportanceBoost('gettingstarted.md')).toBe(0.03)
+    })
+
+    it('should return boost for introduction files', () => {
+      expect(calculateFileImportanceBoost('introduction.md')).toBe(0.03)
+      expect(calculateFileImportanceBoost('docs/introduction.md')).toBe(0.03)
+    })
+
+    it('should return boost for overview files', () => {
+      expect(calculateFileImportanceBoost('overview.md')).toBe(0.03)
+      expect(calculateFileImportanceBoost('docs/overview.md')).toBe(0.03)
+    })
+
+    it('should return boost for quickstart guides', () => {
+      expect(calculateFileImportanceBoost('quickstart.md')).toBe(0.03)
+      expect(calculateFileImportanceBoost('Quickstart.md')).toBe(0.03)
+    })
+
+    it('should return boost for changelog files', () => {
+      expect(calculateFileImportanceBoost('CHANGELOG.md')).toBe(0.03)
+      expect(calculateFileImportanceBoost('changelog.md')).toBe(0.03)
+    })
+
+    it('should return 0 for regular files', () => {
+      expect(calculateFileImportanceBoost('api.md')).toBe(0)
+      expect(calculateFileImportanceBoost('docs/configuration.md')).toBe(0)
+      expect(calculateFileImportanceBoost('src/utils.md')).toBe(0)
+    })
+  })
+
+  describe('calculateRankingBoost combined function', () => {
+    it('should combine heading and file importance boosts', () => {
+      // README with matching heading
+      const boost = calculateRankingBoost(
+        'Installation Guide',
+        'installation',
+        'README.md',
+      )
+      expect(boost).toBe(0.08) // 0.05 (heading) + 0.03 (file)
+    })
+
+    it('should return only file boost when heading does not match', () => {
+      const boost = calculateRankingBoost(
+        'API Reference',
+        'authentication',
+        'README.md',
+      )
+      expect(boost).toBe(0.03) // 0.00 (heading) + 0.03 (file)
+    })
+
+    it('should return only heading boost for regular files', () => {
+      const boost = calculateRankingBoost(
+        'Installation Guide',
+        'installation',
+        'docs/install.md',
+      )
+      expect(boost).toBe(0.05) // 0.05 (heading) + 0.00 (file)
+    })
+
+    it('should return 0 when nothing matches', () => {
+      const boost = calculateRankingBoost(
+        'API Reference',
+        'authentication',
+        'docs/api.md',
+      )
+      expect(boost).toBe(0)
+    })
+  })
+})
+
 describe('Export verification', () => {
   it('should export calculateHeadingBoost from types module', async () => {
     const { calculateHeadingBoost } = await import('./types.js')
@@ -115,5 +206,17 @@ describe('Export verification', () => {
     const { calculateHeadingBoost } = await import('./index.js')
     expect(calculateHeadingBoost).toBeDefined()
     expect(typeof calculateHeadingBoost).toBe('function')
+  })
+
+  it('should export calculateFileImportanceBoost from types module', async () => {
+    const { calculateFileImportanceBoost } = await import('./types.js')
+    expect(calculateFileImportanceBoost).toBeDefined()
+    expect(typeof calculateFileImportanceBoost).toBe('function')
+  })
+
+  it('should export calculateFileImportanceBoost from main embeddings module', async () => {
+    const { calculateFileImportanceBoost } = await import('./index.js')
+    expect(calculateFileImportanceBoost).toBeDefined()
+    expect(typeof calculateFileImportanceBoost).toBe('function')
   })
 })

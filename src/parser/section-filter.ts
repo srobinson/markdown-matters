@@ -36,6 +36,8 @@ export interface SectionListItem {
 export interface SectionFilterOptions {
   /** If true, don't include nested subsections */
   readonly shallow?: boolean
+  /** Patterns to exclude from results */
+  readonly exclude?: readonly string[]
 }
 
 // ============================================================================
@@ -126,6 +128,16 @@ const matchesSelector = (
 }
 
 /**
+ * Check if a section matches any of the exclusion patterns
+ */
+const matchesExclusionPatterns = (
+  section: SectionListItem,
+  excludePatterns: readonly string[],
+): boolean => {
+  return excludePatterns.some((pattern) => matchesSelector(section, pattern))
+}
+
+/**
  * Find all sections matching a selector
  */
 export const findMatchingSections = (
@@ -133,6 +145,22 @@ export const findMatchingSections = (
   selector: string,
 ): SectionListItem[] => {
   return sectionList.filter((s) => matchesSelector(s, selector))
+}
+
+/**
+ * Filter sections by exclusion patterns
+ * Returns sections that don't match any of the exclusion patterns
+ */
+export const filterExcludedSections = (
+  sectionList: SectionListItem[],
+  excludePatterns: readonly string[],
+): SectionListItem[] => {
+  if (excludePatterns.length === 0) {
+    return sectionList
+  }
+  return sectionList.filter(
+    (s) => !matchesExclusionPatterns(s, excludePatterns),
+  )
 }
 
 /**
@@ -168,12 +196,29 @@ export const extractSectionContent = (
 ): {
   sections: MdSection[]
   matchedNumbers: string[]
+  excludedNumbers: string[]
 } => {
   const sectionList = buildSectionList(document)
-  const matchedSections = findMatchingSections(sectionList, selector)
+  let matchedSections = findMatchingSections(sectionList, selector)
+
+  // Track which sections were excluded
+  const excludedNumbers: string[] = []
+
+  // Apply exclusion patterns if provided
+  if (options.exclude && options.exclude.length > 0) {
+    const beforeFilter = matchedSections
+    matchedSections = filterExcludedSections(matchedSections, options.exclude)
+
+    // Track excluded sections for feedback
+    for (const section of beforeFilter) {
+      if (!matchedSections.includes(section)) {
+        excludedNumbers.push(section.number)
+      }
+    }
+  }
 
   if (matchedSections.length === 0) {
-    return { sections: [], matchedNumbers: [] }
+    return { sections: [], matchedNumbers: [], excludedNumbers }
   }
 
   // Get all section numbers to include
@@ -227,7 +272,7 @@ export const extractSectionContent = (
     }
   }
 
-  return { sections: extractedSections, matchedNumbers }
+  return { sections: extractedSections, matchedNumbers, excludedNumbers }
 }
 
 /**
@@ -267,4 +312,81 @@ export const formatExtractedSections = (sections: MdSection[]): string => {
   }
 
   return sections.map((s) => formatSection(s, true)).join('\n\n')
+}
+
+// ============================================================================
+// Document Section Filtering
+// ============================================================================
+
+/**
+ * Filter sections from an MdDocument based on exclusion patterns
+ * Returns a new document with matching sections removed
+ */
+export const filterDocumentSections = (
+  document: MdDocument,
+  excludePatterns: readonly string[],
+): { document: MdDocument; excludedCount: number } => {
+  if (excludePatterns.length === 0) {
+    return { document, excludedCount: 0 }
+  }
+
+  const sectionList = buildSectionList(document)
+  let excludedCount = 0
+
+  // Build set of section numbers to exclude (including descendants)
+  const numbersToExclude = new Set<string>()
+  for (const section of sectionList) {
+    if (matchesExclusionPatterns(section, excludePatterns)) {
+      // Add the matched section and all its descendants
+      const prefix = `${section.number}.`
+      for (const candidate of sectionList) {
+        if (
+          candidate.number === section.number ||
+          candidate.number.startsWith(prefix)
+        ) {
+          if (!numbersToExclude.has(candidate.number)) {
+            numbersToExclude.add(candidate.number)
+            excludedCount++
+          }
+        }
+      }
+    }
+  }
+
+  if (numbersToExclude.size === 0) {
+    return { document, excludedCount: 0 }
+  }
+
+  // Build mapping of numbers to filter
+  const filterSections = (
+    sections: readonly MdSection[],
+    prefix: string,
+  ): MdSection[] => {
+    const result: MdSection[] = []
+
+    sections.forEach((section, i) => {
+      const number = prefix ? `${prefix}.${i + 1}` : `${i + 1}`
+
+      if (!numbersToExclude.has(number)) {
+        // Keep this section, recursively filter children
+        result.push({
+          ...section,
+          children: filterSections(section.children, number),
+        })
+      }
+      // If excluded, skip this section entirely (including children)
+    })
+
+    return result
+  }
+
+  const filteredSections = filterSections(document.sections, '')
+
+  return {
+    document: {
+      ...document,
+      sections: filteredSections,
+    },
+    excludedCount,
+  }
 }

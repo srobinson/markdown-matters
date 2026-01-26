@@ -32,6 +32,7 @@ import {
   type RerankerError,
   rerankResults,
 } from './cross-encoder.js'
+import { matchPath } from './path-matcher.js'
 
 // ============================================================================
 // Types
@@ -86,6 +87,8 @@ export interface HybridSearchStats {
   readonly embeddingsAvailable: boolean
   /** Whether re-ranking was applied */
   readonly reranked?: boolean
+  /** Total unique results available before limit was applied */
+  readonly totalAvailable?: number
 }
 
 // ============================================================================
@@ -112,7 +115,7 @@ const fusionRRF = (
     rrfK: number
     limit: number
   },
-): HybridSearchResult[] => {
+): { results: HybridSearchResult[]; totalAvailable: number } => {
   const { bm25Weight, semanticWeight, rrfK, limit } = options
 
   // Map to accumulate RRF scores by sectionId
@@ -172,7 +175,7 @@ const fusionRRF = (
   }
 
   // Convert to array and sort by RRF score
-  const results: HybridSearchResult[] = Array.from(scoreMap.entries())
+  const allResults: HybridSearchResult[] = Array.from(scoreMap.entries())
     .map(([sectionId, data]) => {
       const result: HybridSearchResult = {
         sectionId,
@@ -193,9 +196,11 @@ const fusionRRF = (
       return result
     })
     .sort((a, b) => b.score - a.score)
-    .slice(0, limit)
 
-  return results
+  return {
+    results: allResults.slice(0, limit),
+    totalAvailable: allResults.length,
+  }
 }
 
 // ============================================================================
@@ -264,7 +269,13 @@ export const hybridSearch = (
     // Get BM25 results if available
     let keywordResults: readonly BM25SearchResult[] = []
     if (hasBM25 && options.mode !== 'semantic') {
-      keywordResults = yield* bm25Search(resolvedRoot, query, limit * 2)
+      const rawResults = yield* bm25Search(resolvedRoot, query, limit * 2)
+      // Apply path pattern filter if specified
+      keywordResults = options.pathPattern
+        ? rawResults.filter((r) =>
+            matchPath(r.documentPath, options.pathPattern!),
+          )
+        : rawResults
     }
 
     // Determine effective mode and reason
@@ -290,16 +301,20 @@ export const hybridSearch = (
 
     // Perform fusion based on mode
     let results: HybridSearchResult[]
+    let totalAvailable: number | undefined
 
     if (effectiveMode === 'hybrid') {
-      results = fusionRRF(semanticResults, keywordResults, {
+      const fusionResult = fusionRRF(semanticResults, keywordResults, {
         bm25Weight,
         semanticWeight,
         rrfK,
         limit,
       })
+      results = fusionResult.results
+      totalAvailable = fusionResult.totalAvailable
     } else if (effectiveMode === 'semantic') {
       // Convert semantic results to hybrid format
+      totalAvailable = semanticResults.length
       results = semanticResults.slice(0, limit).map((r, idx) => ({
         sectionId: r.sectionId,
         documentPath: r.documentPath,
@@ -310,6 +325,7 @@ export const hybridSearch = (
       }))
     } else {
       // Convert keyword results to hybrid format
+      totalAvailable = keywordResults.length
       results = keywordResults.slice(0, limit).map((r) => ({
         sectionId: r.sectionId,
         documentPath: r.documentPath,
@@ -352,6 +368,7 @@ export const hybridSearch = (
       bm25Available: hasBM25,
       embeddingsAvailable: hasEmbeddings,
       reranked,
+      totalAvailable,
     }
 
     return { results, stats }

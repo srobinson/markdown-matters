@@ -19,6 +19,13 @@ import {
 } from '../index/storage.js'
 import type { DocumentEntry, SectionEntry } from '../index/types.js'
 import {
+  buildFuzzyHighlightPattern,
+  findMatchesInLine,
+  type MatchOptions,
+  matchesWithOptions,
+} from './fuzzy-search.js'
+import { matchPath } from './path-matcher.js'
+import {
   buildHighlightPattern,
   evaluateQuery,
   isAdvancedQuery,
@@ -53,6 +60,12 @@ export interface SearchOptions {
   readonly contextBefore?: number | undefined
   /** Lines of context after matches */
   readonly contextAfter?: number | undefined
+  /** Enable fuzzy matching with typo tolerance */
+  readonly fuzzy?: boolean | undefined
+  /** Max edit distance for fuzzy matching (default: 2) */
+  readonly fuzzyDistance?: number | undefined
+  /** Enable word stemming (fail matches failure, failed, etc.) */
+  readonly stem?: boolean | undefined
 }
 
 export interface ContentMatch {
@@ -81,21 +94,6 @@ export interface SearchResult {
   readonly sectionContent?: string
   /** Matches found within the content (when content search is used) */
   readonly matches?: readonly ContentMatch[]
-}
-
-// ============================================================================
-// Path Matching
-// ============================================================================
-
-const matchPath = (filePath: string, pattern: string): boolean => {
-  // Simple glob-like matching
-  const regexPattern = pattern
-    .replace(/\./g, '\\.')
-    .replace(/\*/g, '.*')
-    .replace(/\?/g, '.')
-
-  const regex = new RegExp(`^${regexPattern}$`, 'i')
-  return regex.test(filePath)
 }
 
 // ============================================================================
@@ -233,16 +231,38 @@ export const searchContent = (
     let contentRegex: RegExp | null = null
     let highlightRegex: RegExp | null = null
 
+    // Configure fuzzy/stem matching options
+    const matchOptions: MatchOptions = {
+      stem: options.stem,
+      fuzzyDistance: options.fuzzy ? (options.fuzzyDistance ?? 2) : undefined,
+    }
+    const useFuzzyOrStem = options.fuzzy || options.stem
+
     if (options.content) {
       if (isAdvancedQuery(options.content)) {
         parsedQuery = parseQuery(options.content)
         if (parsedQuery) {
-          highlightRegex = buildHighlightPattern(parsedQuery)
+          if (useFuzzyOrStem) {
+            highlightRegex = buildFuzzyHighlightPattern(
+              options.content,
+              matchOptions,
+            )
+          } else {
+            highlightRegex = buildHighlightPattern(parsedQuery)
+          }
         }
       } else {
-        // Simple search - use as regex
-        contentRegex = new RegExp(options.content, 'gi')
-        highlightRegex = contentRegex
+        // Simple search - use regex for exact match, or fuzzy/stem matching
+        if (!useFuzzyOrStem) {
+          contentRegex = new RegExp(options.content, 'gi')
+          highlightRegex = contentRegex
+        } else {
+          // For fuzzy/stem mode, build a highlight pattern
+          highlightRegex = buildFuzzyHighlightPattern(
+            options.content,
+            matchOptions,
+          )
+        }
       }
     }
 
@@ -277,7 +297,11 @@ export const searchContent = (
       let fileContent: string | null = null
       let fileLines: string[] = []
 
-      if (parsedQuery || contentRegex) {
+      // Need to load file if we have any content matching to do:
+      // - parsedQuery: boolean query evaluation
+      // - contentRegex: regex matching
+      // - useFuzzyOrStem: fuzzy/stem matching
+      if (parsedQuery || contentRegex || (useFuzzyOrStem && options.content)) {
         const filePath = path.join(storage.rootPath, docPath)
         try {
           fileContent = yield* Effect.promise(() =>
@@ -328,7 +352,7 @@ export const searchContent = (
         }
 
         // Content search
-        if ((parsedQuery || contentRegex) && fileContent) {
+        if ((parsedQuery || contentRegex || useFuzzyOrStem) && fileContent) {
           const sectionLines = fileLines.slice(
             section.startLine - 1,
             section.endLine,
@@ -342,6 +366,15 @@ export const searchContent = (
             }
           }
 
+          // For fuzzy/stem mode without boolean query, check section content
+          if (useFuzzyOrStem && !parsedQuery && options.content) {
+            if (
+              !matchesWithOptions(options.content, sectionContent, matchOptions)
+            ) {
+              continue // Section doesn't match with fuzzy/stem
+            }
+          }
+
           // Find individual line matches for highlighting
           const matches: ContentMatch[] = []
           const searchRegex = contentRegex || highlightRegex
@@ -350,47 +383,72 @@ export const searchContent = (
           const contextBefore = options.contextBefore ?? 1
           const contextAfter = options.contextAfter ?? 1
 
-          if (searchRegex) {
-            for (let i = 0; i < sectionLines.length; i++) {
-              const line = sectionLines[i]
-              if (line && searchRegex.test(line)) {
-                // Reset regex lastIndex for next test
-                searchRegex.lastIndex = 0
+          // Get query words for fuzzy/stem matching
+          const queryWords = options.content
+            ? options.content
+                .toLowerCase()
+                .split(/\W+/)
+                .filter((w) => w.length > 0)
+            : []
 
-                const absoluteLineNum = section.startLine + i
+          for (let i = 0; i < sectionLines.length; i++) {
+            const line = sectionLines[i]
+            if (!line) continue
 
-                // Create snippet with configurable context
-                const snippetStart = Math.max(0, i - contextBefore)
-                const snippetEnd = Math.min(
-                  sectionLines.length,
-                  i + contextAfter + 1,
-                )
-                const snippetLines = sectionLines.slice(
-                  snippetStart,
-                  snippetEnd,
-                )
-                const snippet = snippetLines.join('\n')
+            let isMatch = false
 
-                // Build context lines array for JSON output
-                const contextLines: ContextLine[] = []
-                for (let j = snippetStart; j < snippetEnd; j++) {
-                  const ctxLine = sectionLines[j]
-                  if (ctxLine !== undefined) {
-                    contextLines.push({
-                      lineNumber: section.startLine + j,
-                      line: ctxLine,
-                      isMatch: j === i,
-                    })
-                  }
-                }
-
-                matches.push({
-                  lineNumber: absoluteLineNum,
-                  line: line,
-                  snippet,
-                  contextLines,
-                })
+            // Check with regex for exact match mode
+            if (searchRegex) {
+              if (searchRegex.test(line)) {
+                isMatch = true
               }
+              // Reset regex lastIndex for next test
+              searchRegex.lastIndex = 0
+            }
+
+            // Check with fuzzy/stem matching
+            if (!isMatch && useFuzzyOrStem && queryWords.length > 0) {
+              const lineMatches = findMatchesInLine(
+                queryWords,
+                line,
+                matchOptions,
+              )
+              if (lineMatches.length > 0) {
+                isMatch = true
+              }
+            }
+
+            if (isMatch) {
+              const absoluteLineNum = section.startLine + i
+
+              // Create snippet with configurable context
+              const snippetStart = Math.max(0, i - contextBefore)
+              const snippetEnd = Math.min(
+                sectionLines.length,
+                i + contextAfter + 1,
+              )
+              const snippetLines = sectionLines.slice(snippetStart, snippetEnd)
+              const snippet = snippetLines.join('\n')
+
+              // Build context lines array for JSON output
+              const contextLines: ContextLine[] = []
+              for (let j = snippetStart; j < snippetEnd; j++) {
+                const ctxLine = sectionLines[j]
+                if (ctxLine !== undefined) {
+                  contextLines.push({
+                    lineNumber: section.startLine + j,
+                    line: ctxLine,
+                    isMatch: j === i,
+                  })
+                }
+              }
+
+              matches.push({
+                lineNumber: absoluteLineNum,
+                line: line,
+                snippet,
+                contextLines,
+              })
             }
           }
 
@@ -415,7 +473,7 @@ export const searchContent = (
               return results
             }
           }
-        } else if (!parsedQuery && !contentRegex) {
+        } else if (!parsedQuery && !contentRegex && !useFuzzyOrStem) {
           // No content search, heading-only search
           results.push({ section, document })
 

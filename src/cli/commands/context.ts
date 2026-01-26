@@ -16,6 +16,7 @@ import { parseFile } from '../../parser/parser.js'
 import {
   buildSectionList,
   extractSectionContent,
+  filterExcludedSections,
   formatExtractedSections,
   formatSectionList,
 } from '../../parser/section-filter.js'
@@ -63,10 +64,28 @@ export const contextCommand = Command.make(
       Options.withDescription('Exclude nested subsections when filtering'),
       Options.withDefault(false),
     ),
+    exclude: Options.text('exclude').pipe(
+      Options.withAlias('x'),
+      Options.withDescription(
+        'Exclude sections matching pattern (can be used multiple times)',
+      ),
+      Options.repeated,
+    ),
     json: jsonOption,
     pretty: prettyOption,
   },
-  ({ files, tokens, brief, full, section, sections, shallow, json, pretty }) =>
+  ({
+    files,
+    tokens,
+    brief,
+    full,
+    section,
+    sections,
+    shallow,
+    exclude,
+    json,
+    pretty,
+  }) =>
     Effect.gen(function* () {
       // Effect CLI Args.repeated returns an array
       const fileList: string[] = Array.isArray(files) ? files : []
@@ -84,6 +103,9 @@ export const contextCommand = Command.make(
       // Get section option value (it's an Option type)
       const sectionSelector =
         section._tag === 'Some' ? section.value : undefined
+
+      // Extract exclusion patterns (repeated option returns array)
+      const excludePatterns: string[] = Array.isArray(exclude) ? exclude : []
 
       // Handle --sections flag: list available sections
       if (sections) {
@@ -105,12 +127,20 @@ export const contextCommand = Command.make(
             ),
           )
 
-          const sectionList = buildSectionList(document)
+          let sectionList = buildSectionList(document)
+
+          // Apply exclusion filter if patterns provided
+          if (excludePatterns.length > 0) {
+            sectionList = filterExcludedSections(sectionList, excludePatterns)
+          }
 
           if (json) {
             const output = {
               path: filePath,
               title: document.title,
+              ...(excludePatterns.length > 0 && {
+                excludePatterns,
+              }),
               sections: sectionList.map((s) => ({
                 number: s.number,
                 heading: s.heading,
@@ -122,6 +152,11 @@ export const contextCommand = Command.make(
           } else {
             yield* Console.log(`# ${document.title}`)
             yield* Console.log(`Path: ${filePath}`)
+            if (excludePatterns.length > 0) {
+              yield* Console.log(
+                `Excluded: ${excludePatterns.map((p) => `"${p}"`).join(', ')}`,
+              )
+            }
             yield* Console.log('')
             yield* Console.log('Available sections:')
             yield* Console.log(formatSectionList(sectionList))
@@ -150,13 +185,24 @@ export const contextCommand = Command.make(
             ),
           )
 
-          const { sections: extractedSections, matchedNumbers } =
-            extractSectionContent(document, sectionSelector, { shallow })
+          const {
+            sections: extractedSections,
+            matchedNumbers,
+            excludedNumbers,
+          } = extractSectionContent(document, sectionSelector, {
+            shallow,
+            exclude: excludePatterns,
+          })
 
           if (extractedSections.length === 0) {
             yield* Console.error(
               `No sections found matching "${sectionSelector}" in ${file}`,
             )
+            if (excludedNumbers.length > 0) {
+              yield* Console.error(
+                `(${excludedNumbers.length} section(s) were excluded by --exclude patterns)`,
+              )
+            }
             yield* Console.error('Use --sections to list available sections.')
             continue
           }
@@ -167,7 +213,11 @@ export const contextCommand = Command.make(
               title: document.title,
               selector: sectionSelector,
               shallow,
+              ...(excludePatterns.length > 0 && { excludePatterns }),
               matchedSections: matchedNumbers,
+              ...(excludedNumbers.length > 0 && {
+                excludedSections: excludedNumbers,
+              }),
               content: formatExtractedSections(extractedSections),
               sections: extractedSections.map((s) => ({
                 heading: s.heading,
@@ -180,6 +230,11 @@ export const contextCommand = Command.make(
             yield* Console.log(`# ${document.title}`)
             yield* Console.log(`Path: ${filePath}`)
             yield* Console.log(`Sections: ${matchedNumbers.join(', ')}`)
+            if (excludedNumbers.length > 0) {
+              yield* Console.log(
+                `Excluded: ${excludedNumbers.join(', ')} (by --exclude patterns)`,
+              )
+            }
             yield* Console.log('')
             yield* Console.log(formatExtractedSections(extractedSections))
           }
@@ -200,6 +255,7 @@ export const contextCommand = Command.make(
         const summary = yield* summarizeFile(filePath, {
           level: level as 'brief' | 'summary' | 'full',
           maxTokens: effectiveMaxTokens,
+          exclude: excludePatterns.length > 0 ? excludePatterns : undefined,
         })
 
         if (json) {
@@ -216,6 +272,7 @@ export const contextCommand = Command.make(
         const assembled = yield* assembleContext(root, fileList, {
           budget: full ? Number.MAX_SAFE_INTEGER : tokens,
           level: level as 'brief' | 'summary' | 'full',
+          exclude: excludePatterns.length > 0 ? excludePatterns : undefined,
         })
 
         if (json) {

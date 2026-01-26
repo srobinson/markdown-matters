@@ -115,6 +115,52 @@ export const hasEmbeddings = async (dir: string): Promise<boolean> => {
 }
 
 /**
+ * Find the nearest parent directory containing an mdcontext index.
+ * Searches from the specified directory up to the filesystem root.
+ *
+ * @param startDir - Directory to start searching from
+ * @returns The directory containing the index, or null if not found
+ */
+export const findIndexRoot = async (
+  startDir: string,
+): Promise<string | null> => {
+  let currentDir = path.resolve(startDir)
+  const root = path.parse(currentDir).root
+
+  while (currentDir !== root) {
+    const sectionsPath = path.join(
+      currentDir,
+      '.mdcontext',
+      'indexes',
+      'sections.json',
+    )
+    try {
+      await fsPromises.access(sectionsPath)
+      return currentDir // Found an index
+    } catch {
+      // No index here, try parent
+      const parent = path.dirname(currentDir)
+      if (parent === currentDir) break // Reached root
+      currentDir = parent
+    }
+  }
+
+  // Also check root
+  const rootSectionsPath = path.join(
+    root,
+    '.mdcontext',
+    'indexes',
+    'sections.json',
+  )
+  try {
+    await fsPromises.access(rootSectionsPath)
+    return root
+  } catch {
+    return null
+  }
+}
+
+/**
  * Get index information for display
  */
 export interface IndexInfo {
@@ -123,11 +169,15 @@ export interface IndexInfo {
   sectionCount?: number | undefined
   embeddingsExist: boolean
   vectorCount?: number | undefined
+  /** The actual directory where the index was found (may differ from requested dir) */
+  indexRoot?: string | undefined
 }
 
 export const getIndexInfo = async (dir: string): Promise<IndexInfo> => {
-  const sectionsPath = path.join(dir, '.mdcontext', 'indexes', 'sections.json')
-  const vectorsMetaPath = path.join(dir, '.mdcontext', 'vectors.meta.json')
+  // First try the specified directory
+  let indexRoot = dir
+  let sectionsPath = path.join(dir, '.mdcontext', 'indexes', 'sections.json')
+  let vectorsMetaPath = path.join(dir, '.mdcontext', 'vectors.meta.json')
 
   let exists = false
   let lastUpdated: string | undefined
@@ -135,7 +185,7 @@ export const getIndexInfo = async (dir: string): Promise<IndexInfo> => {
   let embeddingsExist = false
   let vectorCount: number | undefined
 
-  // Check sections index
+  // Check sections index in specified directory
   try {
     const stat = await fsPromises.stat(sectionsPath)
     exists = true
@@ -145,7 +195,30 @@ export const getIndexInfo = async (dir: string): Promise<IndexInfo> => {
     const sections = JSON.parse(content)
     sectionCount = Object.keys(sections.sections || {}).length
   } catch {
-    // Index doesn't exist
+    // Index doesn't exist in specified directory, try to find in parent directories
+    const foundRoot = await findIndexRoot(dir)
+    if (foundRoot) {
+      indexRoot = foundRoot
+      sectionsPath = path.join(
+        foundRoot,
+        '.mdcontext',
+        'indexes',
+        'sections.json',
+      )
+      vectorsMetaPath = path.join(foundRoot, '.mdcontext', 'vectors.meta.json')
+
+      try {
+        const stat = await fsPromises.stat(sectionsPath)
+        exists = true
+        lastUpdated = stat.mtime.toISOString()
+
+        const content = await fsPromises.readFile(sectionsPath, 'utf-8')
+        const sections = JSON.parse(content)
+        sectionCount = Object.keys(sections.sections || {}).length
+      } catch {
+        // Still failed
+      }
+    }
   }
 
   // Check vectors metadata
@@ -168,5 +241,6 @@ export const getIndexInfo = async (dir: string): Promise<IndexInfo> => {
     sectionCount,
     embeddingsExist,
     vectorCount,
+    indexRoot: exists && indexRoot !== dir ? indexRoot : undefined,
   }
 }

@@ -34,6 +34,7 @@ import {
   type ProviderFactoryConfig,
 } from './provider-factory.js'
 import {
+  calculateFileImportanceBoost,
   calculateHeadingBoost,
   type EmbeddingProvider,
   hasProviderMetadata,
@@ -678,14 +679,16 @@ export const semanticSearch = (
       filteredResults = searchResults.filter((r) => regex.test(r.documentPath))
     }
 
-    // Apply heading boost (enabled by default)
-    const applyHeadingBoost = options.headingBoost !== false
-    const boostedResults = applyHeadingBoost
+    // Apply ranking boost (heading + file importance, enabled by default)
+    const applyBoost = options.headingBoost !== false
+    const boostedResults = applyBoost
       ? filteredResults.map((r) => ({
           ...r,
           similarity: Math.min(
             1,
-            r.similarity + calculateHeadingBoost(r.heading, query),
+            r.similarity +
+              calculateHeadingBoost(r.heading, query) +
+              calculateFileImportanceBoost(r.documentPath),
           ),
         }))
       : filteredResults
@@ -829,21 +832,26 @@ export const semanticSearchWithStats = (
       )
     }
 
-    // Apply heading boost (enabled by default)
-    const applyHeadingBoost = options.headingBoost !== false
-    const boostedResults = applyHeadingBoost
+    // Apply ranking boost (heading + file importance, enabled by default)
+    const applyBoost = options.headingBoost !== false
+    const boostedResults = applyBoost
       ? filteredResults.map((r) => ({
           ...r,
           similarity: Math.min(
             1,
-            r.similarity + calculateHeadingBoost(r.heading, query),
+            r.similarity +
+              calculateHeadingBoost(r.heading, query) +
+              calculateFileImportanceBoost(r.documentPath),
           ),
         }))
       : filteredResults
 
     // Re-sort by boosted similarity and convert to SemanticSearchResult
-    const results: SemanticSearchResult[] = boostedResults
-      .sort((a, b) => b.similarity - a.similarity)
+    const sortedResults = boostedResults.sort(
+      (a, b) => b.similarity - a.similarity,
+    )
+    const totalAvailable = sortedResults.length
+    const results: SemanticSearchResult[] = sortedResults
       .slice(0, limit)
       .map((r) => ({
         sectionId: r.sectionId,
@@ -857,6 +865,7 @@ export const semanticSearchWithStats = (
       belowThresholdCount: searchResultWithStats.belowThresholdCount,
       belowThresholdHighest:
         searchResultWithStats.belowThresholdHighest ?? undefined,
+      totalAvailable,
     }
   })
 

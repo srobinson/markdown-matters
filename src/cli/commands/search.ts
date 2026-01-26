@@ -4,6 +4,7 @@
  * Search markdown content by meaning or heading pattern.
  */
 
+import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import * as readline from 'node:readline'
 import { Args, Command, Options } from '@effect/cli'
@@ -19,6 +20,7 @@ import {
   semanticSearchWithStats,
 } from '../../embeddings/semantic-search.js'
 import type { SearchQuality } from '../../embeddings/types.js'
+import { createStorage, loadSectionIndex } from '../../index/storage.js'
 import { INDEX_DIR } from '../../index/types.js'
 import { initializeReranker } from '../../search/cross-encoder.js'
 import {
@@ -46,6 +48,98 @@ import {
 import { formatJson, getIndexInfo, isRegexPattern } from '../utils.js'
 
 // Auto-index threshold is now configurable via search.autoIndexThreshold
+
+/**
+ * Check if content contains all the refine terms (case-insensitive).
+ */
+const contentMatchesAllTerms = (
+  content: string,
+  terms: readonly string[],
+): boolean => {
+  const lowerContent = content.toLowerCase()
+  return terms.every((term) => lowerContent.includes(term.toLowerCase()))
+}
+
+/**
+ * Section info for refine filtering.
+ */
+interface SectionInfo {
+  readonly documentPath: string
+  readonly startLine: number
+  readonly endLine: number
+}
+
+/**
+ * Filter search results by refine terms using parallel file loading.
+ * Uses a file cache and concurrency limit for performance.
+ *
+ * @param rootPath - Root path for file loading
+ * @param results - Search results to filter
+ * @param refineTerms - Terms that must all be present in section content
+ * @param limit - Maximum results to return
+ * @param getSectionInfo - Function to extract section info from a result
+ */
+const filterResultsByRefineTerms = <T>(
+  rootPath: string,
+  results: readonly T[],
+  refineTerms: readonly string[],
+  limit: number,
+  getSectionInfo: (result: T) => SectionInfo | null,
+): Effect.Effect<T[], never> =>
+  Effect.gen(function* () {
+    if (refineTerms.length === 0 || results.length === 0) {
+      return results.slice(0, limit) as T[]
+    }
+
+    // Cache for file contents to avoid re-reading files
+    const fileCache = new Map<string, string | null>()
+
+    const getFileContent = (
+      documentPath: string,
+    ): Effect.Effect<string | null, never> =>
+      Effect.gen(function* () {
+        if (fileCache.has(documentPath)) {
+          return fileCache.get(documentPath)!
+        }
+        const content = yield* Effect.promise(async () => {
+          try {
+            const filePath = path.join(rootPath, documentPath)
+            return await fs.readFile(filePath, 'utf-8')
+          } catch {
+            return null
+          }
+        })
+        fileCache.set(documentPath, content)
+        return content
+      })
+
+    // Check each result in parallel with concurrency limit
+    const checkedResults = yield* Effect.all(
+      results.map((result) =>
+        Effect.gen(function* () {
+          const info = getSectionInfo(result)
+          if (!info) return null
+
+          const fileContent = yield* getFileContent(info.documentPath)
+          if (!fileContent) return null
+
+          const lines = fileContent.split('\n')
+          const sectionContent = lines
+            .slice(info.startLine - 1, info.endLine)
+            .join('\n')
+
+          if (contentMatchesAllTerms(sectionContent, refineTerms)) {
+            return result
+          }
+          return null
+        }),
+      ),
+      { concurrency: 10 },
+    )
+
+    // Filter nulls and limit results
+    return checkedResults.filter((r): r is T => r !== null).slice(0, limit)
+  })
 
 const promptUser = (message: string): Promise<string> => {
   return new Promise((resolve) => {
@@ -171,6 +265,31 @@ export const searchCommand = Command.make(
       Options.withDescription('Stream AI summary output in real-time'),
       Options.withDefault(false),
     ),
+    fuzzy: Options.boolean('fuzzy').pipe(
+      Options.withAlias('f'),
+      Options.withDescription(
+        'Enable fuzzy matching for typo tolerance (e.g., "configration" matches "configuration")',
+      ),
+      Options.withDefault(false),
+    ),
+    stem: Options.boolean('stem').pipe(
+      Options.withDescription(
+        'Enable word stemming (e.g., "fail" matches "failure", "failed", "failing")',
+      ),
+      Options.withDefault(false),
+    ),
+    fuzzyDistance: Options.integer('fuzzy-distance').pipe(
+      Options.withDescription(
+        'Max edit distance for fuzzy matching (default: 2)',
+      ),
+      Options.optional,
+    ),
+    refine: Options.text('refine').pipe(
+      Options.withDescription(
+        'Additional filter terms to narrow results (can be used multiple times)',
+      ),
+      Options.repeated,
+    ),
   },
   ({
     query,
@@ -194,6 +313,10 @@ export const searchCommand = Command.make(
     summarize,
     yes,
     stream,
+    fuzzy,
+    stem,
+    fuzzyDistance,
+    refine,
   }) =>
     Effect.gen(function* () {
       const resolvedDir = path.resolve(dirPath)
@@ -266,8 +389,25 @@ export const searchCommand = Command.make(
         return
       }
 
+      // Determine the actual index root (may be a parent directory)
+      const indexRoot = indexInfo.indexRoot ?? resolvedDir
+
+      // Calculate path filter for scoped search
+      // If searching a subdirectory, filter results to that path
+      let scopedPathPattern: string | undefined
+      if (indexInfo.indexRoot && indexInfo.indexRoot !== resolvedDir) {
+        // Get relative path from index root to search dir
+        const relativePath = path.relative(indexRoot, resolvedDir)
+        // Create pattern to match files in this directory and subdirectories
+        scopedPathPattern = `${relativePath}/*`
+        if (!json) {
+          yield* Console.log(`Searching within: ${relativePath}/`)
+          yield* Console.log('')
+        }
+      }
+
       // Check available search modes
-      const searchModes = yield* detectSearchModes(resolvedDir)
+      const searchModes = yield* detectSearchModes(indexRoot)
       let embedsExist = searchModes.hasEmbeddings
 
       // Determine search mode
@@ -283,7 +423,7 @@ export const searchCommand = Command.make(
       } else if (modeValue === 'semantic') {
         if (!embedsExist) {
           embedsExist = yield* handleMissingEmbeddings(
-            resolvedDir,
+            indexRoot,
             effectiveAutoIndexThreshold,
             json,
           )
@@ -354,13 +494,49 @@ export const searchCommand = Command.make(
         const effectiveQuality = Option.getOrUndefined(quality) as
           | SearchQuality
           | undefined
-        const { results, stats } = yield* hybridSearch(resolvedDir, query, {
-          limit: effectiveLimit,
-          threshold: effectiveThreshold,
-          mode: 'hybrid',
-          rerank,
-          quality: effectiveQuality,
-        })
+        // Get more results if refinement is needed (we'll filter down later)
+        const refineTerms = refine.length > 0 ? refine : []
+        const fetchLimit =
+          refineTerms.length > 0 ? effectiveLimit * 5 : effectiveLimit
+
+        const { results: rawResults, stats } = yield* hybridSearch(
+          indexRoot,
+          query,
+          {
+            limit: fetchLimit,
+            threshold: effectiveThreshold,
+            mode: 'hybrid',
+            rerank,
+            quality: effectiveQuality,
+            ...(scopedPathPattern && { pathPattern: scopedPathPattern }),
+          },
+        )
+
+        // Apply refine filtering if terms provided (parallel with caching)
+        let results = rawResults
+        if (refineTerms.length > 0) {
+          const storage = createStorage(indexRoot)
+          const sectionIndex = yield* loadSectionIndex(storage)
+
+          if (sectionIndex) {
+            results = yield* filterResultsByRefineTerms(
+              indexRoot,
+              rawResults,
+              refineTerms,
+              effectiveLimit,
+              (result) => {
+                const section = sectionIndex.sections[result.sectionId]
+                return section
+                  ? {
+                      documentPath: result.documentPath,
+                      startLine: section.startLine,
+                      endLine: section.endLine,
+                    }
+                  : null
+              },
+            )
+          }
+        }
 
         // Warn if reranking was requested but not applied
         if (rerank && !stats.reranked && !json) {
@@ -374,11 +550,17 @@ export const searchCommand = Command.make(
         }
 
         if (json) {
+          const moreAvailable =
+            stats.totalAvailable !== undefined &&
+            stats.totalAvailable > results.length
+              ? stats.totalAvailable - results.length
+              : undefined
           const output = {
             mode: 'hybrid',
             modeReason,
             query,
             stats,
+            moreAvailable,
             results: results.map((r) => ({
               path: r.documentPath,
               heading: r.heading,
@@ -395,7 +577,20 @@ export const searchCommand = Command.make(
             ? `${modeIndicator} (${modeReason})`
             : modeIndicator
           yield* Console.log(`${modeStr} Searching: "${query}"`)
-          yield* Console.log(`Results: ${results.length}`)
+
+          // Show results count with "more available" indicator if results were limited
+          const moreAvailable =
+            stats.totalAvailable !== undefined &&
+            stats.totalAvailable > results.length
+              ? stats.totalAvailable - results.length
+              : 0
+          if (moreAvailable > 0) {
+            yield* Console.log(
+              `Results: ${results.length} (${moreAvailable} more available, use --limit to see more)`,
+            )
+          } else {
+            yield* Console.log(`Results: ${results.length}`)
+          }
           yield* Console.log('')
 
           for (const result of results) {
@@ -434,17 +629,44 @@ export const searchCommand = Command.make(
         }
       } else if (effectiveMode === 'keyword') {
         // Keyword search - content by default, heading-only if flag set
-        const results = headingOnly
-          ? yield* search(resolvedDir, {
+        const effectiveFuzzyDistance = Option.getOrUndefined(fuzzyDistance)
+        const refineTerms = refine.length > 0 ? refine : []
+        const fetchLimit =
+          refineTerms.length > 0 ? effectiveLimit * 5 : effectiveLimit
+
+        let results = headingOnly
+          ? yield* search(indexRoot, {
               heading: query,
-              limit: effectiveLimit,
+              limit: fetchLimit,
+              ...(scopedPathPattern && { pathPattern: scopedPathPattern }),
             })
-          : yield* searchContent(resolvedDir, {
+          : yield* searchContent(indexRoot, {
               content: query,
-              limit: effectiveLimit,
+              limit: fetchLimit,
               contextBefore,
               contextAfter,
+              fuzzy,
+              stem,
+              ...(effectiveFuzzyDistance !== undefined && {
+                fuzzyDistance: effectiveFuzzyDistance,
+              }),
+              ...(scopedPathPattern && { pathPattern: scopedPathPattern }),
             })
+
+        // Apply refine filtering if terms provided (parallel with caching)
+        if (refineTerms.length > 0) {
+          results = yield* filterResultsByRefineTerms(
+            indexRoot,
+            results,
+            refineTerms,
+            effectiveLimit,
+            (result) => ({
+              documentPath: result.section.documentPath,
+              startLine: result.section.startLine,
+              endLine: result.section.endLine,
+            }),
+          )
+        }
 
         if (json) {
           const output = {
@@ -453,6 +675,11 @@ export const searchCommand = Command.make(
             query,
             contextBefore,
             contextAfter,
+            fuzzy,
+            stem,
+            ...(effectiveFuzzyDistance !== undefined && {
+              fuzzyDistance: effectiveFuzzyDistance,
+            }),
             results: results.map((r) => ({
               path: r.section.documentPath,
               heading: r.section.heading,
@@ -474,7 +701,15 @@ export const searchCommand = Command.make(
           const modeStr = showReason
             ? `${modeIndicator} (${modeReason})`
             : modeIndicator
-          yield* Console.log(`${modeStr} ${searchType} search: "${query}"`)
+          // Build fuzzy/stem indicator
+          const fuzzyIndicators: string[] = []
+          if (fuzzy) fuzzyIndicators.push('fuzzy')
+          if (stem) fuzzyIndicators.push('stem')
+          const fuzzyStr =
+            fuzzyIndicators.length > 0 ? ` [${fuzzyIndicators.join('+')}]` : ''
+          yield* Console.log(
+            `${modeStr}${fuzzyStr} ${searchType} search: "${query}"`,
+          )
           yield* Console.log(`Results: ${results.length}`)
           yield* Console.log('')
 
@@ -557,24 +792,58 @@ export const searchCommand = Command.make(
           : undefined
 
         // Semantic search with stats for below-threshold feedback
+        const refineTerms = refine.length > 0 ? refine : []
+        const fetchLimit =
+          refineTerms.length > 0 ? effectiveLimit * 5 : effectiveLimit
+
         const semanticQuality = Option.getOrUndefined(quality) as
           | SearchQuality
           | undefined
-        const searchResult = yield* semanticSearchWithStats(
-          resolvedDir,
-          query,
-          {
-            limit: effectiveLimit,
-            threshold: effectiveThreshold,
-            providerConfig,
-            quality: semanticQuality,
-            hyde,
-          },
-        )
-        const { results, belowThresholdCount, belowThresholdHighest } =
-          searchResult
+        const searchResult = yield* semanticSearchWithStats(indexRoot, query, {
+          limit: fetchLimit,
+          threshold: effectiveThreshold,
+          providerConfig,
+          quality: semanticQuality,
+          hyde,
+          ...(scopedPathPattern && { pathPattern: scopedPathPattern }),
+        })
+        let {
+          results,
+          belowThresholdCount,
+          belowThresholdHighest,
+          totalAvailable,
+        } = searchResult
+
+        // Apply refine filtering if terms provided (parallel with caching)
+        if (refineTerms.length > 0) {
+          const storage = createStorage(indexRoot)
+          const sectionIndex = yield* loadSectionIndex(storage)
+
+          if (sectionIndex) {
+            results = yield* filterResultsByRefineTerms(
+              indexRoot,
+              results,
+              refineTerms,
+              effectiveLimit,
+              (result) => {
+                const section = sectionIndex.sections[result.sectionId]
+                return section
+                  ? {
+                      documentPath: result.documentPath,
+                      startLine: section.startLine,
+                      endLine: section.endLine,
+                    }
+                  : null
+              },
+            )
+          }
+        }
 
         if (json) {
+          const moreAvailableSemantic =
+            totalAvailable !== undefined && totalAvailable > results.length
+              ? totalAvailable - results.length
+              : undefined
           const output = {
             mode: 'semantic',
             modeReason,
@@ -583,6 +852,7 @@ export const searchCommand = Command.make(
             results,
             belowThresholdCount,
             belowThresholdHighest,
+            moreAvailable: moreAvailableSemantic,
           }
           yield* Console.log(formatJson(output, pretty))
         } else {
@@ -594,7 +864,19 @@ export const searchCommand = Command.make(
           yield* Console.log(
             `${semanticModeStr}${hydeIndicator} Semantic search: "${query}"`,
           )
-          yield* Console.log(`Results: ${results.length}`)
+
+          // Show results count with "more available" indicator if results were limited
+          const moreAvailableSemantic =
+            totalAvailable !== undefined && totalAvailable > results.length
+              ? totalAvailable - results.length
+              : 0
+          if (moreAvailableSemantic > 0) {
+            yield* Console.log(
+              `Results: ${results.length} (${moreAvailableSemantic} more available, use --limit to see more)`,
+            )
+          } else {
+            yield* Console.log(`Results: ${results.length}`)
+          }
           yield* Console.log('')
 
           for (const result of results) {

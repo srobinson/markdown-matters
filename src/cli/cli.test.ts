@@ -370,8 +370,8 @@ describe.concurrent('mdcontext CLI e2e', () => {
 
   describe('unknown flag handling', () => {
     it('shows clear error for unknown flag', async () => {
-      const output = await run('context -x README.md', { expectError: true })
-      expect(output).toContain("Unknown option '-x' for 'context'")
+      const output = await run('context -z README.md', { expectError: true })
+      expect(output).toContain("Unknown option '-z' for 'context'")
       expect(output).toContain('Valid options for')
     })
 

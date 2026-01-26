@@ -6,7 +6,7 @@
  * baseURL mapping for OpenAI-compatible APIs.
  */
 
-import { Effect, Option } from 'effect'
+import { Effect, Option, Redacted } from 'effect'
 import { ConfigService, type EmbeddingProvider } from '../config/index.js'
 import type { EmbeddingsConfig } from '../config/schema.js'
 import type { ApiKeyMissingError } from '../errors/index.js'
@@ -52,7 +52,17 @@ export interface ProviderFactoryConfig {
   readonly model?: string | undefined
   readonly dimensions?: number | undefined
   readonly batchSize?: number | undefined
-  readonly apiKey?: Option.Option<string> | string | undefined
+  /**
+   * API key for the provider. Accepts multiple formats:
+   * - Plain string: 'sk-...'
+   * - Redacted<string>: Redacted.make('sk-...') (recommended for security)
+   * - Option<string>: Option.some('sk-...')
+   */
+  readonly apiKey?:
+    | Option.Option<string>
+    | string
+    | Redacted.Redacted<string>
+    | undefined
 }
 
 /**
@@ -71,17 +81,27 @@ const normalizeBaseURL = (
 }
 
 /**
- * Normalize apiKey from various input formats to string | undefined.
+ * Normalize apiKey from various input formats to string | Redacted<string> | undefined.
+ * Preserves Redacted wrapper for security - don't unwrap until needed.
  */
 const normalizeApiKey = (
-  apiKey: Option.Option<string> | string | undefined,
-): string | undefined => {
+  apiKey:
+    | Option.Option<string>
+    | string
+    | Redacted.Redacted<string>
+    | undefined,
+): string | Redacted.Redacted<string> | undefined => {
   if (apiKey === undefined) {
     return undefined
+  }
+  // Check for Redacted first (keep wrapped for security)
+  if (Redacted.isRedacted(apiKey)) {
+    return apiKey
   }
   if (typeof apiKey === 'string') {
     return apiKey
   }
+  // Handle Option<string>
   return Option.isSome(apiKey) ? apiKey.value : undefined
 }
 

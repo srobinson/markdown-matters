@@ -10,7 +10,7 @@
  * API docs: https://docs.voyageai.com/reference/embeddings-api
  */
 
-import { Effect } from 'effect'
+import { Effect, Redacted } from 'effect'
 import {
   ApiKeyInvalidError,
   ApiKeyMissingError,
@@ -68,8 +68,11 @@ export const DEFAULT_VOYAGE_MODEL = 'voyage-3.5-lite'
 // ============================================================================
 
 export interface VoyageProviderOptions {
-  /** API key. Falls back to VOYAGE_API_KEY env var. */
-  readonly apiKey?: string | undefined
+  /**
+   * API key. Can be a plain string or Redacted<string>.
+   * Falls back to VOYAGE_API_KEY env var if not provided.
+   */
+  readonly apiKey?: string | Redacted.Redacted<string> | undefined
   /** Model to use. Default: voyage-3.5-lite */
   readonly model?: string | undefined
   /** Batch size for embedding requests. Default: 128 (Voyage supports up to 128) */
@@ -87,10 +90,13 @@ export class VoyageProvider implements EmbeddingProviderWithMetadata {
   readonly baseURL: string = VOYAGE_API_BASE
   readonly providerName = 'voyage'
 
-  private readonly apiKey: string
+  private readonly apiKey: Redacted.Redacted<string>
   private readonly batchSize: number
 
-  private constructor(apiKey: string, options: VoyageProviderOptions = {}) {
+  private constructor(
+    apiKey: Redacted.Redacted<string>,
+    options: VoyageProviderOptions = {},
+  ) {
     this.apiKey = apiKey
     this.model = options.model ?? DEFAULT_VOYAGE_MODEL
     this.batchSize = options.batchSize ?? 128
@@ -105,13 +111,16 @@ export class VoyageProvider implements EmbeddingProviderWithMetadata {
   /**
    * Create a Voyage provider instance.
    * Returns an Effect that fails with ApiKeyMissingError if no API key is available.
+   *
+   * API keys are handled securely using Effect's Redacted type to prevent
+   * accidental logging of sensitive values.
    */
   static create(
     options: VoyageProviderOptions = {},
   ): Effect.Effect<VoyageProvider, ApiKeyMissingError> {
-    const apiKey = options.apiKey ?? process.env.VOYAGE_API_KEY
+    const rawApiKey = options.apiKey ?? process.env.VOYAGE_API_KEY
 
-    if (!apiKey) {
+    if (!rawApiKey) {
       return Effect.fail(
         new ApiKeyMissingError({
           provider: 'Voyage AI',
@@ -120,7 +129,12 @@ export class VoyageProvider implements EmbeddingProviderWithMetadata {
       )
     }
 
-    return Effect.succeed(new VoyageProvider(apiKey, options))
+    // Wrap in Redacted if it's a plain string
+    const redactedApiKey = Redacted.isRedacted(rawApiKey)
+      ? rawApiKey
+      : Redacted.make(rawApiKey)
+
+    return Effect.succeed(new VoyageProvider(redactedApiKey, options))
   }
 
   async embed(texts: string[]): Promise<EmbeddingResult> {
@@ -139,7 +153,7 @@ export class VoyageProvider implements EmbeddingProviderWithMetadata {
         const response = await fetch(`${VOYAGE_API_BASE}/embeddings`, {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${this.apiKey}`,
+            Authorization: `Bearer ${Redacted.value(this.apiKey)}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({

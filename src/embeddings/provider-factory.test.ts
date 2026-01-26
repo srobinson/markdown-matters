@@ -5,7 +5,7 @@
  * provider creation with appropriate baseURL mapping.
  */
 
-import { Effect, Option } from 'effect'
+import { Effect, Option, Redacted } from 'effect'
 import { describe, expect, it } from 'vitest'
 import {
   createEmbeddingProviderDirect,
@@ -206,6 +206,35 @@ describe('Provider Factory', () => {
           process.env.OPENAI_API_KEY = originalEnv
         }
       }
+    })
+
+    it('should accept apiKey as Redacted<string>', async () => {
+      const redactedKey = Redacted.make('test-redacted-key')
+      const program = createEmbeddingProviderDirect({
+        provider: 'openai',
+        apiKey: redactedKey,
+      })
+
+      const provider = await Effect.runPromise(program)
+      expect(provider).toBeDefined()
+      expect(provider.name).toContain('openai')
+    })
+
+    it('should not expose Redacted API key when stringified', () => {
+      const redactedKey = Redacted.make('sk-secret-key-12345')
+      const stringified = String(redactedKey)
+
+      // Redacted type shows <redacted> when stringified
+      expect(stringified).not.toContain('sk-secret-key-12345')
+      expect(stringified).toContain('<redacted>')
+    })
+
+    it('should preserve API key value in Redacted wrapper', () => {
+      const secretKey = 'sk-secret-key-12345'
+      const redactedKey = Redacted.make(secretKey)
+
+      // Value can still be extracted when needed
+      expect(Redacted.value(redactedKey)).toBe(secretKey)
     })
   })
 })

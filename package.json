@@ -59,6 +59,7 @@
     "gray-matter": "^4.0.3",
     "hnswlib-node": "^3.0.0",
     "ignore": "^7.0.5",
+    "stemmer": "^2.0.1",
     "openai": "^6.16.0",
     "remark": "^15.0.1",
     "remark-gfm": "^4.0.1",

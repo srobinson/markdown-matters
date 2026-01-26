@@ -231,6 +231,10 @@ export const helpContent: Record<string, CommandHelp> = {
       'mdcontext context doc.md --section "2.1"           # Extract by section number',
       'mdcontext context doc.md --section "API*"          # Glob pattern matching',
       'mdcontext context doc.md --section "Config" --shallow  # Top-level only',
+      '',
+      '# Section exclusion:',
+      'mdcontext context doc.md --exclude "License"       # Exclude License section',
+      'mdcontext context doc.md -x "License" -x "Test*"   # Multiple exclusions',
     ],
     options: [
       {
@@ -258,6 +262,10 @@ export const helpContent: Record<string, CommandHelp> = {
         name: '--shallow',
         description: 'Exclude nested subsections when using --section',
       },
+      {
+        name: '-x, --exclude <pattern>',
+        description: 'Exclude sections by name, number, or glob (repeatable)',
+      },
       { name: '--json', description: 'Output as JSON' },
       { name: '--pretty', description: 'Pretty-print JSON output' },
     ],
@@ -266,6 +274,7 @@ export const helpContent: Record<string, CommandHelp> = {
       'Lower tokens = more aggressive summarization.',
       'Output is formatted for direct use in LLM prompts.',
       'Use --sections to discover section names before filtering.',
+      'Exclusion: -x matches by heading name, section number, or glob pattern.',
     ],
   },
   tree: {

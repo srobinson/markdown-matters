@@ -88,10 +88,10 @@ describe('preprocessArgvWithValidation', () => {
         node,
         script,
         'context',
-        '-x',
+        '-z',
         'file.md',
       ])
-      expect(result.error).toContain("Unknown option '-x'")
+      expect(result.error).toContain("Unknown option '-z'")
       expect(result.error).toContain("'context'")
     })
 

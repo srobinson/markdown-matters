@@ -12,7 +12,7 @@
  * https://arxiv.org/abs/2212.10496
  */
 
-import { Effect } from 'effect'
+import { Effect, Redacted } from 'effect'
 import OpenAI from 'openai'
 import { ApiKeyMissingError, EmbeddingError } from '../errors/index.js'
 
@@ -24,8 +24,11 @@ import { ApiKeyMissingError, EmbeddingError } from '../errors/index.js'
  * Configuration for HyDE query expansion.
  */
 export interface HydeOptions {
-  /** OpenAI API key. Falls back to OPENAI_API_KEY env var. */
-  readonly apiKey?: string | undefined
+  /**
+   * OpenAI API key. Can be a plain string or Redacted<string>.
+   * Falls back to OPENAI_API_KEY env var if not provided.
+   */
+  readonly apiKey?: string | Redacted.Redacted<string> | undefined
   /** Model to use for hypothetical document generation. Default: gpt-4o-mini */
   readonly model?: string | undefined
   /** Maximum tokens for the generated document. Default: 256 */
@@ -109,9 +112,9 @@ export const generateHypotheticalDocument = (
   options: HydeOptions = {},
 ): Effect.Effect<HydeResult, ApiKeyMissingError | EmbeddingError> =>
   Effect.gen(function* () {
-    // Get API key
-    const apiKey = options.apiKey ?? process.env.OPENAI_API_KEY
-    if (!apiKey) {
+    // Get API key - resolve from options or environment, normalize to Redacted
+    const rawApiKey = options.apiKey ?? process.env.OPENAI_API_KEY
+    if (!rawApiKey) {
       return yield* Effect.fail(
         new ApiKeyMissingError({
           provider: 'OpenAI',
@@ -120,8 +123,13 @@ export const generateHypotheticalDocument = (
       )
     }
 
+    // Wrap in Redacted if it's a plain string
+    const redactedApiKey = Redacted.isRedacted(rawApiKey)
+      ? rawApiKey
+      : Redacted.make(rawApiKey)
+
     const client = new OpenAI({
-      apiKey,
+      apiKey: Redacted.value(redactedApiKey), // Only expose when creating client
       baseURL: options.baseURL,
     })
 

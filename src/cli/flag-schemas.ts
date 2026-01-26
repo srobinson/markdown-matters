@@ -141,6 +141,28 @@ export const searchSchema: CommandSchema = {
       alias: 'A',
       description: 'Lines of context after matches (like grep -A)',
     },
+    {
+      name: 'fuzzy',
+      type: 'boolean',
+      alias: 'f',
+      description: 'Enable fuzzy matching for typo tolerance',
+    },
+    {
+      name: 'stem',
+      type: 'boolean',
+      description: 'Enable word stemming (fail matches failure, failed)',
+    },
+    {
+      name: 'fuzzy-distance',
+      type: 'string',
+      description: 'Max edit distance for fuzzy matching (default: 2)',
+    },
+    {
+      name: 'refine',
+      type: 'string',
+      description:
+        'Additional filter to narrow results (can be used multiple times)',
+    },
     jsonFlag,
     prettyFlag,
   ],
@@ -167,6 +189,13 @@ export const contextSchema: CommandSchema = {
       name: 'shallow',
       type: 'boolean',
       description: 'Exclude nested subsections when filtering',
+    },
+    {
+      name: 'exclude',
+      type: 'string',
+      alias: 'x',
+      description:
+        'Exclude sections matching pattern (can be used multiple times)',
     },
     jsonFlag,
     prettyFlag,

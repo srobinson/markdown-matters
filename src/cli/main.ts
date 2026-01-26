@@ -18,7 +18,14 @@
  */
 
 import * as fs from 'node:fs'
+import { createRequire } from 'node:module'
 import * as path from 'node:path'
+
+// Read version from package.json using createRequire for ESM compatibility
+const require = createRequire(import.meta.url)
+const packageJson = require('../../package.json') as { version: string }
+const CLI_VERSION: string = packageJson.version
+
 import { CliConfig, Command } from '@effect/cli'
 import { NodeContext, NodeRuntime } from '@effect/platform-node'
 import { Effect, Layer } from 'effect'
@@ -30,6 +37,7 @@ import {
   backlinksCommand,
   configCommand,
   contextCommand,
+  duplicatesCommand,
   indexCommand,
   linksCommand,
   searchCommand,
@@ -61,6 +69,7 @@ const mainCommand = Command.make('mdcontext').pipe(
     treeCommand,
     linksCommand,
     backlinksCommand,
+    duplicatesCommand,
     statsCommand,
     configCommand,
   ]),
@@ -68,7 +77,7 @@ const mainCommand = Command.make('mdcontext').pipe(
 
 const cli = Command.run(mainCommand, {
   name: 'mdcontext',
-  version: '0.1.0',
+  version: CLI_VERSION,
 })
 
 // Clean CLI config: hide built-in options from help

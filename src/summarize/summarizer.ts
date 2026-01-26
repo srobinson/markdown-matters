@@ -10,6 +10,7 @@ import { Effect } from 'effect'
 import type { MdDocument, MdSection, ParseError } from '../core/types.js'
 import type { FileReadError } from '../errors/index.js'
 import { parseFile } from '../parser/parser.js'
+import { filterDocumentSections } from '../parser/section-filter.js'
 import { countTokensApprox } from '../utils/tokens.js'
 import { formatSummary as formatSummaryImpl } from './formatters.js'
 
@@ -30,6 +31,8 @@ export interface SummarizeOptions {
   readonly level?: CompressionLevel | undefined
   /** Maximum tokens for output */
   readonly maxTokens?: number | undefined
+  /** Section patterns to exclude from output */
+  readonly exclude?: readonly string[] | undefined
 }
 
 export interface SectionSummary {
@@ -63,6 +66,8 @@ export interface AssembleContextOptions {
   readonly budget: number
   /** Compression level for each source */
   readonly level?: CompressionLevel | undefined
+  /** Section patterns to exclude from output */
+  readonly exclude?: readonly string[] | undefined
 }
 
 export interface AssembledContext {
@@ -393,7 +398,17 @@ export const summarizeFile = (
   options: SummarizeOptions = {},
 ): Effect.Effect<DocumentSummary, ParseFileError> =>
   Effect.gen(function* () {
-    const document = yield* parseFile(filePath)
+    let document = yield* parseFile(filePath)
+
+    // Apply exclusion filter if patterns provided
+    if (options.exclude && options.exclude.length > 0) {
+      const { document: filteredDoc } = filterDocumentSections(
+        document,
+        options.exclude,
+      )
+      document = filteredDoc
+    }
+
     return summarizeDocument(document, options)
   })
 
@@ -421,6 +436,7 @@ export const assembleContext = (
   Effect.gen(function* () {
     const budget = options.budget
     const level = options.level ?? 'summary'
+    const excludePatterns = options.exclude ?? []
 
     const sources: SourceContext[] = []
     const overflow: string[] = []
@@ -439,6 +455,7 @@ export const assembleContext = (
       const summaryResult = yield* summarizeFile(resolvedPath, {
         level,
         maxTokens: perSourceBudget,
+        exclude: excludePatterns,
       }).pipe(
         Effect.map((s): DocumentSummary | null => s),
         // Log error for observability before gracefully degrading
@@ -476,6 +493,7 @@ export const assembleContext = (
           const briefSummary = yield* summarizeFile(resolvedPath, {
             level: 'brief',
             maxTokens: remaining,
+            exclude: excludePatterns,
           }).pipe(
             Effect.map((s): DocumentSummary | null => s),
             // Log error for observability before gracefully degrading

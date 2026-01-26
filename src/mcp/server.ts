@@ -6,7 +6,14 @@
  * Exposes markdown analysis tools for Claude integration
  */
 
+import { createRequire } from 'node:module'
 import * as path from 'node:path'
+
+// Read version from package.json using createRequire for ESM compatibility
+const require = createRequire(import.meta.url)
+const packageJson = require('../../package.json') as { version: string }
+const MCP_VERSION: string = packageJson.version
+
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js'
@@ -17,7 +24,11 @@ import {
 import { Effect } from 'effect'
 import type { MdSection } from '../core/types.js'
 import { semanticSearch } from '../embeddings/semantic-search.js'
-import { buildIndex } from '../index/indexer.js'
+import {
+  buildIndex,
+  getIncomingLinks,
+  getOutgoingLinks,
+} from '../index/indexer.js'
 import { parseFile } from '../parser/parser.js'
 import { search } from '../search/searcher.js'
 import { formatSummary, summarizeFile } from '../summarize/summarizer.js'
@@ -152,6 +163,36 @@ const tools: Tool[] = [
           default: false,
         },
       },
+    },
+  },
+  {
+    name: 'md_links',
+    description:
+      'Get outgoing links from a markdown file. Shows what files this document references/links to.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: {
+          type: 'string',
+          description: 'Path to the markdown file',
+        },
+      },
+      required: ['path'],
+    },
+  },
+  {
+    name: 'md_backlinks',
+    description:
+      'Get incoming links to a markdown file. Shows what files reference/link to this document.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: {
+          type: 'string',
+          description: 'Path to the markdown file',
+        },
+      },
+      required: ['path'],
     },
   },
 ]
@@ -410,6 +451,84 @@ const handleMdIndex = async (
   }
 }
 
+const handleMdLinks = async (
+  args: Record<string, unknown>,
+  rootPath: string,
+): Promise<CallToolResult> => {
+  const filePath = args.path as string
+  const resolvedPath = path.isAbsolute(filePath)
+    ? filePath
+    : path.join(rootPath, filePath)
+
+  // Note: catchAll is intentional - MCP boundary converts errors to JSON format
+  const result = await Effect.runPromise(
+    getOutgoingLinks(rootPath, resolvedPath).pipe(
+      Effect.catchAll((e) => Effect.succeed({ error: e.message })),
+    ),
+  )
+
+  if ('error' in result) {
+    return {
+      content: [{ type: 'text', text: `Error: ${result.error}` }],
+      isError: true,
+    }
+  }
+
+  const links = result as readonly string[]
+  const relativePath = path.relative(rootPath, resolvedPath)
+
+  return {
+    content: [
+      {
+        type: 'text',
+        text:
+          links.length > 0
+            ? `Outgoing links from ${relativePath}:\n\n${links.map((l) => `  -> ${l}`).join('\n')}\n\nTotal: ${links.length} links`
+            : `No outgoing links from ${relativePath}`,
+      },
+    ],
+  }
+}
+
+const handleMdBacklinks = async (
+  args: Record<string, unknown>,
+  rootPath: string,
+): Promise<CallToolResult> => {
+  const filePath = args.path as string
+  const resolvedPath = path.isAbsolute(filePath)
+    ? filePath
+    : path.join(rootPath, filePath)
+
+  // Note: catchAll is intentional - MCP boundary converts errors to JSON format
+  const result = await Effect.runPromise(
+    getIncomingLinks(rootPath, resolvedPath).pipe(
+      Effect.catchAll((e) => Effect.succeed({ error: e.message })),
+    ),
+  )
+
+  if ('error' in result) {
+    return {
+      content: [{ type: 'text', text: `Error: ${result.error}` }],
+      isError: true,
+    }
+  }
+
+  const links = result as readonly string[]
+  const relativePath = path.relative(rootPath, resolvedPath)
+
+  return {
+    content: [
+      {
+        type: 'text',
+        text:
+          links.length > 0
+            ? `Incoming links to ${relativePath}:\n\n${links.map((l) => `  <- ${l}`).join('\n')}\n\nTotal: ${links.length} backlinks`
+            : `No incoming links to ${relativePath}`,
+      },
+    ],
+  }
+}
+
 // ============================================================================
 // MCP Server Setup
 // ============================================================================
@@ -418,7 +537,7 @@ const createServer = (rootPath: string) => {
   const server = new Server(
     {
       name: 'mdcontext-mcp',
-      version: '0.1.0',
+      version: MCP_VERSION,
     },
     {
       capabilities: {
@@ -447,6 +566,10 @@ const createServer = (rootPath: string) => {
         return handleMdKeywordSearch(args ?? {}, rootPath)
       case 'md_index':
         return handleMdIndex(args ?? {}, rootPath)
+      case 'md_links':
+        return handleMdLinks(args ?? {}, rootPath)
+      case 'md_backlinks':
+        return handleMdBacklinks(args ?? {}, rootPath)
       default:
         return {
           content: [{ type: 'text', text: `Unknown tool: ${name}` }],
