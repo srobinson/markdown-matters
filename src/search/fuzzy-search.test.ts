@@ -67,8 +67,7 @@ describe('fuzzy-search', () => {
 
     it('handles punctuation and special characters', () => {
       expect(stemText('hello, world!')).toEqual(['hello', 'world'])
-      // Note: \W+ splits on non-word chars; underscore is a word character
-      expect(stemText('foo-bar')).toEqual(['foo', 'bar'])
+      expect(stemText('foo-bar_baz')).toEqual(['foo', 'bar', 'baz'])
     })
 
     it('filters out empty strings', () => {

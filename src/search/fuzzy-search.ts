@@ -25,7 +25,7 @@ export const stem = (word: string): string => {
 export const stemText = (text: string): string[] => {
   return text
     .toLowerCase()
-    .split(/\W+/)
+    .split(/[\W_]+/)
     .filter((word) => word.length > 0)
     .map((word) => stem(word))
 }
@@ -128,11 +128,11 @@ export const matchesWithOptions = (
   // Get words from query and text
   const queryWords = query
     .toLowerCase()
-    .split(/\W+/)
+    .split(/[\W_]+/)
     .filter((w) => w.length > 0)
   const textWords = text
     .toLowerCase()
-    .split(/\W+/)
+    .split(/[\W_]+/)
     .filter((w) => w.length > 0)
 
   if (queryWords.length === 0) {
@@ -191,7 +191,7 @@ export const findMatchesInLine = (
 
   const lineWords = line
     .toLowerCase()
-    .split(/\W+/)
+    .split(/[\W_]+/)
     .filter((w) => w.length > 0)
 
   for (const queryWord of queryWords) {
@@ -242,7 +242,7 @@ export const buildFuzzyHighlightPattern = (
 
   const queryWords = query
     .toLowerCase()
-    .split(/\W+/)
+    .split(/[\W_]+/)
     .filter((w) => w.length > 0)
 
   if (queryWords.length === 0) {
