@@ -20,6 +20,27 @@ This directory contains research documentation created during the development of
 
 ---
 
+## Frontmatter Research (LLM Code Navigation)
+
+**Seminal research into how structured metadata enables 88-97% token reduction for LLM code navigation.**
+
+| Document | Status | Accuracy | Last Validated | Summary |
+|----------|--------|----------|----------------|---------|
+| [frontmatter/LLM-CODE-NAVIGATION.md](frontmatter/LLM-CODE-NAVIGATION.md) | **Authoritative** | 100% | 2026-01-28 | **THE THESIS** - Comprehensive research proving frontmatter reduces LLM token usage by 88-97% on real codebases. Includes methodology, benchmarks, and adoption path. |
+| [frontmatter/COMMENTS-ARE-SKIPPED.md](frontmatter/COMMENTS-ARE-SKIPPED.md) | **Authoritative** | 100% | 2026-01-28 | **THE PIVOT** - Critical insight: LLMs skip comments. Frontmatter as comments is invisible. Solution: manifest JSON for LLMs, inline comments for humans. |
+
+**Key Findings:**
+- LLMs waste tokens reading entire files to understand what they do
+- Frontmatter (metadata in first 10 lines) enables "peek first" triage
+- 88-97% token reduction on architecture exploration, refactoring, code review tasks
+- **Critical insight:** LLMs skip comments → frontmatter as comments is invisible
+- **Solution:** Manifest JSON for LLMs, inline comments for humans - generate both
+- fmm CLI generates/maintains frontmatter automatically
+
+**Related Project:** [fmm (Frontmatter Matters)](https://github.com/mdcontext/fmm) - CLI tool for generating frontmatter
+
+---
+
 ## Config System Research
 
 Research into the configuration system, including bugs, documentation gaps, and implementation validation.
@@ -191,8 +212,8 @@ Reviews of the research documentation itself.
 
 ## Document Statistics
 
-- **Total Documents:** 59
-- **Authoritative:** 1 (fix-validation.md)
+- **Total Documents:** 61
+- **Authoritative:** 3 (fix-validation.md, LLM-CODE-NAVIGATION.md, COMMENTS-ARE-SKIPPED.md)
 - **Valid:** 5 (help-system-analysis, help-audit, TEST-RESULTS, quality reviews)
 - **Outdated:** 3 (SUMMARY, analysis, TODO)
 - **Needs Validation:** 2 (code reviews)
@@ -291,4 +312,4 @@ This index should be updated:
 - When validation is performed
 - When documents are removed or consolidated
 
-**Last maintenance:** 2026-01-24 06:49:16 UTC by Claude Sonnet 4.5
+**Last maintenance:** 2026-01-28 by Claude Opus 4.5 (added frontmatter research)
