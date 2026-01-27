@@ -10,6 +10,7 @@
 
 import * as path from 'node:path'
 import { Effect } from 'effect'
+import { listNamespaces } from '../embeddings/embedding-namespace.js'
 import { semanticSearch } from '../embeddings/semantic-search.js'
 import type {
   SearchQuality,
@@ -428,17 +429,11 @@ export const detectSearchModes = (
     const resolvedRoot = path.resolve(rootPath)
     const hasBM25 = yield* bm25IndexExists(resolvedRoot)
 
-    // Check embeddings by looking for vector store files
-    const hasEmbeddings = yield* Effect.promise(async () => {
-      const fs = await import('node:fs/promises')
-      const indexDir = path.join(resolvedRoot, '.mdcontext')
-      try {
-        await fs.access(path.join(indexDir, 'vectors.bin'))
-        return true
-      } catch {
-        return false
-      }
-    })
+    // Check embeddings by looking for namespaced vector stores
+    const hasEmbeddings = yield* listNamespaces(resolvedRoot).pipe(
+      Effect.map((namespaces) => namespaces.length > 0),
+      Effect.catchAll(() => Effect.succeed(false)),
+    )
 
     let recommendedMode: SearchMode
     if (hasBM25 && hasEmbeddings) {

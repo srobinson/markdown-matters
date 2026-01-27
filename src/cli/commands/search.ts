@@ -249,6 +249,12 @@ export const searchCommand = Command.make(
       ),
       Options.withDefault(false),
     ),
+    timeout: Options.integer('timeout').pipe(
+      Options.withDescription(
+        'Request timeout in milliseconds for embedding API calls (default: 30000)',
+      ),
+      Options.optional,
+    ),
     json: jsonOption,
     pretty: prettyOption,
     summarize: Options.boolean('summarize').pipe(
@@ -308,6 +314,7 @@ export const searchCommand = Command.make(
     quality,
     hyde,
     rerankInit,
+    timeout,
     json,
     pretty,
     summarize,
@@ -794,6 +801,7 @@ export const searchCommand = Command.make(
         }
       } else {
         // Build provider config from CLI flag if specified
+        const cliTimeout = Option.getOrUndefined(timeout)
         const providerConfig = Option.isSome(provider)
           ? {
               provider: provider.value as
@@ -802,8 +810,11 @@ export const searchCommand = Command.make(
                 | 'lm-studio'
                 | 'openrouter'
                 | 'voyage',
+              timeout: cliTimeout,
             }
-          : undefined
+          : cliTimeout !== undefined
+            ? { provider: 'openai' as const, timeout: cliTimeout }
+            : undefined
 
         // Semantic search with stats for below-threshold feedback
         const refineTerms = refine.length > 0 ? refine : []

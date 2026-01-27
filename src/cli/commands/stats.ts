@@ -131,6 +131,9 @@ export const statsCommand = Command.make(
         if (embeddingStats.hasEmbeddings) {
           yield* Console.log(`    Vectors:     ${embeddingStats.count}`)
           yield* Console.log(`    Provider:    ${embeddingStats.provider}`)
+          if (embeddingStats.model) {
+            yield* Console.log(`    Model:       ${embeddingStats.model}`)
+          }
           yield* Console.log(`    Dimensions:  ${embeddingStats.dimensions}`)
           yield* Console.log(
             `    Cost:        $${embeddingStats.totalCost.toFixed(6)}`,

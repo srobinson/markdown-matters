@@ -6,10 +6,21 @@
 // Embedding Provider
 // ============================================================================
 
+export interface BatchProgress {
+  readonly batchIndex: number
+  readonly totalBatches: number
+  readonly processedTexts: number
+  readonly totalTexts: number
+}
+
+export interface EmbedOptions {
+  readonly onBatchProgress?: ((progress: BatchProgress) => void) | undefined
+}
+
 export interface EmbeddingProvider {
   readonly name: string
   readonly dimensions: number
-  embed(texts: string[]): Promise<EmbeddingResult>
+  embed(texts: string[], options?: EmbedOptions): Promise<EmbeddingResult>
 }
 
 /**

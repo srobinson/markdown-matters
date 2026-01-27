@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Embedding model pricing data. Update quarterly from provider pricing pages.",
+  "lastUpdated": "2026-01",
+  "sources": {
+    "openai": "https://platform.openai.com/docs/pricing",
+    "voyage": "https://docs.voyageai.com/docs/pricing"
+  },
+  "openai": {
+    "text-embedding-3-small": 0.02,
+    "text-embedding-3-large": 0.13,
+    "text-embedding-ada-002": 0.1
+  },
+  "voyage": {
+    "voyage-3.5-lite": 0.02,
+    "voyage-3": 0.06,
+    "voyage-code-3": 0.18,
+    "voyage-2": 0.1,
+    "voyage-large-2": 0.12,
+    "voyage-code-2": 0.12
+  }
+}

@@ -39,6 +39,7 @@ import {
   configCommand,
   contextCommand,
   duplicatesCommand,
+  embeddingsCommand,
   indexCommand,
   linksCommand,
   searchCommand,
@@ -73,6 +74,7 @@ const mainCommand = Command.make('mdcontext').pipe(
     duplicatesCommand,
     statsCommand,
     configCommand,
+    embeddingsCommand,
   ]),
 )
 

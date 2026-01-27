@@ -63,6 +63,11 @@ export interface ProviderFactoryConfig {
     | string
     | Redacted.Redacted<string>
     | undefined
+  /**
+   * Request timeout in milliseconds.
+   * Default: 30000 (30 seconds)
+   */
+  readonly timeout?: number | undefined
 }
 
 /**
@@ -164,6 +169,7 @@ export const createEmbeddingProvider = (
         model: embeddingsConfig.model,
         batchSize: embeddingsConfig.batchSize,
         apiKey,
+        timeout: embeddingsConfig.timeoutMs,
       })
     }
 
@@ -174,6 +180,7 @@ export const createEmbeddingProvider = (
       batchSize: embeddingsConfig.batchSize,
       baseURL,
       apiKey,
+      timeout: embeddingsConfig.timeoutMs,
     })
   })
 
@@ -202,6 +209,7 @@ export const createEmbeddingProviderDirect = (
         model: config.model,
         batchSize: config.batchSize,
         apiKey: normalizeApiKey(config.apiKey),
+        timeout: config.timeout,
       })
     }
 
@@ -212,5 +220,6 @@ export const createEmbeddingProviderDirect = (
       batchSize: config.batchSize,
       baseURL,
       apiKey: normalizeApiKey(config.apiKey),
+      timeout: config.timeout,
     })
   })

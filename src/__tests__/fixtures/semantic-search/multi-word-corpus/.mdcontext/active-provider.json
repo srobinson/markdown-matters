@@ -1,0 +1,7 @@
+{
+  "namespace": "openai_text-embedding-3-small_512",
+  "provider": "openai",
+  "model": "text-embedding-3-small",
+  "dimensions": 512,
+  "activatedAt": "2026-01-27T00:00:00.000Z"
+}

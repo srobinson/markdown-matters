@@ -11,7 +11,11 @@
 import * as path from 'node:path'
 import { Effect } from 'effect'
 import { describe, expect, it } from 'vitest'
-import { createVectorStore, type HnswBuildOptions } from './vector-store.js'
+import {
+  createNamespacedVectorStore,
+  createVectorStore,
+  type HnswBuildOptions,
+} from './vector-store.js'
 
 // Path to test corpus with pre-built embeddings
 const TEST_CORPUS_PATH = path.join(
@@ -21,6 +25,18 @@ const TEST_CORPUS_PATH = path.join(
 
 // Test corpus uses 512 dimensions (text-embedding-3-small with Matryoshka reduction)
 const TEST_CORPUS_DIMENSIONS = 512
+const TEST_CORPUS_PROVIDER = 'openai'
+const TEST_CORPUS_MODEL = 'text-embedding-3-small'
+
+// Helper to create the namespaced vector store for test corpus
+const createTestVectorStore = (hnswOptions?: HnswBuildOptions) =>
+  createNamespacedVectorStore(
+    TEST_CORPUS_PATH,
+    TEST_CORPUS_PROVIDER,
+    TEST_CORPUS_MODEL,
+    TEST_CORPUS_DIMENSIONS,
+    hnswOptions,
+  )
 
 describe('HNSW Build Options', () => {
   describe('HnswBuildOptions interface', () => {
@@ -122,11 +138,7 @@ describe('HNSW Build Options', () => {
   describe('Vector store functionality with custom options', () => {
     it('should load existing index regardless of HNSW options', async () => {
       // HNSW options only affect index creation, not loading
-      const vectorStore = createVectorStore(
-        TEST_CORPUS_PATH,
-        TEST_CORPUS_DIMENSIONS,
-        { m: 24, efConstruction: 256 },
-      )
+      const vectorStore = createTestVectorStore({ m: 24, efConstruction: 256 })
       const loadResult = await Effect.runPromise(vectorStore.load())
       expect(loadResult.loaded).toBe(true)
 
@@ -135,11 +147,7 @@ describe('HNSW Build Options', () => {
     })
 
     it('should search after loading with custom options', async () => {
-      const vectorStore = createVectorStore(
-        TEST_CORPUS_PATH,
-        TEST_CORPUS_DIMENSIONS,
-        { m: 12, efConstruction: 128 },
-      )
+      const vectorStore = createTestVectorStore({ m: 12, efConstruction: 128 })
       await Effect.runPromise(vectorStore.load())
 
       const results = await Effect.runPromise(

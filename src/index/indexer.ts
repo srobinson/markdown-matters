@@ -183,6 +183,12 @@ const resolveInternalLink = (
 // Index Building
 // ============================================================================
 
+export interface IndexProgress {
+  readonly current: number
+  readonly total: number
+  readonly filePath: string
+}
+
 export interface IndexOptions {
   readonly force?: boolean | undefined
   /** CLI/config exclude patterns (overrides ignore files) */
@@ -191,6 +197,8 @@ export interface IndexOptions {
   readonly honorGitignore?: boolean | undefined
   /** Whether to honor .mdcontextignore (default: true) */
   readonly honorMdcontextignore?: boolean | undefined
+  /** Callback for progress updates during file indexing */
+  readonly onProgress?: ((progress: IndexProgress) => void) | undefined
 }
 
 export const buildIndex = (
@@ -286,9 +294,20 @@ export const buildIndex = (
       ),
     )
     const brokenLinks: string[] = [...linkIndex.broken]
+    const totalFiles = files.length
 
-    for (const filePath of files) {
+    for (let fileIndex = 0; fileIndex < files.length; fileIndex++) {
+      const filePath = files[fileIndex]!
       const relativePath = path.relative(storage.rootPath, filePath)
+
+      // Report progress
+      if (options.onProgress) {
+        options.onProgress({
+          current: fileIndex + 1,
+          total: totalFiles,
+          filePath: relativePath,
+        })
+      }
 
       // Process each file, collecting errors instead of failing
       const processFile = Effect.gen(function* () {

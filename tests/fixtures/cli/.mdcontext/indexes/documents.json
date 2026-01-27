@@ -1,12 +1,12 @@
 {
   "version": 1,
-  "rootPath": "/Users/alphab/Dev/LLM/DEV/mdcontext/tests/fixtures/cli",
+  "rootPath": "tests/fixtures/cli",
   "documents": {
     "README.md": {
       "id": "04c6e90faac2",
       "path": "README.md",
       "title": "Test Project",
-      "mtime": 1768999918845,
+      "mtime": 1769492431399,
       "hash": "54872b0fdbf6858a",
       "tokenCount": 76,
       "sectionCount": 2
@@ -15,7 +15,7 @@
       "id": "392e93c0f22d",
       "path": "api-reference.md",
       "title": "API Reference",
-      "mtime": 1768999919391,
+      "mtime": 1769492431399,
       "hash": "4a879da54a831235",
       "tokenCount": 109,
       "sectionCount": 2
@@ -24,7 +24,7 @@
       "id": "b6885e1f8555",
       "path": "getting-started.md",
       "title": "Getting Started",
-      "mtime": 1769013198631,
+      "mtime": 1769492431400,
       "hash": "2d44a41d5d2579f2",
       "tokenCount": 66,
       "sectionCount": 3

@@ -1,5 +1,13 @@
 /**
  * Vector store using hnswlib-node
+ *
+ * Supports both legacy (flat) and namespaced storage layouts:
+ * - Legacy: .mdcontext/vectors.bin, .mdcontext/vectors.meta.bin
+ * - Namespaced: .mdcontext/embeddings/{namespace}/vectors.bin, vectors.meta.bin
+ *
+ * New indexes are written using namespaced storage. Existing legacy indexes
+ * continue to be loaded from their original flat locations; this module does
+ * not perform automatic migration between layouts.
  */
 
 import * as fs from 'node:fs/promises'
@@ -9,6 +17,12 @@ import { Effect } from 'effect'
 import HierarchicalNSW from 'hnswlib-node'
 import { DimensionMismatchError, VectorStoreError } from '../errors/index.js'
 import { INDEX_DIR } from '../index/types.js'
+import {
+  generateNamespace,
+  getNamespaceDir,
+  getMetaPath as getNamespacedMetaPath,
+  getVectorPath as getNamespacedVectorPath,
+} from './embedding-namespace.js'
 import type { VectorEntry, VectorIndex } from './types.js'
 
 // ============================================================================
@@ -134,6 +148,9 @@ class HnswVectorStore implements VectorStore {
   private readonly hnswM: number
   private readonly hnswEfConstruction: number
 
+  // Namespace support - when set, uses namespaced storage paths
+  private namespace: string | undefined = undefined
+
   constructor(
     rootPath: string,
     dimensions: number,
@@ -145,16 +162,50 @@ class HnswVectorStore implements VectorStore {
     this.hnswEfConstruction = hnswOptions?.efConstruction ?? 200
   }
 
+  /**
+   * Set the namespace for this vector store.
+   * When set, all storage operations use the namespaced path.
+   */
+  setNamespace(namespace: string): void {
+    this.namespace = namespace
+  }
+
+  /**
+   * Get the current namespace (if any).
+   */
+  getNamespace(): string | undefined {
+    return this.namespace
+  }
+
+  /**
+   * Get the index directory path.
+   * Returns namespaced path if namespace is set, otherwise legacy path.
+   */
   private getIndexDir(): string {
+    if (this.namespace) {
+      return getNamespaceDir(this.rootPath, this.namespace)
+    }
     return path.join(this.rootPath, INDEX_DIR)
   }
 
+  /**
+   * Get the vector index file path.
+   */
   private getVectorPath(): string {
-    return path.join(this.getIndexDir(), VECTOR_INDEX_FILE)
+    if (this.namespace) {
+      return getNamespacedVectorPath(this.rootPath, this.namespace)
+    }
+    return path.join(this.rootPath, INDEX_DIR, VECTOR_INDEX_FILE)
   }
 
+  /**
+   * Get the metadata file path.
+   */
   private getMetaPath(): string {
-    return path.join(this.getIndexDir(), VECTOR_META_FILE)
+    if (this.namespace) {
+      return getNamespacedMetaPath(this.rootPath, this.namespace)
+    }
+    return path.join(this.rootPath, INDEX_DIR, VECTOR_META_FILE)
   }
 
   private ensureIndex(): HierarchicalNSW.HierarchicalNSW {
@@ -613,11 +664,45 @@ export interface HnswBuildOptions {
   readonly efConstruction?: number | undefined
 }
 
+/**
+ * Create a vector store for the given root path.
+ *
+ * @param rootPath - Root directory containing the index
+ * @param dimensions - Embedding dimensions
+ * @param hnswOptions - Optional HNSW build parameters
+ * @returns A new VectorStore instance
+ */
 export const createVectorStore = (
   rootPath: string,
   dimensions: number,
   hnswOptions?: HnswBuildOptions,
 ): VectorStore => new HnswVectorStore(rootPath, dimensions, hnswOptions)
+
+/**
+ * Create a namespaced vector store for a specific provider/model.
+ *
+ * Uses the new namespaced storage structure:
+ * .mdcontext/embeddings/{provider}_{model}_{dimensions}/vectors.bin
+ *
+ * @param rootPath - Root directory containing the index
+ * @param provider - Provider name (e.g., "openai", "voyage")
+ * @param model - Model name (e.g., "text-embedding-3-small")
+ * @param dimensions - Embedding dimensions
+ * @param hnswOptions - Optional HNSW build parameters
+ * @returns A new VectorStore instance with namespace set
+ */
+export const createNamespacedVectorStore = (
+  rootPath: string,
+  provider: string,
+  model: string,
+  dimensions: number,
+  hnswOptions?: HnswBuildOptions,
+): VectorStore => {
+  const namespace = generateNamespace(provider, model, dimensions)
+  const store = new HnswVectorStore(rootPath, dimensions, hnswOptions)
+  store.setNamespace(namespace)
+  return store
+}
 
 // Export the class for type access
 export { HnswVectorStore }

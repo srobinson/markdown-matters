@@ -8,20 +8,26 @@ import { Effect } from 'effect'
 import {
   type ApiKeyInvalidError,
   type ApiKeyMissingError,
-  type DimensionMismatchError,
+  DimensionMismatchError,
   EmbeddingError,
   EmbeddingsNotFoundError,
   type FileReadError,
   type IndexCorruptedError,
   IndexNotFoundError,
-  VectorStoreError,
+  type VectorStoreError,
 } from '../errors/index.js'
 import {
   createStorage,
   loadDocumentIndex,
   loadSectionIndex,
 } from '../index/storage.js'
-import { INDEX_DIR, type SectionEntry } from '../index/types.js'
+import type { SectionEntry } from '../index/types.js'
+import {
+  type ActiveProvider,
+  generateNamespace,
+  getActiveNamespace,
+  writeActiveProvider,
+} from './embedding-namespace.js'
 import { generateHypotheticalDocument, type HydeResult } from './hyde.js'
 import {
   checkPricingFreshness,
@@ -44,24 +50,19 @@ import {
   type SemanticSearchResult,
   type SemanticSearchResultWithStats,
   type VectorEntry,
-  type VectorIndex,
 } from './types.js'
 import {
-  createVectorStore,
+  createNamespacedVectorStore,
   type HnswBuildOptions,
   type HnswMismatchWarning,
   type HnswVectorStore,
   type VectorSearchResult,
+  type VectorStoreLoadResult,
 } from './vector-store.js'
 
 // ============================================================================
-// Provider Mismatch Warning
+// HNSW Parameter Warning
 // ============================================================================
-
-interface VectorStoreStats {
-  readonly provider: string
-  readonly providerModel?: string | undefined
-}
 
 /**
  * Check for HNSW parameter mismatch and log a warning if found.
@@ -80,42 +81,6 @@ const checkHnswMismatch = (
       `but config specifies M=${configParams.m}, efConstruction=${configParams.efConstruction}. ` +
       `HNSW parameters only affect index construction. Run 'mdcontext index --embed --force' to rebuild with new parameters.`,
   )
-}
-
-/**
- * Check for provider/model mismatch between index and query, returning a warning Effect if mismatch detected.
- * This consolidates the warning logic used in both semanticSearch and semanticSearchWithStats.
- */
-const checkProviderMismatch = (
-  stats: VectorStoreStats,
-  currentProvider: string,
-  currentProviderModel: string,
-): Effect.Effect<void, never, never> => {
-  // Check if index provider/model differs from query provider/model
-  if (stats.providerModel && stats.providerModel !== currentProviderModel) {
-    return Effect.logWarning(
-      `Provider mismatch: Index was created with ${stats.provider}/${stats.providerModel}, ` +
-        `but querying with ${currentProvider}/${currentProviderModel}. ` +
-        `Results may be inconsistent. Consider re-indexing.`,
-    )
-  }
-
-  // Legacy index without model info - extract from provider name if possible
-  if (!stats.providerModel) {
-    const indexProviderParts = stats.provider.split(':')
-    if (
-      indexProviderParts.length === 2 &&
-      indexProviderParts[1] !== currentProviderModel
-    ) {
-      return Effect.logWarning(
-        `Provider mismatch: Index was created with ${indexProviderParts[0]}/${indexProviderParts[1]}, ` +
-          `but querying with ${currentProvider}/${currentProviderModel}. ` +
-          `Results may be inconsistent. Consider re-indexing.`,
-      )
-    }
-  }
-
-  return Effect.void
 }
 
 // ============================================================================
@@ -274,12 +239,23 @@ export interface FileProgress {
   readonly sectionCount: number
 }
 
+export interface EmbeddingBatchProgress {
+  readonly batchIndex: number
+  readonly totalBatches: number
+  readonly processedSections: number
+  readonly totalSections: number
+}
+
 export interface BuildEmbeddingsOptions {
   readonly force?: boolean | undefined
   readonly provider?: EmbeddingProvider | undefined
   readonly providerConfig?: ProviderFactoryConfig | undefined
   readonly excludePatterns?: readonly string[] | undefined
   readonly onFileProgress?: ((progress: FileProgress) => void) | undefined
+  /** Callback for batch progress during embedding API calls */
+  readonly onBatchProgress?:
+    | ((progress: EmbeddingBatchProgress) => void)
+    | undefined
   /** HNSW build parameters for vector index construction */
   readonly hnswOptions?: HnswBuildOptions | undefined
 }
@@ -345,17 +321,36 @@ export const buildEmbeddings = (
       options.provider ?? (yield* createEmbeddingProviderDirect(providerConfig))
     const dimensions = provider.dimensions
 
-    // Create vector store with optional HNSW build parameters
-    const vectorStore = createVectorStore(
+    // Extract provider info for namespacing from the actual provider instance
+    // This ensures we use the correct values even when options.provider is explicitly set
+    let providerName: string
+    let providerModel: string
+
+    if (hasProviderMetadata(provider)) {
+      // Provider has metadata - extract provider name from provider.name (format: "provider:model")
+      const nameParts = provider.name.split(':')
+      providerName = nameParts[0] || 'openai'
+      providerModel = provider.model
+    } else {
+      // Fallback to config values for providers without metadata
+      providerName = providerConfig.provider ?? 'openai'
+      providerModel = providerConfig.model ?? 'text-embedding-3-small'
+    }
+
+    // Create namespaced vector store for this provider/model/dimensions combination
+    const vectorStore = createNamespacedVectorStore(
       resolvedRoot,
+      providerName,
+      providerModel,
       dimensions,
       options.hnswOptions,
     ) as HnswVectorStore
-    // Use type guard to safely access extended provider metadata
+
+    // Set provider metadata
     if (hasProviderMetadata(provider)) {
       vectorStore.setProvider(provider.name, provider.model, provider.baseURL)
     } else {
-      vectorStore.setProvider(provider.name, undefined, undefined)
+      vectorStore.setProvider(providerName, providerModel, undefined)
     }
 
     // Load existing if not forcing
@@ -517,7 +512,17 @@ export const buildEmbeddings = (
     // Generate embeddings
     const texts = sectionsToEmbed.map((s) => s.text)
     const result = yield* wrapEmbedding(
-      provider.embed(texts),
+      provider.embed(texts, {
+        onBatchProgress: options.onBatchProgress
+          ? (p) =>
+              options.onBatchProgress?.({
+                batchIndex: p.batchIndex,
+                totalBatches: p.totalBatches,
+                processedSections: p.processedTexts,
+                totalSections: p.totalTexts,
+              })
+          : undefined,
+      }),
       providerConfig.provider ?? 'openai',
     )
 
@@ -542,9 +547,23 @@ export const buildEmbeddings = (
     vectorStore.addCost(result.cost, result.tokensUsed)
 
     // Save
-    console.log('Saving index...')
     yield* vectorStore.save()
-    console.log('Index saved successfully')
+
+    // Set this namespace as the active provider
+    const namespace = generateNamespace(providerName, providerModel, dimensions)
+    yield* writeActiveProvider(resolvedRoot, {
+      namespace,
+      provider: providerName,
+      model: providerModel,
+      dimensions,
+      activatedAt: new Date().toISOString(),
+    }).pipe(
+      Effect.catchAll((e) => {
+        // Don't fail the build if we can't write the active provider file
+        console.warn(`Warning: Could not set active provider: ${e.message}`)
+        return Effect.succeed(undefined)
+      }),
+    )
 
     const duration = Date.now() - startTime
 
@@ -687,14 +706,46 @@ export const semanticSearch = (
   Effect.gen(function* () {
     const resolvedRoot = path.resolve(rootPath)
 
-    // Get provider for query embedding - use factory for config-driven selection
+    // Get active namespace to determine which embedding index to use
+    const activeProvider = yield* getActiveNamespace(resolvedRoot).pipe(
+      Effect.catchAll(() => Effect.succeed(null as ActiveProvider | null)),
+    )
+
+    if (!activeProvider) {
+      return yield* Effect.fail(
+        new EmbeddingsNotFoundError({ path: resolvedRoot }),
+      )
+    }
+
+    // Create provider for query embedding
     const provider = yield* createEmbeddingProviderDirect(
       options.providerConfig ?? { provider: 'openai' },
     )
     const dimensions = provider.dimensions
 
-    // Load vector store
-    const vectorStore = createVectorStore(resolvedRoot, dimensions)
+    // Get current provider name for error messages
+    const currentProviderName = options.providerConfig?.provider ?? 'openai'
+
+    // Verify dimensions match the active namespace
+    if (dimensions !== activeProvider.dimensions) {
+      return yield* Effect.fail(
+        new DimensionMismatchError({
+          corpusDimensions: activeProvider.dimensions,
+          providerDimensions: dimensions,
+          corpusProvider: `${activeProvider.provider}:${activeProvider.model}`,
+          currentProvider: currentProviderName,
+          path: resolvedRoot,
+        }),
+      )
+    }
+
+    // Load vector store from the active namespace
+    const vectorStore = createNamespacedVectorStore(
+      resolvedRoot,
+      activeProvider.provider,
+      activeProvider.model,
+      activeProvider.dimensions,
+    )
     const loadResult = yield* vectorStore.load()
 
     if (!loadResult.loaded) {
@@ -702,13 +753,6 @@ export const semanticSearch = (
         new EmbeddingsNotFoundError({ path: resolvedRoot }),
       )
     }
-
-    // Check for provider mismatch
-    const stats = vectorStore.getStats()
-    const currentProviderModel =
-      options.providerConfig?.model ?? 'text-embedding-3-small'
-    const currentProvider = options.providerConfig?.provider ?? 'openai'
-    yield* checkProviderMismatch(stats, currentProvider, currentProviderModel)
 
     // Check for HNSW parameter mismatch
     yield* checkHnswMismatch(loadResult.hnswMismatch)
@@ -737,7 +781,7 @@ export const semanticSearch = (
     // Embed the query (or hypothetical document)
     const queryResult = yield* wrapEmbedding(
       provider.embed([textToEmbed]),
-      currentProvider,
+      currentProviderName,
     )
 
     const queryVector = queryResult.embeddings[0]
@@ -746,7 +790,7 @@ export const semanticSearch = (
         new EmbeddingError({
           reason: 'Unknown',
           message: 'Failed to generate query embedding',
-          provider: currentProvider,
+          provider: currentProviderName,
         }),
       )
     }
@@ -868,14 +912,46 @@ export const semanticSearchWithStats = (
   Effect.gen(function* () {
     const resolvedRoot = path.resolve(rootPath)
 
-    // Get provider for query embedding - use factory for config-driven selection
+    // Get active namespace to determine which embedding index to use
+    const activeProvider = yield* getActiveNamespace(resolvedRoot).pipe(
+      Effect.catchAll(() => Effect.succeed(null as ActiveProvider | null)),
+    )
+
+    if (!activeProvider) {
+      return yield* Effect.fail(
+        new EmbeddingsNotFoundError({ path: resolvedRoot }),
+      )
+    }
+
+    // Create provider for query embedding
     const provider = yield* createEmbeddingProviderDirect(
       options.providerConfig ?? { provider: 'openai' },
     )
     const dimensions = provider.dimensions
 
-    // Load vector store
-    const vectorStore = createVectorStore(resolvedRoot, dimensions)
+    // Get current provider name for error messages
+    const currentProviderName = options.providerConfig?.provider ?? 'openai'
+
+    // Verify dimensions match the active namespace
+    if (dimensions !== activeProvider.dimensions) {
+      return yield* Effect.fail(
+        new DimensionMismatchError({
+          corpusDimensions: activeProvider.dimensions,
+          providerDimensions: dimensions,
+          corpusProvider: `${activeProvider.provider}:${activeProvider.model}`,
+          currentProvider: currentProviderName,
+          path: resolvedRoot,
+        }),
+      )
+    }
+
+    // Load vector store from the active namespace
+    const vectorStore = createNamespacedVectorStore(
+      resolvedRoot,
+      activeProvider.provider,
+      activeProvider.model,
+      activeProvider.dimensions,
+    )
     const loadResult = yield* vectorStore.load()
 
     if (!loadResult.loaded) {
@@ -883,13 +959,6 @@ export const semanticSearchWithStats = (
         new EmbeddingsNotFoundError({ path: resolvedRoot }),
       )
     }
-
-    // Check for provider mismatch
-    const stats = vectorStore.getStats()
-    const currentProviderModel =
-      options.providerConfig?.model ?? 'text-embedding-3-small'
-    const currentProvider = options.providerConfig?.provider ?? 'openai'
-    yield* checkProviderMismatch(stats, currentProvider, currentProviderModel)
 
     // Check for HNSW parameter mismatch
     yield* checkHnswMismatch(loadResult.hnswMismatch)
@@ -918,7 +987,7 @@ export const semanticSearchWithStats = (
     // Embed the query (or hypothetical document)
     const queryResult = yield* wrapEmbedding(
       provider.embed([textToEmbed]),
-      currentProvider,
+      currentProviderName,
     )
 
     const queryVector = queryResult.embeddings[0]
@@ -927,7 +996,7 @@ export const semanticSearchWithStats = (
         new EmbeddingError({
           reason: 'Unknown',
           message: 'Failed to generate query embedding',
-          provider: currentProvider,
+          provider: currentProviderName,
         }),
       )
     }
@@ -1123,6 +1192,7 @@ export interface EmbeddingStats {
   readonly hasEmbeddings: boolean
   readonly count: number
   readonly provider: string
+  readonly model?: string | undefined
   readonly dimensions: number
   readonly totalCost: number
   readonly totalTokens: number
@@ -1130,6 +1200,7 @@ export interface EmbeddingStats {
 
 /**
  * Get statistics about stored embeddings.
+ * Uses the active namespace to find the current embedding index.
  *
  * @param rootPath - Root directory containing embeddings
  * @returns Embedding statistics (count, provider, costs)
@@ -1141,21 +1212,13 @@ export const getEmbeddingStats = (
 ): Effect.Effect<EmbeddingStats, VectorStoreError> =>
   Effect.gen(function* () {
     const resolvedRoot = path.resolve(rootPath)
-    const metaPath = path.join(resolvedRoot, INDEX_DIR, 'vectors.meta.json')
 
-    // Read metadata directly without loading vectors (avoids dimension mismatch errors)
-    // Use catchAll to handle file-not-found gracefully (no embeddings = not an error)
-    const metaContent = yield* Effect.tryPromise({
-      try: () => fs.readFile(metaPath, 'utf-8'),
-      catch: (e) =>
-        new VectorStoreError({
-          operation: 'load',
-          message: `Failed to read metadata: ${e instanceof Error ? e.message : String(e)}`,
-          cause: e,
-        }),
-    }).pipe(Effect.catchAll(() => Effect.succeed(null as string | null)))
+    // Get the active namespace to find where embeddings are stored
+    const activeProvider = yield* getActiveNamespace(resolvedRoot).pipe(
+      Effect.catchAll(() => Effect.succeed(null as ActiveProvider | null)),
+    )
 
-    if (!metaContent) {
+    if (!activeProvider) {
       return {
         hasEmbeddings: false,
         count: 0,
@@ -1166,24 +1229,42 @@ export const getEmbeddingStats = (
       }
     }
 
-    const meta = yield* Effect.try({
-      try: () => JSON.parse(metaContent) as VectorIndex,
-      catch: (e) =>
-        new VectorStoreError({
-          operation: 'load',
-          message: `Failed to parse metadata: ${e instanceof Error ? e.message : String(e)}`,
-          cause: e,
-        }),
-    })
+    // Load the namespaced vector store to get stats
+    const vectorStore = createNamespacedVectorStore(
+      resolvedRoot,
+      activeProvider.provider,
+      activeProvider.model,
+      activeProvider.dimensions,
+    )
+
+    const loadResult = yield* vectorStore
+      .load()
+      .pipe(
+        Effect.catchAll(() =>
+          Effect.succeed({ loaded: false } as VectorStoreLoadResult),
+        ),
+      )
+
+    if (!loadResult.loaded) {
+      return {
+        hasEmbeddings: false,
+        count: 0,
+        provider: 'none',
+        dimensions: 0,
+        totalCost: 0,
+        totalTokens: 0,
+      }
+    }
+
+    const stats = vectorStore.getStats()
 
     return {
       hasEmbeddings: true,
-      count: Object.keys(meta.entries).length,
-      provider: meta.providerModel
-        ? `${meta.provider}:${meta.providerModel}`
-        : meta.provider || 'openai',
-      dimensions: meta.dimensions,
-      totalCost: meta.totalCost || 0,
-      totalTokens: meta.totalTokens || 0,
+      count: stats.count,
+      provider: stats.provider || 'openai',
+      model: stats.providerModel,
+      dimensions: stats.dimensions,
+      totalCost: stats.totalCost || 0,
+      totalTokens: stats.totalTokens || 0,
     }
   })

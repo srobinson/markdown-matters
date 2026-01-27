@@ -15,6 +15,7 @@ import * as path from 'node:path'
 import { Effect } from 'effect'
 import { describe, expect, it } from 'vitest'
 import {
+  createNamespacedVectorStore,
   createVectorStore,
   type VectorSearchResultWithStats,
 } from './vector-store.js'
@@ -27,14 +28,22 @@ const TEST_CORPUS_PATH = path.join(
 
 // Test corpus uses 512 dimensions (text-embedding-3-small with Matryoshka reduction)
 const TEST_CORPUS_DIMENSIONS = 512
+const TEST_CORPUS_PROVIDER = 'openai'
+const TEST_CORPUS_MODEL = 'text-embedding-3-small'
+
+// Helper to create the namespaced vector store for test corpus
+const createTestVectorStore = () =>
+  createNamespacedVectorStore(
+    TEST_CORPUS_PATH,
+    TEST_CORPUS_PROVIDER,
+    TEST_CORPUS_MODEL,
+    TEST_CORPUS_DIMENSIONS,
+  )
 
 describe('Semantic Search Threshold', () => {
   describe('VectorStore searchWithStats', () => {
     it('should load test corpus with embeddings', async () => {
-      const vectorStore = createVectorStore(
-        TEST_CORPUS_PATH,
-        TEST_CORPUS_DIMENSIONS,
-      )
+      const vectorStore = createTestVectorStore()
       const loadResult = await Effect.runPromise(vectorStore.load())
       expect(loadResult.loaded).toBe(true)
 
@@ -44,10 +53,7 @@ describe('Semantic Search Threshold', () => {
     })
 
     it('should return results with searchWithStats', async () => {
-      const vectorStore = createVectorStore(
-        TEST_CORPUS_PATH,
-        TEST_CORPUS_DIMENSIONS,
-      )
+      const vectorStore = createTestVectorStore()
       await Effect.runPromise(vectorStore.load())
 
       // Use a zero threshold to get all results
@@ -65,10 +71,7 @@ describe('Semantic Search Threshold', () => {
     })
 
     it('should track below-threshold results count', async () => {
-      const vectorStore = createVectorStore(
-        TEST_CORPUS_PATH,
-        TEST_CORPUS_DIMENSIONS,
-      )
+      const vectorStore = createTestVectorStore()
       await Effect.runPromise(vectorStore.load())
 
       // Use a very high threshold to push all results below it
@@ -85,10 +88,7 @@ describe('Semantic Search Threshold', () => {
     })
 
     it('should track highest below-threshold similarity', async () => {
-      const vectorStore = createVectorStore(
-        TEST_CORPUS_PATH,
-        TEST_CORPUS_DIMENSIONS,
-      )
+      const vectorStore = createTestVectorStore()
       await Effect.runPromise(vectorStore.load())
 
       // Use high threshold to force below-threshold results
@@ -129,10 +129,7 @@ describe('Semantic Search Threshold', () => {
 
   describe('Threshold boundaries', () => {
     it('should return all results with threshold of 0', async () => {
-      const vectorStore = createVectorStore(
-        TEST_CORPUS_PATH,
-        TEST_CORPUS_DIMENSIONS,
-      )
+      const vectorStore = createTestVectorStore()
       await Effect.runPromise(vectorStore.load())
 
       // Use 0 threshold - everything should be above
@@ -149,10 +146,7 @@ describe('Semantic Search Threshold', () => {
     })
 
     it('should return no results with threshold of 1', async () => {
-      const vectorStore = createVectorStore(
-        TEST_CORPUS_PATH,
-        TEST_CORPUS_DIMENSIONS,
-      )
+      const vectorStore = createTestVectorStore()
       await Effect.runPromise(vectorStore.load())
 
       const result = await Effect.runPromise(
@@ -169,10 +163,7 @@ describe('Semantic Search Threshold', () => {
     })
 
     it('should respect the limit parameter', async () => {
-      const vectorStore = createVectorStore(
-        TEST_CORPUS_PATH,
-        TEST_CORPUS_DIMENSIONS,
-      )
+      const vectorStore = createTestVectorStore()
       await Effect.runPromise(vectorStore.load())
 
       const stats = vectorStore.getStats()
@@ -228,10 +219,7 @@ describe('Semantic Search Threshold', () => {
 
   describe('VectorSearchResultWithStats type shape', () => {
     it('should have correct structure', async () => {
-      const vectorStore = createVectorStore(
-        TEST_CORPUS_PATH,
-        TEST_CORPUS_DIMENSIONS,
-      )
+      const vectorStore = createTestVectorStore()
       await Effect.runPromise(vectorStore.load())
 
       const result = await Effect.runPromise(
@@ -262,10 +250,7 @@ describe('Semantic Search Threshold', () => {
 
   describe('Test corpus validation', () => {
     it('should have test corpus with multiple documents', async () => {
-      const vectorStore = createVectorStore(
-        TEST_CORPUS_PATH,
-        TEST_CORPUS_DIMENSIONS,
-      )
+      const vectorStore = createTestVectorStore()
       const loadResult = await Effect.runPromise(vectorStore.load())
 
       expect(loadResult.loaded).toBe(true)
@@ -275,10 +260,7 @@ describe('Semantic Search Threshold', () => {
     })
 
     it('should have correct dimensions (512 for test corpus)', async () => {
-      const vectorStore = createVectorStore(
-        TEST_CORPUS_PATH,
-        TEST_CORPUS_DIMENSIONS,
-      )
+      const vectorStore = createTestVectorStore()
       await Effect.runPromise(vectorStore.load())
 
       const stats = vectorStore.getStats()
@@ -288,10 +270,7 @@ describe('Semantic Search Threshold', () => {
 
   describe('Similarity score validation', () => {
     it('should return similarity scores between 0 and 1', async () => {
-      const vectorStore = createVectorStore(
-        TEST_CORPUS_PATH,
-        TEST_CORPUS_DIMENSIONS,
-      )
+      const vectorStore = createTestVectorStore()
       await Effect.runPromise(vectorStore.load())
 
       const result = await Effect.runPromise(
@@ -309,10 +288,7 @@ describe('Semantic Search Threshold', () => {
     })
 
     it('should return results sorted by similarity (highest first)', async () => {
-      const vectorStore = createVectorStore(
-        TEST_CORPUS_PATH,
-        TEST_CORPUS_DIMENSIONS,
-      )
+      const vectorStore = createTestVectorStore()
       await Effect.runPromise(vectorStore.load())
 
       const result = await Effect.runPromise(
@@ -334,10 +310,7 @@ describe('Semantic Search Threshold', () => {
 
   describe('Below-threshold feedback', () => {
     it('should provide count when results are below threshold', async () => {
-      const vectorStore = createVectorStore(
-        TEST_CORPUS_PATH,
-        TEST_CORPUS_DIMENSIONS,
-      )
+      const vectorStore = createTestVectorStore()
       await Effect.runPromise(vectorStore.load())
 
       // Use very high threshold to get 0 passing results
@@ -357,10 +330,7 @@ describe('Semantic Search Threshold', () => {
     })
 
     it('should allow calculating suggested threshold', async () => {
-      const vectorStore = createVectorStore(
-        TEST_CORPUS_PATH,
-        TEST_CORPUS_DIMENSIONS,
-      )
+      const vectorStore = createTestVectorStore()
       await Effect.runPromise(vectorStore.load())
 
       const result = await Effect.runPromise(
@@ -420,10 +390,7 @@ describe('Search Quality Modes', () => {
 
   describe('VectorStore efSearch support', () => {
     it('should accept efSearch option in search method', async () => {
-      const vectorStore = createVectorStore(
-        TEST_CORPUS_PATH,
-        TEST_CORPUS_DIMENSIONS,
-      )
+      const vectorStore = createTestVectorStore()
       await Effect.runPromise(vectorStore.load())
 
       // Should not throw when passing efSearch
@@ -437,10 +404,7 @@ describe('Search Quality Modes', () => {
     })
 
     it('should accept efSearch option in searchWithStats method', async () => {
-      const vectorStore = createVectorStore(
-        TEST_CORPUS_PATH,
-        TEST_CORPUS_DIMENSIONS,
-      )
+      const vectorStore = createTestVectorStore()
       await Effect.runPromise(vectorStore.load())
 
       // Should not throw when passing efSearch
@@ -458,10 +422,7 @@ describe('Search Quality Modes', () => {
     })
 
     it('should work without efSearch option (defaults)', async () => {
-      const vectorStore = createVectorStore(
-        TEST_CORPUS_PATH,
-        TEST_CORPUS_DIMENSIONS,
-      )
+      const vectorStore = createTestVectorStore()
       await Effect.runPromise(vectorStore.load())
 
       // Should not throw without efSearch option
@@ -473,10 +434,7 @@ describe('Search Quality Modes', () => {
     })
 
     it('should return consistent results for same query with different efSearch', async () => {
-      const vectorStore = createVectorStore(
-        TEST_CORPUS_PATH,
-        TEST_CORPUS_DIMENSIONS,
-      )
+      const vectorStore = createTestVectorStore()
       await Effect.runPromise(vectorStore.load())
 
       const queryVector = new Array(TEST_CORPUS_DIMENSIONS).fill(0.1)

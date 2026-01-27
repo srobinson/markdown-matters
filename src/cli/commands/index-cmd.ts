@@ -99,6 +99,13 @@ export const indexCommand = Command.make(
       ),
       Options.optional,
     ),
+    timeout: Options.integer('timeout').pipe(
+      Options.withAlias('t'),
+      Options.withDescription(
+        'Request timeout in milliseconds for embedding API calls (default: 30000)',
+      ),
+      Options.optional,
+    ),
     watch: Options.boolean('watch').pipe(
       Options.withAlias('w'),
       Options.withDescription('Watch for changes'),
@@ -119,6 +126,7 @@ export const indexCommand = Command.make(
     providerModel,
     hnswM,
     hnswEfConstruction,
+    timeout,
     watch: watchMode,
     force,
     json,
@@ -171,7 +179,18 @@ export const indexCommand = Command.make(
           force,
           exclude: cliExcludePatterns,
           honorGitignore: !noGitignore,
+          onProgress: (progress) => {
+            if (!json) {
+              const progressMsg = `  [${progress.current}/${progress.total}] ${progress.filePath}`
+              process.stdout.write(`\x1b[2K\r${progressMsg}`)
+            }
+          },
         })
+
+        // Clear the progress line after indexing completes
+        if (!json) {
+          process.stdout.write('\x1b[2K\r')
+        }
 
         if (!json) {
           yield* Console.log('')
@@ -256,6 +275,7 @@ export const indexCommand = Command.make(
           }
 
           // Build provider config from CLI flags if specified
+          const cliTimeout = Option.getOrUndefined(timeout)
           const providerConfig = Option.isSome(provider)
             ? {
                 provider: provider.value as
@@ -266,8 +286,11 @@ export const indexCommand = Command.make(
                   | 'voyage',
                 baseURL: Option.getOrUndefined(providerBaseUrl),
                 model: Option.getOrUndefined(providerModel),
+                timeout: cliTimeout,
               }
-            : undefined
+            : cliTimeout !== undefined
+              ? { provider: 'openai' as const, timeout: cliTimeout }
+              : undefined
 
           // Build HNSW options from CLI flags if specified
           const hnswOptions =
@@ -287,7 +310,13 @@ export const indexCommand = Command.make(
             onFileProgress: (progress) => {
               if (!json) {
                 const progressMsg = `  [${progress.fileIndex}/${progress.totalFiles}] ${progress.filePath} (${progress.sectionCount} sections)...`
-                process.stdout.write(`\r${' '.repeat(120)}\r${progressMsg}`)
+                process.stdout.write(`\x1b[2K\r${progressMsg}`)
+              }
+            },
+            onBatchProgress: (progress) => {
+              if (!json) {
+                const progressMsg = `  Embedding [${progress.processedSections}/${progress.totalSections}] sections (batch ${progress.batchIndex}/${progress.totalBatches})...`
+                process.stdout.write(`\x1b[2K\r${progressMsg}`)
               }
             },
           })
@@ -402,11 +431,19 @@ export const indexCommand = Command.make(
                     }
                   : undefined
 
+              // Build provider config if timeout specified
+              const promptTimeout = Option.getOrUndefined(timeout)
+              const providerConfigPrompt =
+                promptTimeout !== undefined
+                  ? { provider: 'openai' as const, timeout: promptTimeout }
+                  : undefined
+
               // Note: We gracefully handle errors here since embedding failure
               // shouldn't block the main index operation. Errors are logged for debugging.
               const embedResult = yield* buildEmbeddings(resolvedDir, {
                 force: false,
                 hnswOptions: hnswOptionsPrompt,
+                providerConfig: providerConfigPrompt,
                 onFileProgress: (progress) => {
                   console.log(
                     `  [${progress.fileIndex}/${progress.totalFiles}] ${progress.filePath}`,

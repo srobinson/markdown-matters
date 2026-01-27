@@ -60,6 +60,10 @@ export const helpContent: Record<string, CommandHelp> = {
         description: 'Custom API base URL for the provider',
       },
       {
+        name: '-t, --timeout <ms>',
+        description: 'Embedding API timeout in milliseconds (default: 30000)',
+      },
+      {
         name: '-w, --watch',
         description: 'Watch for changes and re-index automatically',
       },
@@ -147,6 +151,10 @@ export const helpContent: Record<string, CommandHelp> = {
       {
         name: '--provider <name>',
         description: 'Embedding provider for semantic search',
+      },
+      {
+        name: '--timeout <ms>',
+        description: 'Embedding API timeout in milliseconds (default: 30000)',
       },
       {
         name: '-r, --rerank',
@@ -375,6 +383,35 @@ export const helpContent: Record<string, CommandHelp> = {
       'See docs/CONFIG.md for full configuration reference.',
     ],
   },
+  embeddings: {
+    description: 'Manage embedding namespaces',
+    usage: 'mdcontext embeddings <command> [options]',
+    examples: [
+      'mdcontext embeddings list              # List all embedding namespaces',
+      'mdcontext embeddings current           # Show active namespace',
+      'mdcontext embeddings switch openai     # Switch to OpenAI embeddings',
+      'mdcontext embeddings switch voyage     # Switch to Voyage embeddings',
+      'mdcontext embeddings remove ollama     # Remove Ollama embeddings',
+      'mdcontext embeddings remove openai -f  # Force remove active namespace',
+    ],
+    options: [
+      { name: 'list', description: 'List all available embedding namespaces' },
+      { name: 'current', description: 'Show the current active namespace' },
+      {
+        name: 'switch <namespace>',
+        description: 'Switch to a different namespace',
+      },
+      { name: 'remove <namespace>', description: 'Remove a namespace' },
+      { name: '-f, --force', description: 'Force remove active namespace' },
+      { name: '--json', description: 'Output as JSON' },
+      { name: '--pretty', description: 'Pretty-print JSON output' },
+    ],
+    notes: [
+      'Namespaces store embeddings separately by provider/model.',
+      'Switching namespaces is instant - no rebuild required.',
+      'Run "mdcontext index --embed" to create embeddings for a provider.',
+    ],
+  },
 }
 
 // ============================================================================
@@ -437,6 +474,7 @@ export const showMainHelp = (): void => {
   context <files>...        Get LLM-ready summary
   tree [path]               Show files or document outline
   config <command>          Configuration management
+  embeddings <command>      Manage embedding namespaces
   links <file>              Show outgoing links
   backlinks <file>          Show incoming links
   stats [path]              Index statistics
@@ -509,7 +547,7 @@ export const checkSubcommandHelp = (): boolean => {
 }
 
 /**
- * Check for bare subcommand that has nested subcommands (e.g., "config").
+ * Check for bare subcommand that has nested subcommands (e.g., "config", "embeddings").
  * Shows custom help when running "mdcontext config" without arguments.
  * This prevents the ugly Effect CLI default output.
  */
@@ -522,8 +560,12 @@ export const checkBareSubcommandHelp = (): boolean => {
   const command = args[0]
 
   // Only handle commands that have subcommands and custom help
-  // Currently only "config" has subcommands
-  if (command === 'config' && helpContent[command]) {
+  const commandsWithSubcommands = ['config', 'embeddings']
+  if (
+    command &&
+    commandsWithSubcommands.includes(command) &&
+    helpContent[command]
+  ) {
     showSubcommandHelp(command)
     process.exit(0)
   }

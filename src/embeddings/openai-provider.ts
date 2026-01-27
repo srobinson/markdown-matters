@@ -9,13 +9,18 @@ import {
   ApiKeyMissingError,
   EmbeddingError,
 } from '../errors/index.js'
+import pricingData from './pricing.json' with { type: 'json' }
 import {
   getRecommendedDimensions,
   inferProviderFromUrl,
   supportsMatryoshka,
   validateModelDimensions,
 } from './provider-constants.js'
-import type { EmbeddingProvider, EmbeddingResult } from './types.js'
+import type {
+  EmbeddingProvider,
+  EmbeddingResult,
+  EmbedOptions,
+} from './types.js'
 
 // ============================================================================
 // Cost Constants
@@ -24,22 +29,18 @@ import type { EmbeddingProvider, EmbeddingResult } from './types.js'
 /**
  * OpenAI embedding model pricing data.
  *
- * Prices per 1M tokens. Updated manually - see maintenance process below.
+ * Prices per 1M tokens. Loaded from pricing.json for easy updates.
  *
- * Maintenance: Check https://platform.openai.com/docs/pricing quarterly
- * and update lastUpdated + prices if needed.
+ * Maintenance: Update src/embeddings/pricing.json quarterly from
+ * https://platform.openai.com/docs/pricing
  */
 export const PRICING_DATA = {
   /** Last update date in YYYY-MM format */
-  lastUpdated: '2024-09',
+  lastUpdated: pricingData.lastUpdated,
   /** Source URL for verification */
-  source: 'https://platform.openai.com/docs/pricing',
+  source: pricingData.sources.openai,
   /** Prices per 1M tokens by model */
-  prices: {
-    'text-embedding-3-small': 0.02,
-    'text-embedding-3-large': 0.13,
-    'text-embedding-ada-002': 0.1,
-  } as Record<string, number>,
+  prices: pricingData.openai as Record<string, number>,
 }
 
 /**
@@ -95,6 +96,11 @@ export interface OpenAIProviderOptions {
    * Defaults to 'openai' if baseURL is not set
    */
   readonly providerName?: string | undefined
+  /**
+   * Request timeout in milliseconds.
+   * Default: 30000 (30 seconds)
+   */
+  readonly timeout?: number | undefined
 }
 
 export class OpenAIProvider implements EmbeddingProvider {
@@ -118,7 +124,7 @@ export class OpenAIProvider implements EmbeddingProvider {
     this.client = new OpenAI({
       apiKey: Redacted.value(apiKey),
       baseURL: options.baseURL,
-      timeout: 30000,
+      timeout: options.timeout ?? 30000,
       maxRetries: 2,
     })
     this.model = options.model ?? 'text-embedding-3-small'
@@ -214,18 +220,23 @@ export class OpenAIProvider implements EmbeddingProvider {
     )
   }
 
-  async embed(texts: string[]): Promise<EmbeddingResult> {
+  async embed(
+    texts: string[],
+    options?: EmbedOptions,
+  ): Promise<EmbeddingResult> {
     if (texts.length === 0) {
       return { embeddings: [], tokensUsed: 0, cost: 0 }
     }
 
     const allEmbeddings: number[][] = []
     let totalTokens = 0
+    const totalBatches = Math.ceil(texts.length / this.batchSize)
 
     try {
       // Process in batches
       for (let i = 0; i < texts.length; i += this.batchSize) {
         const batch = texts.slice(i, i + this.batchSize)
+        const batchIndex = Math.floor(i / this.batchSize)
 
         // Only pass dimensions parameter for models that support it (Matryoshka)
         // Non-Matryoshka models will use their native dimensions automatically
@@ -246,6 +257,16 @@ export class OpenAIProvider implements EmbeddingProvider {
         }
 
         totalTokens += response.usage?.total_tokens ?? 0
+
+        // Report batch progress
+        if (options?.onBatchProgress) {
+          options.onBatchProgress({
+            batchIndex: batchIndex + 1,
+            totalBatches,
+            processedTexts: Math.min(i + this.batchSize, texts.length),
+            totalTexts: texts.length,
+          })
+        }
       }
     } catch (error) {
       // Check for authentication errors (401 Unauthorized, invalid API key)

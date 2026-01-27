@@ -7,6 +7,7 @@
 import * as fsPromises from 'node:fs/promises'
 import * as path from 'node:path'
 import { Effect } from 'effect'
+import { listNamespaces } from '../embeddings/embedding-namespace.js'
 import { DirectoryWalkError } from '../errors/index.js'
 
 /**
@@ -102,13 +103,15 @@ export const isRegexPattern = (query: string): boolean => {
 }
 
 /**
- * Check if embeddings exist for a directory
+ * Check if embeddings exist for a directory.
+ * Checks for namespaced embeddings in .mdcontext/embeddings/<namespace>/vectors.bin
  */
 export const hasEmbeddings = async (dir: string): Promise<boolean> => {
-  const vectorsPath = path.join(dir, '.mdcontext', 'vectors.bin')
   try {
-    await fsPromises.access(vectorsPath)
-    return true
+    const namespaces = await Effect.runPromise(
+      listNamespaces(dir).pipe(Effect.catchAll(() => Effect.succeed([]))),
+    )
+    return namespaces.length > 0
   } catch {
     return false
   }
@@ -177,7 +180,6 @@ export const getIndexInfo = async (dir: string): Promise<IndexInfo> => {
   // First try the specified directory
   let indexRoot = dir
   let sectionsPath = path.join(dir, '.mdcontext', 'indexes', 'sections.json')
-  let vectorsMetaPath = path.join(dir, '.mdcontext', 'vectors.meta.json')
 
   let exists = false
   let lastUpdated: string | undefined
@@ -205,7 +207,6 @@ export const getIndexInfo = async (dir: string): Promise<IndexInfo> => {
         'indexes',
         'sections.json',
       )
-      vectorsMetaPath = path.join(foundRoot, '.mdcontext', 'vectors.meta.json')
 
       try {
         const stat = await fsPromises.stat(sectionsPath)
@@ -221,15 +222,27 @@ export const getIndexInfo = async (dir: string): Promise<IndexInfo> => {
     }
   }
 
-  // Check vectors metadata
+  // Check namespaced embeddings
   try {
-    const content = await fsPromises.readFile(vectorsMetaPath, 'utf-8')
-    const meta = JSON.parse(content)
-    embeddingsExist = true
-    vectorCount = Object.keys(meta.entries || {}).length
-    // Use vector meta updatedAt if available
-    if (meta.updatedAt) {
-      lastUpdated = meta.updatedAt
+    const namespaces = await Effect.runPromise(
+      listNamespaces(indexRoot).pipe(Effect.catchAll(() => Effect.succeed([]))),
+    )
+
+    if (namespaces.length > 0) {
+      embeddingsExist = true
+      // Find active namespace or use first one
+      const activeNs = namespaces.find((ns) => ns.isActive) ?? namespaces[0]
+      if (activeNs) {
+        vectorCount = activeNs.vectorCount
+        // Use namespace's updatedAt if more recent
+        if (activeNs.updatedAt) {
+          const nsDate = new Date(activeNs.updatedAt)
+          const currentDate = lastUpdated ? new Date(lastUpdated) : new Date(0)
+          if (nsDate > currentDate) {
+            lastUpdated = activeNs.updatedAt
+          }
+        }
+      }
     }
   } catch {
     // Embeddings don't exist

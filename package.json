@@ -50,6 +50,7 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
+    "@clack/prompts": "^0.11.0",
     "@effect/cli": "^0.73.1",
     "@effect/platform": "^0.94.2",
     "@effect/platform-node": "^0.104.1",
