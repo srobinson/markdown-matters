@@ -103,11 +103,18 @@ jobs:
       - run: pnpm build
 
       - name: Create Release Pull Request or Publish
+        id: changesets
         uses: changesets/action@v1
         with:
           commit: "chore: release packages"
           title: "chore: release packages"
           publish: pnpm changeset publish
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.HELIOY_PAT }}
           NPM_CONFIG_PROVENANCE: true
+
+      - name: Auto-merge release PR
+        if: steps.changesets.outputs.pullRequestNumber
+        env:
+          GH_TOKEN: ${{ secrets.HELIOY_PAT }}
+        run: gh pr merge --auto --squash "${{ steps.changesets.outputs.pullRequestNumber }}" --repo "${{ github.repository }}"
