@@ -5,10 +5,12 @@ dictionaries: []
 words:
   - attw
   - backlinks
+  - Helioy
   - Hnsw
   - hnswlib
   - mdcontext
   - modelcontextprotocol
   - tiktoken
+  - worktrees
 ignoreWords: []
 import: []
