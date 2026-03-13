@@ -615,12 +615,25 @@ export const searchWithContent = (
     for (const result of results) {
       const filePath = path.join(storage.rootPath, result.section.documentPath)
 
-      try {
-        const fileContent = yield* Effect.promise(() =>
-          fs.readFile(filePath, 'utf-8'),
-        )
+      const readResult = yield* Effect.tryPromise({
+        try: () => fs.readFile(filePath, 'utf-8'),
+        catch: (e) =>
+          new FileReadError({
+            path: filePath,
+            message: `Failed to read file: ${filePath}`,
+            cause: e,
+          }),
+      }).pipe(
+        Effect.tapError((e) =>
+          Effect.logWarning(
+            `searchWithContent: skipping content for ${e.path}`,
+          ),
+        ),
+        Effect.option,
+      )
 
-        const lines = fileContent.split('\n')
+      if (Option.isSome(readResult)) {
+        const lines = readResult.value.split('\n')
         const sectionContent = lines
           .slice(result.section.startLine - 1, result.section.endLine)
           .join('\n')
@@ -629,8 +642,8 @@ export const searchWithContent = (
           ...result,
           sectionContent,
         })
-      } catch {
-        // If file can't be read, include result without content
+      } else {
+        // File unreadable: include result without content
         resultsWithContent.push(result)
       }
     }
@@ -727,12 +740,22 @@ export const getContext = (
     // Read file content if needed
     let fileContent: string | null = null
     if (includeContent) {
-      try {
-        fileContent = yield* Effect.promise(() =>
-          fs.readFile(resolvedFile, 'utf-8'),
-        )
-      } catch {
-        // Continue without content
+      const readResult = yield* Effect.tryPromise({
+        try: () => fs.readFile(resolvedFile, 'utf-8'),
+        catch: (e) =>
+          new FileReadError({
+            path: resolvedFile,
+            message: `Failed to read file: ${resolvedFile}`,
+            cause: e,
+          }),
+      }).pipe(
+        Effect.tapError((e) =>
+          Effect.logWarning(`getContext: cannot read content for ${e.path}`),
+        ),
+        Effect.option,
+      )
+      if (Option.isSome(readResult)) {
+        fileContent = readResult.value
       }
     }
 
