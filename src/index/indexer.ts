@@ -335,7 +335,7 @@ export const buildIndex = (
         Object.entries(linkIndex.backward).map(([k, v]) => [k, [...v]]),
       ),
     )
-    const brokenLinks: string[] = [...linkIndex.broken]
+    const brokenLinks = new Set<string>(linkIndex.broken)
     const totalFiles = files.length
 
     for (let fileIndex = 0; fileIndex < files.length; fileIndex++) {
@@ -492,8 +492,8 @@ export const buildIndex = (
     // Check for broken links
     for (const [_from, targets] of Object.entries(mutableForward)) {
       for (const target of targets) {
-        if (!mutableDocuments[target] && !brokenLinks.includes(target)) {
-          brokenLinks.push(target)
+        if (!mutableDocuments[target] && !brokenLinks.has(target)) {
+          brokenLinks.add(target)
         }
       }
     }
@@ -516,7 +516,7 @@ export const buildIndex = (
       version: linkIndex.version,
       forward: mutableForward,
       backward: mutableBackward,
-      broken: brokenLinks,
+      broken: [...brokenLinks],
     })
 
     const duration = Date.now() - startTime
