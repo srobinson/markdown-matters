@@ -637,7 +637,14 @@ const loadConfig = async (rootPath: string): Promise<MdContextConfig> => {
   })
 
   return Effect.runPromise(
-    program.pipe(Effect.catchAll(() => Effect.succeed(defaultConfig))),
+    program.pipe(
+      Effect.catchAll((error) => {
+        console.error(
+          `[mdcontext] Config loading failed, using defaults: ${error}`,
+        )
+        return Effect.succeed(defaultConfig)
+      }),
+    ),
   )
 }
 
