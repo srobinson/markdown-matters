@@ -345,7 +345,11 @@ export const searchCommand = Command.make(
         const cacheDir = path.join(resolvedDir, INDEX_DIR, 'models')
 
         const result = yield* initializeReranker(cacheDir, (progress) => {
-          if (progress.status === 'loading' && progress.file) {
+          if (
+            progress.status === 'loading' &&
+            progress.file &&
+            process.stdout.isTTY
+          ) {
             const pct = progress.progress
               ? ` (${Math.round(progress.progress)}%)`
               : ''
