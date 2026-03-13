@@ -65,6 +65,41 @@ import {
 } from './vector-store.js'
 
 // ============================================================================
+// HNSW Singleton Cache
+// ============================================================================
+
+/**
+ * Module-level cache for loaded HNSW vector stores, keyed by
+ * `${resolvedRoot}::${namespace}`. Avoids re-reading the HNSW binary
+ * on every search request in long-lived processes (MCP server).
+ *
+ * Invalidated per-key when buildEmbeddings completes for that namespace.
+ * Per-process only, not persisted.
+ */
+const hnswCache = new Map<string, VectorStore>()
+
+const hnswCacheKey = (resolvedRoot: string, namespace: string): string =>
+  `${resolvedRoot}::${namespace}`
+
+/**
+ * Invalidate the HNSW cache entry for a given root and namespace.
+ * Called after buildEmbeddings writes new vectors to disk.
+ */
+export const invalidateHnswCache = (
+  resolvedRoot: string,
+  namespace: string,
+): void => {
+  hnswCache.delete(hnswCacheKey(resolvedRoot, namespace))
+}
+
+/**
+ * Clear the entire HNSW cache. Useful for testing.
+ */
+export const clearHnswCache = (): void => {
+  hnswCache.clear()
+}
+
+// ============================================================================
 // HNSW Parameter Warning
 // ============================================================================
 
@@ -544,11 +579,12 @@ export const buildEmbeddings = (
     yield* vectorStore.add(entries)
     vectorStore.addCost(result.cost, result.tokensUsed)
 
-    // Save
+    // Save and invalidate cache so next search picks up new vectors
     yield* vectorStore.save()
+    const namespace = generateNamespace(providerName, providerModel, dimensions)
+    invalidateHnswCache(resolvedRoot, namespace)
 
     // Set this namespace as the active provider
-    const namespace = generateNamespace(providerName, providerModel, dimensions)
     yield* writeActiveProvider(resolvedRoot, {
       namespace,
       provider: providerName,
@@ -739,23 +775,36 @@ const prepareSearchPipeline = (
       )
     }
 
-    // Load vector store from the active namespace
-    const vectorStore = createNamespacedVectorStore(
-      resolvedRoot,
+    // Load vector store from cache or disk
+    const namespace = generateNamespace(
       activeProvider.provider,
       activeProvider.model,
       activeProvider.dimensions,
     )
-    const loadResult = yield* vectorStore.load()
+    const cacheKey = hnswCacheKey(resolvedRoot, namespace)
+    let vectorStore = hnswCache.get(cacheKey)
 
-    if (!loadResult.loaded) {
-      return yield* Effect.fail(
-        new EmbeddingsNotFoundError({ path: resolvedRoot }),
+    if (!vectorStore) {
+      const freshStore = createNamespacedVectorStore(
+        resolvedRoot,
+        activeProvider.provider,
+        activeProvider.model,
+        activeProvider.dimensions,
       )
-    }
+      const loadResult = yield* freshStore.load()
 
-    // Check for HNSW parameter mismatch
-    yield* checkHnswMismatch(loadResult.hnswMismatch)
+      if (!loadResult.loaded) {
+        return yield* Effect.fail(
+          new EmbeddingsNotFoundError({ path: resolvedRoot }),
+        )
+      }
+
+      // Check for HNSW parameter mismatch
+      yield* checkHnswMismatch(loadResult.hnswMismatch)
+
+      hnswCache.set(cacheKey, freshStore)
+      vectorStore = freshStore
+    }
 
     // Determine the text to embed
     // If HyDE is enabled, generate a hypothetical document first
@@ -1143,31 +1192,44 @@ export const getEmbeddingStats = (
       }
     }
 
-    // Load the namespaced vector store to get stats
-    const vectorStore = createNamespacedVectorStore(
-      resolvedRoot,
+    // Load the namespaced vector store from cache or disk
+    const namespace = generateNamespace(
       activeProvider.provider,
       activeProvider.model,
       activeProvider.dimensions,
     )
+    const cacheKey = hnswCacheKey(resolvedRoot, namespace)
+    let vectorStore = hnswCache.get(cacheKey)
 
-    const loadResult = yield* vectorStore
-      .load()
-      .pipe(
-        Effect.catchAll(() =>
-          Effect.succeed({ loaded: false } as VectorStoreLoadResult),
-        ),
+    if (!vectorStore) {
+      const freshStore = createNamespacedVectorStore(
+        resolvedRoot,
+        activeProvider.provider,
+        activeProvider.model,
+        activeProvider.dimensions,
       )
 
-    if (!loadResult.loaded) {
-      return {
-        hasEmbeddings: false,
-        count: 0,
-        provider: 'none',
-        dimensions: 0,
-        totalCost: 0,
-        totalTokens: 0,
+      const loadResult = yield* freshStore
+        .load()
+        .pipe(
+          Effect.catchAll(() =>
+            Effect.succeed({ loaded: false } as VectorStoreLoadResult),
+          ),
+        )
+
+      if (!loadResult.loaded) {
+        return {
+          hasEmbeddings: false,
+          count: 0,
+          provider: 'none',
+          dimensions: 0,
+          totalCost: 0,
+          totalTokens: 0,
+        }
       }
+
+      hnswCache.set(cacheKey, freshStore)
+      vectorStore = freshStore
     }
 
     const stats = vectorStore.getStats()
