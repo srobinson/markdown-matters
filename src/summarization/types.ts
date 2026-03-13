@@ -165,7 +165,7 @@ export type SummarizationErrorCode =
  * Summarization error as Data.TaggedError for Effect integration.
  *
  * Can be caught with Effect.catchTag('SummarizationError', ...) and
- * is part of the MdContextError union.
+ * is part of the MdmError union.
  */
 export class SummarizationError extends Data.TaggedError('SummarizationError')<{
   readonly message: string

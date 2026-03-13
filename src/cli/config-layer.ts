@@ -11,7 +11,7 @@ import {
   ConfigService,
   ConfigServiceDefault,
   createConfigProvider,
-  type MdContextConfig,
+  type MdmConfig,
 } from '../config/index.js'
 
 /**
@@ -46,10 +46,10 @@ export const makeCliConfigLayer = (
     // Load the config using the provider
     const configResult = yield* Effect.gen(function* () {
       // Import the schema to load config
-      const { MdContextConfig: MdContextConfigSchema } = yield* Effect.promise(
+      const { MdmConfig: MdmConfigSchema } = yield* Effect.promise(
         async () => import('../config/schema.js'),
       )
-      return yield* MdContextConfigSchema
+      return yield* MdmConfigSchema
     }).pipe(
       Effect.withConfigProvider(providerResult),
       Effect.catchAll(() => Effect.succeed(null)),
@@ -141,9 +141,7 @@ export type OutputConfigValues = {
 /**
  * Extract search config from full config.
  */
-export const getSearchConfig = (
-  config: MdContextConfig,
-): SearchConfigValues => ({
+export const getSearchConfig = (config: MdmConfig): SearchConfigValues => ({
   defaultLimit: config.search.defaultLimit,
   maxLimit: config.search.maxLimit,
   minSimilarity: config.search.minSimilarity,
@@ -154,7 +152,7 @@ export const getSearchConfig = (
 /**
  * Extract index config from full config.
  */
-export const getIndexConfig = (config: MdContextConfig): IndexConfigValues => ({
+export const getIndexConfig = (config: MdmConfig): IndexConfigValues => ({
   maxDepth: config.index.maxDepth,
   excludePatterns: config.index.excludePatterns,
   fileExtensions: config.index.fileExtensions,
@@ -165,9 +163,7 @@ export const getIndexConfig = (config: MdContextConfig): IndexConfigValues => ({
 /**
  * Extract output config from full config.
  */
-export const getOutputConfig = (
-  config: MdContextConfig,
-): OutputConfigValues => ({
+export const getOutputConfig = (config: MdmConfig): OutputConfigValues => ({
   format: config.output.format,
   color: config.output.color,
   prettyJson: config.output.prettyJson,

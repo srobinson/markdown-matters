@@ -16,11 +16,11 @@
  * ## Usage
  *
  * ```typescript
- * import { MdContextConfig, IndexConfig } from './config/schema.js'
+ * import { MdmConfig, IndexConfig } from './config/schema.js'
  * import { Effect } from 'effect'
  *
  * const program = Effect.gen(function* () {
- *   const config = yield* MdContextConfig
+ *   const config = yield* MdmConfig
  *   console.log(`Max depth: ${config.index.maxDepth}`)
  * })
  * ```
@@ -518,7 +518,7 @@ export type PathsConfig = Config.Config.Success<typeof PathsConfig>
  * Combines all configuration sections into a single nested config.
  * Use with Effect's ConfigProvider to load from various sources.
  */
-export const MdContextConfig = Config.all({
+export const MdmConfig = Config.all({
   index: Config.nested(IndexConfig, 'index'),
   search: Config.nested(SearchConfig, 'search'),
   embeddings: Config.nested(EmbeddingsConfig, 'embeddings'),
@@ -531,7 +531,7 @@ export const MdContextConfig = Config.all({
 /**
  * Inferred type for the complete configuration
  */
-export type MdContextConfig = Config.Config.Success<typeof MdContextConfig>
+export type MdmConfig = Config.Config.Success<typeof MdmConfig>
 
 // ============================================================================
 // Default Configuration Values
@@ -541,7 +541,7 @@ export type MdContextConfig = Config.Config.Success<typeof MdContextConfig>
  * Default configuration values as a plain object.
  * Useful for initializing config files or for documentation.
  */
-export const defaultConfig: MdContextConfig = {
+export const defaultConfig: MdmConfig = {
   index: {
     maxDepth: 10,
     excludePatterns: ['node_modules', '.git', 'dist', 'build'],

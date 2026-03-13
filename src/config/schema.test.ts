@@ -11,7 +11,7 @@ import {
   defaultConfig,
   EmbeddingsConfig,
   IndexConfig,
-  MdContextConfig,
+  MdmConfig,
   OutputConfig,
   PathsConfig,
   SearchConfig,
@@ -246,10 +246,10 @@ describe('Config Schema', () => {
     })
   })
 
-  describe('MdContextConfig (nested)', () => {
+  describe('MdmConfig (nested)', () => {
     it('should use default values when no config provided', async () => {
       const program = Effect.gen(function* () {
-        return yield* MdContextConfig
+        return yield* MdmConfig
       })
 
       const result = await Effect.runPromise(
@@ -266,7 +266,7 @@ describe('Config Schema', () => {
 
     it('should read nested values from ConfigProvider with dot notation', async () => {
       const program = Effect.gen(function* () {
-        return yield* MdContextConfig
+        return yield* MdmConfig
       })
 
       const provider = ConfigProvider.fromMap(
@@ -292,7 +292,7 @@ describe('Config Schema', () => {
 
     it('should work with ConfigProvider.fromJson for file-like config', async () => {
       const program = Effect.gen(function* () {
-        return yield* MdContextConfig
+        return yield* MdmConfig
       })
 
       const jsonConfig = {

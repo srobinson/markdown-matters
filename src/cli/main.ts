@@ -31,8 +31,8 @@ import { CliConfig, Command } from '@effect/cli'
 import { NodeContext, NodeRuntime } from '@effect/platform-node'
 import { Effect, Layer } from 'effect'
 import { ConfigService, createConfigProviderSync } from '../config/index.js'
-import { MdContextConfig } from '../config/schema.js'
-import type { PartialMdContextConfig } from '../config/service.js'
+import { MdmConfig } from '../config/schema.js'
+import type { PartialMdmConfig } from '../config/service.js'
 import { preprocessArgv } from './argv-preprocessor.js'
 import {
   backlinksCommand,
@@ -225,7 +225,7 @@ const VALID_CONFIG_KEYS = [
 function validateConfigObject(
   config: unknown,
   resolvedPath: string,
-): asserts config is PartialMdContextConfig {
+): asserts config is PartialMdmConfig {
   // Check it's a non-null, non-array object
   if (!config || typeof config !== 'object' || Array.isArray(config)) {
     console.error(
@@ -254,14 +254,14 @@ function validateConfigObject(
  * Create a ConfigService Layer from a validated config object.
  */
 const createConfigLayerFromConfig = (
-  fileConfig: PartialMdContextConfig,
+  fileConfig: PartialMdmConfig,
 ): Layer.Layer<ConfigService, never, never> => {
   const provider = createConfigProviderSync({
     fileConfig,
     skipEnv: false,
   })
   const configResult = Effect.runSync(
-    MdContextConfig.pipe(Effect.withConfigProvider(provider)),
+    MdmConfig.pipe(Effect.withConfigProvider(provider)),
   )
   return Layer.succeed(ConfigService, configResult)
 }
@@ -280,8 +280,8 @@ async function loadConfigAsync(
     // Use dynamic import to load TS/JS/MJS files
     const fileUrl = `file://${resolvedPath}`
     const module = (await import(fileUrl)) as {
-      default?: PartialMdContextConfig
-      config?: PartialMdContextConfig
+      default?: PartialMdmConfig
+      config?: PartialMdmConfig
     }
     const fileConfig = module.default ?? module.config
 

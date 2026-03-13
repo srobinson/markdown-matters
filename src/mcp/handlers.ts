@@ -11,7 +11,7 @@ import * as path from 'node:path'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { Option } from 'effect'
 
-import type { MdContextConfig } from '../config/schema.js'
+import type { MdmConfig } from '../config/schema.js'
 import type { MdSection } from '../core/types.js'
 import { semanticSearch } from '../embeddings/semantic-search.js'
 import {
@@ -32,10 +32,10 @@ import {
 } from './adapter.js'
 import {
   MdBacklinksArgs,
-  MdContextArgs,
   MdIndexArgs,
   MdKeywordSearchArgs,
   MdLinksArgs,
+  MdmArgs,
   MdSearchArgs,
   MdStructureArgs,
 } from './schemas.js'
@@ -47,7 +47,7 @@ import {
 export const handleMdSearch = async (
   args: Record<string, unknown>,
   rootPath: string,
-  config: MdContextConfig,
+  config: MdmConfig,
 ): Promise<CallToolResult> => {
   const validated = await validateArgs(MdSearchArgs, args)
   if (isValidationError(validated)) return validated
@@ -89,11 +89,11 @@ export const handleMdSearch = async (
 // Handler: md_context
 // ============================================================================
 
-export const handleMdContext = async (
+export const handleMdm = async (
   args: Record<string, unknown>,
   rootPath: string,
 ): Promise<CallToolResult> => {
-  const validated = await validateArgs(MdContextArgs, args)
+  const validated = await validateArgs(MdmArgs, args)
   if (isValidationError(validated)) return validated
 
   const filePath = validated.path

@@ -528,7 +528,7 @@ export type SearchError =
  * Union of all mdcontext errors
  * Use this for exhaustive error handling at the CLI boundary
  */
-export type MdContextError =
+export type MdmError =
   | FileSystemError
   | ParseError
   | ApiError

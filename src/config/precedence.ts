@@ -35,7 +35,7 @@
 import { ConfigProvider, Effect } from 'effect'
 import type { ConfigError } from '../errors/index.js'
 import { loadConfigFile, loadConfigFromPath } from './file-provider.js'
-import type { PartialMdContextConfig } from './service.js'
+import type { PartialMdmConfig } from './service.js'
 
 // ============================================================================
 // Types
@@ -49,7 +49,7 @@ export interface ConfigProviderOptions {
    * CLI flag overrides (highest priority)
    * These values take precedence over all other sources
    */
-  cliOverrides?: PartialMdContextConfig
+  cliOverrides?: PartialMdmConfig
 
   /**
    * Explicit path to config file
@@ -96,7 +96,7 @@ export interface ConfigProviderOptions {
  * ```
  */
 export const flattenConfig = (
-  config: PartialMdContextConfig,
+  config: PartialMdmConfig,
   prefix = '',
 ): Map<string, string> => {
   const result = new Map<string, string>()
@@ -305,7 +305,7 @@ export const createConfigProvider = (
 
     // 1. File config (lowest priority)
     if (!skipConfigFile) {
-      let fileConfig: PartialMdContextConfig | undefined
+      let fileConfig: PartialMdmConfig | undefined
 
       if (configPath) {
         fileConfig = yield* loadConfigFromPath(configPath)
@@ -359,7 +359,7 @@ export const createConfigProvider = (
  */
 export const createConfigProviderSync = (
   options: Omit<ConfigProviderOptions, 'configPath' | 'workingDir'> & {
-    fileConfig?: PartialMdContextConfig
+    fileConfig?: PartialMdmConfig
   } = {},
 ): ConfigProvider.ConfigProvider => {
   const {
@@ -418,8 +418,8 @@ export const createConfigProviderSync = (
  * @returns ConfigProvider for testing
  */
 export const createTestConfigProvider = (
-  cliOverrides?: PartialMdContextConfig,
-  fileConfig?: PartialMdContextConfig,
+  cliOverrides?: PartialMdmConfig,
+  fileConfig?: PartialMdmConfig,
 ): ConfigProvider.ConfigProvider => {
   const options: Parameters<typeof createConfigProviderSync>[0] = {
     skipEnv: true,
@@ -441,7 +441,7 @@ export const createTestConfigProvider = (
  * @returns ConfigProvider that provides CLI values
  */
 export const createCliConfigProvider = (
-  overrides: PartialMdContextConfig,
+  overrides: PartialMdmConfig,
 ): ConfigProvider.ConfigProvider => {
   const flattened = flattenConfig(overrides)
   return ConfigProvider.fromMap(flattened, {

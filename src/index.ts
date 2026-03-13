@@ -3,7 +3,7 @@
  */
 
 // Config utilities for user config files
-export type { PartialMdContextConfig } from './config/service.js'
+export type { PartialMdmConfig } from './config/service.js'
 export * from './core/index.js'
 export * from './index/index.js'
 export * from './parser/index.js'
@@ -24,7 +24,7 @@ export * from './utils/index.js'
  * ```
  */
 export const defineConfig = <
-  T extends import('./config/service.js').PartialMdContextConfig,
+  T extends import('./config/service.js').PartialMdmConfig,
 >(
   config: T,
 ): T => config

@@ -16,7 +16,7 @@ export const MdSearchArgs = Schema.Struct({
   path_filter: Schema.optional(Schema.String),
 })
 
-export const MdContextArgs = Schema.Struct({
+export const MdmArgs = Schema.Struct({
   path: Schema.String,
   level: Schema.optional(Schema.Literal('brief', 'summary', 'full')),
   max_tokens: Schema.optional(

@@ -39,7 +39,7 @@ import type {
   IndexBuildError,
   IndexCorruptedError,
   IndexNotFoundError,
-  MdContextError,
+  MdmError,
   ParseError,
   SummarizationError,
   VectorStoreError,
@@ -134,7 +134,7 @@ const formatConfigError = (e: ConfigError): FormattedError => {
  * Format an error for user display.
  * Returns a structured object with message, suggestions, and exit code.
  */
-export const formatError = (error: MdContextError): FormattedError =>
+export const formatError = (error: MdmError): FormattedError =>
   Match.value(error).pipe(
     // File system errors
     Match.tag('FileReadError', (e) => ({
@@ -494,7 +494,7 @@ const sensitiveFieldReplacer = (_key: string, value: unknown): unknown => {
  * Display error with debug information (stack trace, full context)
  */
 export const displayErrorDebug = (
-  error: MdContextError,
+  error: MdmError,
   formatted: FormattedError,
 ): Effect.Effect<void, never> =>
   Effect.gen(function* () {
@@ -524,7 +524,7 @@ export const displayErrorDebug = (
  * Handle a typed error: format, display, and return appropriate exit code.
  */
 export const handleError = (
-  error: MdContextError,
+  error: MdmError,
   options: { debug?: boolean } = {},
 ): Effect.Effect<never, never, never> =>
   Effect.gen(function* () {
@@ -541,7 +541,7 @@ export const handleError = (
 
 /**
  * Create an error handler that can be piped into an Effect.
- * Handles all MdContextError types with proper formatting and exit codes.
+ * Handles all MdmError types with proper formatting and exit codes.
  *
  * Usage:
  * ```typescript

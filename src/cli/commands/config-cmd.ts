@@ -15,7 +15,7 @@ import {
   loadConfigFile,
   readEnvConfig,
 } from '../../config/index.js'
-import type { PartialMdContextConfig } from '../../config/service.js'
+import type { PartialMdmConfig } from '../../config/service.js'
 import { jsonOption, prettyOption } from '../options.js'
 import { formatJson } from '../utils.js'
 
@@ -77,7 +77,7 @@ const generateConfigContent = (format: 'js' | 'json'): string => {
  * This file configures mdm behavior for this project.
  * See https://mdm.dev/config for full documentation.
  *
- * @type {import('mdm').PartialMdContextConfig}
+ * @type {import('mdm').PartialMdmConfig}
  */
 export default {
   // Index settings - control how markdown files are discovered and parsed
@@ -531,7 +531,7 @@ const checkCommand = Command.make(
       )
 
       const sourceFile = configResult.found ? configResult.path : null
-      const fileConfig: PartialMdContextConfig = configResult.found
+      const fileConfig: PartialMdmConfig = configResult.found
         ? configResult.config
         : {}
 

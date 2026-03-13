@@ -39,7 +39,7 @@ export {
   EmbeddingsConfig,
   // Config schemas
   IndexConfig,
-  MdContextConfig,
+  MdmConfig,
   type OpenAIEmbeddingModel,
   OutputConfig,
   type OutputFormat,
@@ -61,7 +61,7 @@ export {
   makeConfigLayerPartial,
   // Merge utilities
   mergeWithDefaults,
-  type PartialMdContextConfig,
+  type PartialMdmConfig,
 } from './service.js'
 export {
   // Testing utilities

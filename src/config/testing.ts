@@ -29,7 +29,7 @@ import { defaultConfig } from './schema.js'
 import {
   ConfigService,
   makeConfigLayerPartial,
-  type PartialMdContextConfig,
+  type PartialMdmConfig,
 } from './service.js'
 
 /**
@@ -54,7 +54,7 @@ export const TestConfigLayer: Layer.Layer<ConfigService> = Layer.succeed(
  * })
  */
 export const withTestConfig = (
-  overrides: PartialMdContextConfig,
+  overrides: PartialMdmConfig,
 ): Layer.Layer<ConfigService> => makeConfigLayerPartial(overrides)
 
 /**
@@ -78,7 +78,7 @@ export const withTestConfig = (
  */
 export const runWithConfig = <A, E>(
   effect: Effect.Effect<A, E, ConfigService>,
-  config?: PartialMdContextConfig,
+  config?: PartialMdmConfig,
 ): Promise<A> => {
   const layer = config ? withTestConfig(config) : TestConfigLayer
   return Effect.runPromise(effect.pipe(Effect.provide(layer)))
@@ -103,7 +103,7 @@ export const runWithConfig = <A, E>(
  */
 export const runWithConfigSync = <A, E>(
   effect: Effect.Effect<A, E, ConfigService>,
-  config?: PartialMdContextConfig,
+  config?: PartialMdmConfig,
 ): A => {
   const layer = config ? withTestConfig(config) : TestConfigLayer
   return Effect.runSync(effect.pipe(Effect.provide(layer)))

@@ -29,11 +29,8 @@
  */
 
 import { type ConfigError, Context, Effect, Layer } from 'effect'
-import type { MdContextConfig } from './schema.js'
-import {
-  defaultConfig,
-  MdContextConfig as MdContextConfigSchema,
-} from './schema.js'
+import type { MdmConfig } from './schema.js'
+import { defaultConfig, MdmConfig as MdmConfigSchema } from './schema.js'
 
 // ============================================================================
 // Service Definition
@@ -48,7 +45,7 @@ import {
  */
 export class ConfigService extends Context.Tag('ConfigService')<
   ConfigService,
-  MdContextConfig
+  MdmConfig
 >() {}
 
 // ============================================================================
@@ -69,7 +66,7 @@ export class ConfigService extends Context.Tag('ConfigService')<
 export const ConfigServiceLive: Layer.Layer<
   ConfigService,
   ConfigError.ConfigError
-> = Layer.effect(ConfigService, MdContextConfigSchema)
+> = Layer.effect(ConfigService, MdmConfigSchema)
 
 /**
  * Create a ConfigService layer with a custom configuration object.
@@ -99,7 +96,7 @@ export const ConfigServiceLive: Layer.Layer<
  * ```
  */
 export const makeConfigLayer = (
-  config: MdContextConfig,
+  config: MdmConfig,
 ): Layer.Layer<ConfigService> => Layer.succeed(ConfigService, config)
 
 /**
@@ -119,7 +116,7 @@ export const ConfigServiceDefault: Layer.Layer<ConfigService> =
 /**
  * Access the full configuration object.
  *
- * @returns An Effect that yields the full MdContextConfig
+ * @returns An Effect that yields the full MdmConfig
  *
  * @example
  * ```typescript
@@ -129,7 +126,7 @@ export const ConfigServiceDefault: Layer.Layer<ConfigService> =
  * })
  * ```
  */
-export const getConfig: Effect.Effect<MdContextConfig, never, ConfigService> =
+export const getConfig: Effect.Effect<MdmConfig, never, ConfigService> =
   ConfigService
 
 /**
@@ -146,9 +143,9 @@ export const getConfig: Effect.Effect<MdContextConfig, never, ConfigService> =
  * })
  * ```
  */
-export const getConfigSection = <K extends keyof MdContextConfig>(
+export const getConfigSection = <K extends keyof MdmConfig>(
   section: K,
-): Effect.Effect<MdContextConfig[K], never, ConfigService> =>
+): Effect.Effect<MdmConfig[K], never, ConfigService> =>
   Effect.map(ConfigService, (config) => config[section])
 
 /**
@@ -167,12 +164,12 @@ export const getConfigSection = <K extends keyof MdContextConfig>(
  * ```
  */
 export const getConfigValue = <
-  K extends keyof MdContextConfig,
-  V extends keyof MdContextConfig[K],
+  K extends keyof MdmConfig,
+  V extends keyof MdmConfig[K],
 >(
   section: K,
   key: V,
-): Effect.Effect<MdContextConfig[K][V], never, ConfigService> =>
+): Effect.Effect<MdmConfig[K][V], never, ConfigService> =>
   Effect.map(ConfigService, (config) => config[section][key])
 
 // ============================================================================
@@ -180,21 +177,21 @@ export const getConfigValue = <
 // ============================================================================
 
 /**
- * Deeply partial type for MdContextConfig
+ * Deeply partial type for MdmConfig
  */
-export type PartialMdContextConfig = {
-  [K in keyof MdContextConfig]?: Partial<MdContextConfig[K]>
+export type PartialMdmConfig = {
+  [K in keyof MdmConfig]?: Partial<MdmConfig[K]>
 }
 
 /**
  * Merge partial configuration with defaults.
  *
- * Creates a complete MdContextConfig by merging user-provided values
+ * Creates a complete MdmConfig by merging user-provided values
  * with the default configuration. Useful for applying config file values
  * or CLI overrides.
  *
  * @param partial - Partial configuration to merge
- * @returns Complete MdContextConfig with defaults filled in
+ * @returns Complete MdmConfig with defaults filled in
  *
  * @example
  * ```typescript
@@ -207,9 +204,7 @@ export type PartialMdContextConfig = {
  * // fullConfig.index.excludePatterns === defaultConfig.index.excludePatterns
  * ```
  */
-export const mergeWithDefaults = (
-  partial: PartialMdContextConfig,
-): MdContextConfig => ({
+export const mergeWithDefaults = (partial: PartialMdmConfig): MdmConfig => ({
   index: { ...defaultConfig.index, ...partial.index },
   search: { ...defaultConfig.search, ...partial.search },
   embeddings: { ...defaultConfig.embeddings, ...partial.embeddings },
@@ -239,5 +234,5 @@ export const mergeWithDefaults = (
  * ```
  */
 export const makeConfigLayerPartial = (
-  partial: PartialMdContextConfig,
+  partial: PartialMdmConfig,
 ): Layer.Layer<ConfigService> => makeConfigLayer(mergeWithDefaults(partial))

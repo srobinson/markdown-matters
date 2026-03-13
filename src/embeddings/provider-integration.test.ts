@@ -15,7 +15,7 @@ import {
   createConfigProvider,
   createConfigProviderSync,
 } from '../config/index.js'
-import { MdContextConfig } from '../config/schema.js'
+import { MdmConfig } from '../config/schema.js'
 import {
   createEmbeddingProviderDirect,
   getProviderBaseURL,
@@ -74,7 +74,7 @@ describe('Provider Integration Tests', () => {
       })
 
       const result = await Effect.runPromise(
-        MdContextConfig.pipe(Effect.withConfigProvider(provider)),
+        MdmConfig.pipe(Effect.withConfigProvider(provider)),
       )
 
       expect(result.embeddings.provider).toBe('openai')
@@ -98,7 +98,7 @@ describe('Provider Integration Tests', () => {
       )
 
       const result = await Effect.runPromise(
-        MdContextConfig.pipe(Effect.withConfigProvider(provider)),
+        MdmConfig.pipe(Effect.withConfigProvider(provider)),
       )
 
       expect(result.embeddings.provider).toBe('ollama')
@@ -126,7 +126,7 @@ describe('Provider Integration Tests', () => {
       )
 
       const result = await Effect.runPromise(
-        MdContextConfig.pipe(Effect.withConfigProvider(provider)),
+        MdmConfig.pipe(Effect.withConfigProvider(provider)),
       )
 
       expect(result.embeddings.provider).toBe('ollama')
@@ -144,7 +144,7 @@ describe('Provider Integration Tests', () => {
       })
 
       const result = await Effect.runPromise(
-        MdContextConfig.pipe(Effect.withConfigProvider(provider)),
+        MdmConfig.pipe(Effect.withConfigProvider(provider)),
       )
 
       // CLI wins
@@ -169,7 +169,7 @@ describe('Provider Integration Tests', () => {
       })
 
       const result = await Effect.runPromise(
-        MdContextConfig.pipe(Effect.withConfigProvider(provider)),
+        MdmConfig.pipe(Effect.withConfigProvider(provider)),
       )
 
       expect(result.embeddings.provider).toBe('ollama')
@@ -203,7 +203,7 @@ describe('Provider Integration Tests', () => {
       )
 
       const result = await Effect.runPromise(
-        MdContextConfig.pipe(Effect.withConfigProvider(provider)),
+        MdmConfig.pipe(Effect.withConfigProvider(provider)),
       )
 
       // CLI wins for provider
@@ -461,7 +461,7 @@ describe('Provider Integration Tests', () => {
       )
 
       const result = await Effect.runPromise(
-        MdContextConfig.pipe(Effect.withConfigProvider(provider)),
+        MdmConfig.pipe(Effect.withConfigProvider(provider)),
       )
 
       expect(result.embeddings.provider).toBe('ollama')
@@ -484,7 +484,7 @@ describe('Provider Integration Tests', () => {
       )
 
       const result = await Effect.runPromise(
-        MdContextConfig.pipe(Effect.withConfigProvider(provider)),
+        MdmConfig.pipe(Effect.withConfigProvider(provider)),
       )
 
       expect(result.embeddings.provider).toBe('lm-studio')
@@ -507,7 +507,7 @@ describe('Provider Integration Tests', () => {
       )
 
       const result = await Effect.runPromise(
-        MdContextConfig.pipe(Effect.withConfigProvider(provider)),
+        MdmConfig.pipe(Effect.withConfigProvider(provider)),
       )
 
       expect(result.embeddings.provider).toBe('openrouter')
@@ -534,7 +534,7 @@ describe('Provider Integration Tests', () => {
       )
 
       const result = await Effect.runPromise(
-        MdContextConfig.pipe(Effect.withConfigProvider(provider)),
+        MdmConfig.pipe(Effect.withConfigProvider(provider)),
       )
 
       expect(result.embeddings.provider).toBe('ollama')
@@ -556,7 +556,7 @@ describe('Provider Integration Tests', () => {
       })
 
       const result = await Effect.runPromise(
-        MdContextConfig.pipe(Effect.withConfigProvider(provider)),
+        MdmConfig.pipe(Effect.withConfigProvider(provider)),
       )
 
       expect(result.embeddings.provider).toBe('ollama')
@@ -571,7 +571,7 @@ describe('Provider Integration Tests', () => {
       })
 
       const result = await Effect.runPromise(
-        MdContextConfig.pipe(Effect.withConfigProvider(provider)),
+        MdmConfig.pipe(Effect.withConfigProvider(provider)),
       )
 
       expect(result.embeddings.provider).toBe('lm-studio')
@@ -586,7 +586,7 @@ describe('Provider Integration Tests', () => {
       })
 
       const result = await Effect.runPromise(
-        MdContextConfig.pipe(Effect.withConfigProvider(provider)),
+        MdmConfig.pipe(Effect.withConfigProvider(provider)),
       )
 
       expect(result.embeddings.provider).toBe('openrouter')
@@ -602,7 +602,7 @@ describe('Provider Integration Tests', () => {
       })
 
       const result = await Effect.runPromise(
-        MdContextConfig.pipe(Effect.withConfigProvider(provider)),
+        MdmConfig.pipe(Effect.withConfigProvider(provider)),
       )
 
       expect(result.embeddings.provider).toBe('ollama')
@@ -634,7 +634,7 @@ describe('Provider Integration Tests', () => {
       )
 
       let result = await Effect.runPromise(
-        MdContextConfig.pipe(Effect.withConfigProvider(provider)),
+        MdmConfig.pipe(Effect.withConfigProvider(provider)),
       )
 
       expect(result.embeddings.provider).toBe('openai')
@@ -657,7 +657,7 @@ describe('Provider Integration Tests', () => {
       )
 
       result = await Effect.runPromise(
-        MdContextConfig.pipe(Effect.withConfigProvider(provider)),
+        MdmConfig.pipe(Effect.withConfigProvider(provider)),
       )
 
       expect(result.embeddings.provider).toBe('ollama')
@@ -693,7 +693,7 @@ describe('Provider Integration Tests', () => {
       )
 
       const result = await Effect.runPromise(
-        MdContextConfig.pipe(Effect.withConfigProvider(provider)),
+        MdmConfig.pipe(Effect.withConfigProvider(provider)),
       )
 
       // CLI override active

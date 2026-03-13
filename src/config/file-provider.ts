@@ -27,7 +27,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { ConfigProvider, Effect } from 'effect'
 import { ConfigError } from '../errors/index.js'
-import type { PartialMdContextConfig } from './service.js'
+import type { PartialMdmConfig } from './service.js'
 
 // ============================================================================
 // Types
@@ -51,7 +51,7 @@ export type ConfigFileName = (typeof CONFIG_FILE_NAMES)[number]
  * Result of loading a config file
  */
 export type LoadConfigResult =
-  | { found: true; path: string; config: PartialMdContextConfig }
+  | { found: true; path: string; config: PartialMdmConfig }
   | { found: false; searched: string[] }
 
 /**
@@ -151,11 +151,11 @@ const getConfigFormat = (fileName: string): ConfigFileFormat => {
  */
 const loadJsonConfig = (
   filePath: string,
-): Effect.Effect<PartialMdContextConfig, ConfigError> =>
+): Effect.Effect<PartialMdmConfig, ConfigError> =>
   Effect.try({
     try: () => {
       const content = fs.readFileSync(filePath, 'utf-8')
-      return JSON.parse(content) as PartialMdContextConfig
+      return JSON.parse(content) as PartialMdmConfig
     },
     catch: (error) =>
       new ConfigError({
@@ -170,7 +170,7 @@ const loadJsonConfig = (
  */
 const loadJsConfig = (
   filePath: string,
-): Effect.Effect<PartialMdContextConfig, ConfigError> =>
+): Effect.Effect<PartialMdmConfig, ConfigError> =>
   Effect.tryPromise({
     try: async () => {
       // Convert to file URL for dynamic import
@@ -183,7 +183,7 @@ const loadJsConfig = (
           'Config file must export a default object or named "config" export',
         )
       }
-      return config as PartialMdContextConfig
+      return config as PartialMdmConfig
     },
     catch: (error) =>
       new ConfigError({
@@ -199,7 +199,7 @@ const loadJsConfig = (
 export const loadConfigFromFile = (
   filePath: string,
   format: ConfigFileFormat,
-): Effect.Effect<PartialMdContextConfig, ConfigError> => {
+): Effect.Effect<PartialMdmConfig, ConfigError> => {
   switch (format) {
     case 'json':
       return loadJsonConfig(filePath)
@@ -247,7 +247,7 @@ export const loadConfigFile = (
  */
 export const loadConfigFromPath = (
   configPath: string,
-): Effect.Effect<PartialMdContextConfig, ConfigError> =>
+): Effect.Effect<PartialMdmConfig, ConfigError> =>
   Effect.gen(function* () {
     const resolvedPath = path.resolve(configPath)
 
@@ -278,7 +278,7 @@ export const loadConfigFromPath = (
  * @returns A ConfigProvider that provides the config values
  */
 export const createFileConfigProvider = (
-  config: PartialMdContextConfig,
+  config: PartialMdmConfig,
 ): ConfigProvider.ConfigProvider => ConfigProvider.fromJson(config)
 
 /**

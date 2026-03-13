@@ -17,7 +17,7 @@ import {
   loadConfigFromPath,
   loadFileConfigProvider,
 } from './file-provider.js'
-import { MdContextConfig } from './schema.js'
+import { MdmConfig } from './schema.js'
 
 describe('File-based ConfigProvider', () => {
   let tempDir: string
@@ -213,7 +213,7 @@ describe('File-based ConfigProvider', () => {
       const provider = createFileConfigProvider(config)
 
       const program = Effect.gen(function* () {
-        return yield* MdContextConfig
+        return yield* MdmConfig
       })
 
       const result = await Effect.runPromise(
@@ -239,7 +239,7 @@ describe('File-based ConfigProvider', () => {
       const provider = createFileConfigProvider(config)
 
       const program = Effect.gen(function* () {
-        return yield* MdContextConfig
+        return yield* MdmConfig
       })
 
       const result = await Effect.runPromise(
@@ -258,7 +258,7 @@ describe('File-based ConfigProvider', () => {
 
       // Provider should exist but provide no overrides
       const program = Effect.gen(function* () {
-        return yield* MdContextConfig
+        return yield* MdmConfig
       })
 
       const result = await Effect.runPromise(
@@ -282,7 +282,7 @@ describe('File-based ConfigProvider', () => {
       const provider = await Effect.runPromise(loadFileConfigProvider(tempDir))
 
       const program = Effect.gen(function* () {
-        return yield* MdContextConfig
+        return yield* MdmConfig
       })
 
       const result = await Effect.runPromise(

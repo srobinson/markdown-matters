@@ -22,7 +22,7 @@ import {
   loadConfigFile,
   loadConfigFromPath,
 } from './index.js'
-import { defaultConfig, MdContextConfig } from './schema.js'
+import { defaultConfig, MdmConfig } from './schema.js'
 import {
   ConfigService,
   makeConfigLayerPartial,
@@ -67,7 +67,7 @@ describe('Config Integration Tests', () => {
       })
 
       const result = await Effect.runPromise(
-        MdContextConfig.pipe(Effect.withConfigProvider(provider)),
+        MdmConfig.pipe(Effect.withConfigProvider(provider)),
       )
 
       // All values should match defaults
@@ -98,7 +98,7 @@ describe('Config Integration Tests', () => {
       )
 
       const result = await Effect.runPromise(
-        MdContextConfig.pipe(Effect.withConfigProvider(provider)),
+        MdmConfig.pipe(Effect.withConfigProvider(provider)),
       )
 
       // File values should override defaults
@@ -130,7 +130,7 @@ describe('Config Integration Tests', () => {
       )
 
       const result = await Effect.runPromise(
-        MdContextConfig.pipe(Effect.withConfigProvider(provider)),
+        MdmConfig.pipe(Effect.withConfigProvider(provider)),
       )
 
       // Env var should override file config
@@ -162,7 +162,7 @@ describe('Config Integration Tests', () => {
       )
 
       const result = await Effect.runPromise(
-        MdContextConfig.pipe(Effect.withConfigProvider(provider)),
+        MdmConfig.pipe(Effect.withConfigProvider(provider)),
       )
 
       // CLI should override everything
@@ -202,7 +202,7 @@ describe('Config Integration Tests', () => {
       )
 
       const result = await Effect.runPromise(
-        MdContextConfig.pipe(Effect.withConfigProvider(provider)),
+        MdmConfig.pipe(Effect.withConfigProvider(provider)),
       )
 
       // CLI wins over all: index.maxDepth=5 (from CLI)
@@ -239,7 +239,7 @@ describe('Config Integration Tests', () => {
       )
 
       const result = await Effect.runPromise(
-        MdContextConfig.pipe(Effect.withConfigProvider(provider)),
+        MdmConfig.pipe(Effect.withConfigProvider(provider)),
       )
 
       expect(result.index.excludePatterns).toEqual(['custom-ignore', '*.bak'])
@@ -265,7 +265,7 @@ describe('Config Integration Tests', () => {
       )
 
       const result = await Effect.runPromise(
-        MdContextConfig.pipe(Effect.withConfigProvider(provider)),
+        MdmConfig.pipe(Effect.withConfigProvider(provider)),
       )
 
       expect(result.index.excludePatterns).toEqual([
@@ -286,7 +286,7 @@ describe('Config Integration Tests', () => {
       })
 
       const result = await Effect.runPromise(
-        MdContextConfig.pipe(Effect.withConfigProvider(provider)),
+        MdmConfig.pipe(Effect.withConfigProvider(provider)),
       )
 
       expect(result.index.excludePatterns).toEqual([
@@ -388,7 +388,7 @@ describe('Config Integration Tests', () => {
 
       // This should fail because maxDepth is not a valid number
       const result = await Effect.runPromiseExit(
-        MdContextConfig.pipe(Effect.withConfigProvider(provider)),
+        MdmConfig.pipe(Effect.withConfigProvider(provider)),
       )
 
       expect(result._tag).toBe('Failure')
@@ -493,7 +493,7 @@ describe('Config Integration Tests', () => {
       )
 
       const result = await Effect.runPromise(
-        MdContextConfig.pipe(Effect.withConfigProvider(provider)),
+        MdmConfig.pipe(Effect.withConfigProvider(provider)),
       )
 
       // Team settings preserved
@@ -523,7 +523,7 @@ describe('Config Integration Tests', () => {
       })
 
       const result = await Effect.runPromise(
-        MdContextConfig.pipe(Effect.withConfigProvider(provider)),
+        MdmConfig.pipe(Effect.withConfigProvider(provider)),
       )
 
       expect(result.output.format).toBe('json')
@@ -559,7 +559,7 @@ describe('Config Integration Tests', () => {
       )
 
       const result = await Effect.runPromise(
-        MdContextConfig.pipe(Effect.withConfigProvider(provider)),
+        MdmConfig.pipe(Effect.withConfigProvider(provider)),
       )
 
       // CLI override active
@@ -598,7 +598,7 @@ describe('Config Integration Tests', () => {
       )
 
       const result = await Effect.runPromise(
-        MdContextConfig.pipe(Effect.withConfigProvider(provider)),
+        MdmConfig.pipe(Effect.withConfigProvider(provider)),
       )
 
       // Custom path should be used
@@ -643,7 +643,7 @@ describe('Config Integration Tests', () => {
       )
 
       const result = await Effect.runPromise(
-        MdContextConfig.pipe(Effect.withConfigProvider(provider)),
+        MdmConfig.pipe(Effect.withConfigProvider(provider)),
       )
 
       expect(result.index.maxDepth).toBe(88)

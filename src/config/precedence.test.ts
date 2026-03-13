@@ -17,7 +17,7 @@ import {
   flattenConfig,
   readEnvConfig,
 } from './precedence.js'
-import { MdContextConfig } from './schema.js'
+import { MdmConfig } from './schema.js'
 
 describe('Config Precedence Chain', () => {
   let tempDir: string
@@ -49,7 +49,7 @@ describe('Config Precedence Chain', () => {
       )
 
       const program = Effect.gen(function* () {
-        return yield* MdContextConfig
+        return yield* MdmConfig
       })
 
       const result = await Effect.runPromise(
@@ -69,7 +69,7 @@ describe('Config Precedence Chain', () => {
       })
 
       const program = Effect.gen(function* () {
-        return yield* MdContextConfig
+        return yield* MdmConfig
       })
 
       const result = await Effect.runPromise(
@@ -87,7 +87,7 @@ describe('Config Precedence Chain', () => {
       })
 
       const program = Effect.gen(function* () {
-        return yield* MdContextConfig
+        return yield* MdmConfig
       })
 
       const result = await Effect.runPromise(
@@ -173,7 +173,7 @@ describe('Config Precedence Chain', () => {
       const provider = createEnvConfigProvider()
 
       const program = Effect.gen(function* () {
-        return yield* MdContextConfig
+        return yield* MdmConfig
       })
 
       const result = await Effect.runPromise(
@@ -192,7 +192,7 @@ describe('Config Precedence Chain', () => {
       })
 
       const program = Effect.gen(function* () {
-        return yield* MdContextConfig
+        return yield* MdmConfig
       })
 
       const result = await Effect.runPromise(
@@ -232,7 +232,7 @@ describe('Config Precedence Chain', () => {
       const provider = createTestConfigProvider({ index: { maxDepth: 5 } })
 
       const program = Effect.gen(function* () {
-        return yield* MdContextConfig
+        return yield* MdmConfig
       })
 
       const result = await Effect.runPromise(
@@ -248,7 +248,7 @@ describe('Config Precedence Chain', () => {
       })
 
       const program = Effect.gen(function* () {
-        return yield* MdContextConfig
+        return yield* MdmConfig
       })
 
       const result = await Effect.runPromise(
@@ -262,7 +262,7 @@ describe('Config Precedence Chain', () => {
       const provider = createTestConfigProvider()
 
       const program = Effect.gen(function* () {
-        return yield* MdContextConfig
+        return yield* MdmConfig
       })
 
       const result = await Effect.runPromise(
