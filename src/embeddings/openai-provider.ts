@@ -18,6 +18,7 @@ import {
   supportsMatryoshka,
   validateModelDimensions,
 } from './provider-constants.js'
+import { retryEmbeddingOperation } from './retry.js'
 import type {
   EmbeddingProvider,
   EmbeddingResult,
@@ -103,6 +104,10 @@ export interface OpenAIProviderOptions {
    * Default: 30000 (30 seconds)
    */
   readonly timeout?: number | undefined
+  /** Number of retries for transient rate limits/network failures. */
+  readonly maxRetries?: number | undefined
+  /** Base delay between retries in milliseconds. */
+  readonly retryDelayMs?: number | undefined
 }
 
 export class OpenAIProvider implements EmbeddingProvider {
@@ -117,6 +122,8 @@ export class OpenAIProvider implements EmbeddingProvider {
 
   private readonly client: OpenAI
   private readonly batchSize: number
+  private readonly maxRetries: number
+  private readonly retryDelayMs: number
 
   private constructor(
     apiKey: Redacted.Redacted<string>,
@@ -127,10 +134,12 @@ export class OpenAIProvider implements EmbeddingProvider {
       apiKey: Redacted.value(apiKey),
       baseURL: options.baseURL,
       timeout: options.timeout ?? 30000,
-      maxRetries: 2,
+      maxRetries: 0,
     })
     this.model = options.model ?? 'text-embedding-3-small'
     this.batchSize = options.batchSize ?? 100
+    this.maxRetries = options.maxRetries ?? 3
+    this.retryDelayMs = options.retryDelayMs ?? 1000
     this.providerName =
       options.providerName ?? this.inferProviderName(options.baseURL)
     this.name = `${this.providerName}:${this.model}`
@@ -256,7 +265,14 @@ export class OpenAIProvider implements EmbeddingProvider {
           embedParams.dimensions = this.dimensions
         }
 
-        const response = await this.client.embeddings.create(embedParams)
+        const response = await retryEmbeddingOperation(
+          () => this.client.embeddings.create(embedParams),
+          {
+            maxRetries: this.maxRetries,
+            retryDelayMs: this.retryDelayMs,
+            classifyError: (error) => this.classifyError(error),
+          },
+        )
 
         for (const item of response.data) {
           allEmbeddings.push(item.embedding)

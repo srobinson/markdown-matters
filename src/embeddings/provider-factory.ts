@@ -52,6 +52,8 @@ export interface ProviderFactoryConfig {
   readonly model?: string | undefined
   readonly dimensions?: number | undefined
   readonly batchSize?: number | undefined
+  readonly maxRetries?: number | undefined
+  readonly retryDelayMs?: number | undefined
   /**
    * API key for the provider. Accepts multiple formats:
    * - Plain string: 'sk-...'
@@ -148,8 +150,8 @@ export const createEmbeddingProvider = (
           model: config.model ?? 'text-embedding-3-small',
           dimensions: config.dimensions, // Let provider determine default if not specified
           batchSize: config.batchSize ?? 100,
-          maxRetries: 3,
-          retryDelayMs: 1000,
+          maxRetries: config.maxRetries ?? 3,
+          retryDelayMs: config.retryDelayMs ?? 1000,
           timeoutMs: 30000,
           apiKey: Option.fromNullable(normalizeApiKey(config.apiKey)),
         } as EmbeddingsConfig)
@@ -168,6 +170,8 @@ export const createEmbeddingProvider = (
       return yield* createVoyageProvider({
         model: embeddingsConfig.model,
         batchSize: embeddingsConfig.batchSize,
+        maxRetries: embeddingsConfig.maxRetries,
+        retryDelayMs: embeddingsConfig.retryDelayMs,
         apiKey,
         timeout: embeddingsConfig.timeoutMs,
       })
@@ -178,6 +182,8 @@ export const createEmbeddingProvider = (
       model: embeddingsConfig.model,
       dimensions: embeddingsConfig.dimensions,
       batchSize: embeddingsConfig.batchSize,
+      maxRetries: embeddingsConfig.maxRetries,
+      retryDelayMs: embeddingsConfig.retryDelayMs,
       baseURL,
       apiKey,
       timeout: embeddingsConfig.timeoutMs,
@@ -208,6 +214,8 @@ export const createEmbeddingProviderDirect = (
       return yield* createVoyageProvider({
         model: config.model,
         batchSize: config.batchSize,
+        maxRetries: config.maxRetries,
+        retryDelayMs: config.retryDelayMs,
         apiKey: normalizeApiKey(config.apiKey),
         timeout: config.timeout,
       })
@@ -218,6 +226,8 @@ export const createEmbeddingProviderDirect = (
       model: config.model,
       dimensions: config.dimensions,
       batchSize: config.batchSize,
+      maxRetries: config.maxRetries,
+      retryDelayMs: config.retryDelayMs,
       baseURL,
       apiKey: normalizeApiKey(config.apiKey),
       timeout: config.timeout,

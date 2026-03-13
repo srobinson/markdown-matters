@@ -17,6 +17,7 @@ import {
   EmbeddingError,
 } from '../errors/index.js'
 import pricingData from './pricing.json' with { type: 'json' }
+import { retryEmbeddingOperation } from './retry.js'
 import type {
   EmbeddingProvider,
   EmbeddingProviderWithMetadata,
@@ -104,6 +105,10 @@ export interface VoyageProviderOptions {
    * Default: 30000 (30 seconds)
    */
   readonly timeout?: number | undefined
+  /** Number of retries for transient rate limits/network failures. */
+  readonly maxRetries?: number | undefined
+  /** Base delay between retries in milliseconds. */
+  readonly retryDelayMs?: number | undefined
 }
 
 // ============================================================================
@@ -120,6 +125,8 @@ export class VoyageProvider implements EmbeddingProviderWithMetadata {
   private readonly apiKey: Redacted.Redacted<string>
   private readonly batchSize: number
   private readonly timeout: number
+  private readonly maxRetries: number
+  private readonly retryDelayMs: number
 
   private constructor(
     apiKey: Redacted.Redacted<string>,
@@ -129,6 +136,8 @@ export class VoyageProvider implements EmbeddingProviderWithMetadata {
     this.model = options.model ?? DEFAULT_VOYAGE_MODEL
     this.batchSize = options.batchSize ?? 128
     this.timeout = options.timeout ?? 30000
+    this.maxRetries = options.maxRetries ?? 3
+    this.retryDelayMs = options.retryDelayMs ?? 1000
 
     // Get dimensions for model
     const modelSpec = VOYAGE_MODELS[this.model]
@@ -183,46 +192,14 @@ export class VoyageProvider implements EmbeddingProviderWithMetadata {
       for (let i = 0; i < texts.length; i += this.batchSize) {
         const batch = texts.slice(i, i + this.batchSize)
         const batchIndex = Math.floor(i / this.batchSize)
-
-        // Use AbortController for timeout
-        const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), this.timeout)
-
-        let response: Response
-        try {
-          response = await fetch(`${VOYAGE_API_BASE}/embeddings`, {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${Redacted.value(this.apiKey)}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: this.model,
-              input: batch,
-              input_type: 'document', // 'document' for indexing, 'query' for searching
-            }),
-            signal: controller.signal,
-          })
-        } finally {
-          clearTimeout(timeoutId)
-        }
-
-        if (!response.ok) {
-          const errorText = await response.text()
-          if (response.status === 401) {
-            throw new ApiKeyInvalidError({
-              provider: 'Voyage AI',
-              details: errorText,
-            })
-          }
-          throw new EmbeddingError({
-            reason: this.classifyHttpError(response.status, errorText),
-            message: `Voyage API error: ${response.status} - ${errorText}`,
-            provider: 'voyage',
-          })
-        }
-
-        const data = (await response.json()) as VoyageEmbeddingResponse
+        const data = await retryEmbeddingOperation(
+          () => this.requestBatch(batch),
+          {
+            maxRetries: this.maxRetries,
+            retryDelayMs: this.retryDelayMs,
+            classifyError: (error) => this.classifyError(error),
+          },
+        )
 
         for (const item of data.data) {
           allEmbeddings.push(item.embedding)
@@ -264,6 +241,48 @@ export class VoyageProvider implements EmbeddingProviderWithMetadata {
       tokensUsed: totalTokens,
       cost,
     }
+  }
+
+  private async requestBatch(batch: string[]): Promise<VoyageEmbeddingResponse> {
+    // Use AbortController for timeout
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), this.timeout)
+
+    let response: Response
+    try {
+      response = await fetch(`${VOYAGE_API_BASE}/embeddings`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${Redacted.value(this.apiKey)}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: this.model,
+          input: batch,
+          input_type: 'document', // 'document' for indexing, 'query' for searching
+        }),
+        signal: controller.signal,
+      })
+    } finally {
+      clearTimeout(timeoutId)
+    }
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      if (response.status === 401) {
+        throw new ApiKeyInvalidError({
+          provider: 'Voyage AI',
+          details: errorText,
+        })
+      }
+      throw new EmbeddingError({
+        reason: this.classifyHttpError(response.status, errorText),
+        message: `Voyage API error: ${response.status} - ${errorText}`,
+        provider: 'voyage',
+      })
+    }
+
+    return (await response.json()) as VoyageEmbeddingResponse
   }
 
   private classifyHttpError(

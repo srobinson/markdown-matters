@@ -236,5 +236,21 @@ describe('Provider Factory', () => {
       // Value can still be extracted when needed
       expect(Redacted.value(redactedKey)).toBe(secretKey)
     })
+
+    it('should pass retry configuration to providers', async () => {
+      const provider = await Effect.runPromise(
+        createEmbeddingProviderDirect({
+          provider: 'voyage',
+          apiKey: 'test-key',
+          maxRetries: 7,
+          retryDelayMs: 250,
+        }),
+      )
+
+      expect((provider as unknown as { maxRetries: number }).maxRetries).toBe(7)
+      expect(
+        (provider as unknown as { retryDelayMs: number }).retryDelayMs,
+      ).toBe(250)
+    })
   })
 })
