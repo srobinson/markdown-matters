@@ -29,7 +29,7 @@ import {
   getActiveNamespace,
   writeActiveProvider,
 } from './embedding-namespace.js'
-import { generateHypotheticalDocument, type HydeResult } from './hyde.js'
+import { generateHypotheticalDocument } from './hyde.js'
 import {
   checkPricingFreshness,
   getPricingDate,
@@ -58,6 +58,7 @@ import {
   type HnswMismatchWarning,
   type HnswVectorStore,
   type VectorSearchResult,
+  type VectorStore,
   type VectorStoreLoadResult,
 } from './vector-store.js'
 
@@ -668,30 +669,36 @@ const addContextLinesToResults = (
 // Semantic Search
 // ============================================================================
 
+// ============================================================================
+// Shared Search Pipeline
+// ============================================================================
+
+/** Prepared state from the shared search pipeline setup steps. */
+interface SearchPipelineContext {
+  readonly resolvedRoot: string
+  readonly vectorStore: VectorStore
+  readonly queryVector: number[]
+  readonly limit: number
+  readonly threshold: number
+  readonly efSearch: number | undefined
+}
+
 /**
- * Perform semantic search over embedded sections.
+ * Shared setup for semantic search: resolves the root path, loads the active
+ * embedding namespace, creates the embedding provider, verifies dimension
+ * compatibility, loads the vector store, handles HyDE if enabled, and embeds
+ * the query.
  *
- * @param rootPath - Root directory containing embeddings
- * @param query - Natural language search query
- * @param options - Search options (limit, threshold, path filter)
- * @returns Ranked list of matching sections by similarity
- *
- * @throws EmbeddingsNotFoundError - No embeddings exist (run index --embed first)
- * @throws ApiKeyMissingError - API key not set (check provider config)
- * @throws ApiKeyInvalidError - API key rejected by provider
- * @throws EmbeddingError - Embedding API failure (rate limit, quota, network)
- * @throws VectorStoreError - Cannot load or search vector index
- * @throws DimensionMismatchError - Corpus has different dimensions than current provider
+ * Both `semanticSearch` and `semanticSearchWithStats` delegate here to avoid
+ * duplicating the 10-step preparation sequence.
  */
-export const semanticSearch = (
+const prepareSearchPipeline = (
   rootPath: string,
   query: string,
-  options: SemanticSearchOptions = {},
+  options: SemanticSearchOptions,
 ): Effect.Effect<
-  readonly SemanticSearchResult[],
+  SearchPipelineContext,
   | EmbeddingsNotFoundError
-  | FileReadError
-  | IndexCorruptedError
   | ApiKeyMissingError
   | ApiKeyInvalidError
   | EmbeddingError
@@ -755,11 +762,10 @@ export const semanticSearch = (
     // Determine the text to embed
     // If HyDE is enabled, generate a hypothetical document first
     let textToEmbed: string
-    let hydeResult: HydeResult | undefined
 
     if (options.hyde) {
       // Generate hypothetical document using LLM
-      hydeResult = yield* generateHypotheticalDocument(query, {
+      const hydeResult = yield* generateHypotheticalDocument(query, {
         model: options.hydeOptions?.model,
         maxTokens: options.hydeOptions?.maxTokens,
         temperature: options.hydeOptions?.temperature,
@@ -790,26 +796,42 @@ export const semanticSearch = (
       )
     }
 
-    // Search
     const limit = options.limit ?? 10
     const threshold = options.threshold ?? 0
-
-    // Convert quality mode to efSearch value
     const efSearch = options.quality
       ? QUALITY_EF_SEARCH[options.quality]
       : undefined
 
-    const searchResults = yield* vectorStore.search(
+    return {
+      resolvedRoot,
+      vectorStore,
       queryVector,
-      limit * 2,
+      limit,
       threshold,
-      { efSearch },
-    )
+      efSearch,
+    }
+  })
 
+/**
+ * Shared post-search processing: applies path filtering, heading/file
+ * importance boost, re-sorts by boosted similarity, applies limit, and
+ * optionally loads context lines.
+ */
+const postProcessResults = (
+  rawResults: readonly VectorSearchResult[],
+  query: string,
+  options: SemanticSearchOptions,
+  resolvedRoot: string,
+  limit: number,
+): Effect.Effect<
+  { results: readonly SemanticSearchResult[]; totalAvailable: number },
+  FileReadError | IndexCorruptedError
+> =>
+  Effect.gen(function* () {
     // Apply path filter if specified
-    let filteredResults = searchResults
+    let filteredResults = rawResults
     if (options.pathPattern) {
-      filteredResults = searchResults.filter((r) =>
+      filteredResults = rawResults.filter((r) =>
         matchPath(r.documentPath, options.pathPattern!),
       )
     }
@@ -829,9 +851,11 @@ export const semanticSearch = (
       : filteredResults
 
     // Re-sort by boosted similarity
-    const sortedResults = boostedResults.sort(
-      (a, b) => b.similarity - a.similarity,
+    const sortedResults = [...boostedResults].sort(
+      (a: VectorSearchResult, b: VectorSearchResult) =>
+        b.similarity - a.similarity,
     )
+    const totalAvailable = sortedResults.length
     const limitedResults = sortedResults.slice(0, limit)
 
     // If context lines are requested, load section content
@@ -851,7 +875,7 @@ export const semanticSearch = (
           options,
         )
       } else {
-        results = limitedResults.map((r) => ({
+        results = limitedResults.map((r: VectorSearchResult) => ({
           sectionId: r.sectionId,
           documentPath: r.documentPath,
           heading: r.heading,
@@ -859,13 +883,68 @@ export const semanticSearch = (
         }))
       }
     } else {
-      results = limitedResults.map((r) => ({
+      results = limitedResults.map((r: VectorSearchResult) => ({
         sectionId: r.sectionId,
         documentPath: r.documentPath,
         heading: r.heading,
         similarity: r.similarity,
       }))
     }
+
+    return { results, totalAvailable }
+  })
+
+// ============================================================================
+// Public API
+// ============================================================================
+
+/**
+ * Perform semantic search over embedded sections.
+ *
+ * @param rootPath - Root directory containing embeddings
+ * @param query - Natural language search query
+ * @param options - Search options (limit, threshold, path filter)
+ * @returns Ranked list of matching sections by similarity
+ *
+ * @throws EmbeddingsNotFoundError - No embeddings exist (run index --embed first)
+ * @throws ApiKeyMissingError - API key not set (check provider config)
+ * @throws ApiKeyInvalidError - API key rejected by provider
+ * @throws EmbeddingError - Embedding API failure (rate limit, quota, network)
+ * @throws VectorStoreError - Cannot load or search vector index
+ * @throws DimensionMismatchError - Corpus has different dimensions than current provider
+ */
+export const semanticSearch = (
+  rootPath: string,
+  query: string,
+  options: SemanticSearchOptions = {},
+): Effect.Effect<
+  readonly SemanticSearchResult[],
+  | EmbeddingsNotFoundError
+  | FileReadError
+  | IndexCorruptedError
+  | ApiKeyMissingError
+  | ApiKeyInvalidError
+  | EmbeddingError
+  | VectorStoreError
+  | DimensionMismatchError
+> =>
+  Effect.gen(function* () {
+    const ctx = yield* prepareSearchPipeline(rootPath, query, options)
+
+    const searchResults = yield* ctx.vectorStore.search(
+      ctx.queryVector,
+      ctx.limit * 2,
+      ctx.threshold,
+      { efSearch: ctx.efSearch },
+    )
+
+    const { results } = yield* postProcessResults(
+      searchResults,
+      query,
+      options,
+      ctx.resolvedRoot,
+      ctx.limit,
+    )
 
     return results
   })
@@ -903,174 +982,22 @@ export const semanticSearchWithStats = (
   | DimensionMismatchError
 > =>
   Effect.gen(function* () {
-    const resolvedRoot = path.resolve(rootPath)
+    const ctx = yield* prepareSearchPipeline(rootPath, query, options)
 
-    // Get active namespace to determine which embedding index to use
-    const activeProvider = yield* getActiveNamespace(resolvedRoot).pipe(
-      Effect.catchAll(() => Effect.succeed(null as ActiveProvider | null)),
+    const searchResultWithStats = yield* ctx.vectorStore.searchWithStats(
+      ctx.queryVector,
+      ctx.limit * 2,
+      ctx.threshold,
+      { efSearch: ctx.efSearch },
     )
 
-    if (!activeProvider) {
-      return yield* Effect.fail(
-        new EmbeddingsNotFoundError({ path: resolvedRoot }),
-      )
-    }
-
-    // Create provider for query embedding
-    const provider = yield* createEmbeddingProviderDirect(
-      options.providerConfig ?? { provider: 'openai' },
+    const { results, totalAvailable } = yield* postProcessResults(
+      searchResultWithStats.results,
+      query,
+      options,
+      ctx.resolvedRoot,
+      ctx.limit,
     )
-    const dimensions = provider.dimensions
-
-    // Get current provider name for error messages
-    const currentProviderName = options.providerConfig?.provider ?? 'openai'
-
-    // Verify dimensions match the active namespace
-    if (dimensions !== activeProvider.dimensions) {
-      return yield* Effect.fail(
-        new DimensionMismatchError({
-          corpusDimensions: activeProvider.dimensions,
-          providerDimensions: dimensions,
-          corpusProvider: `${activeProvider.provider}:${activeProvider.model}`,
-          currentProvider: currentProviderName,
-          path: resolvedRoot,
-        }),
-      )
-    }
-
-    // Load vector store from the active namespace
-    const vectorStore = createNamespacedVectorStore(
-      resolvedRoot,
-      activeProvider.provider,
-      activeProvider.model,
-      activeProvider.dimensions,
-    )
-    const loadResult = yield* vectorStore.load()
-
-    if (!loadResult.loaded) {
-      return yield* Effect.fail(
-        new EmbeddingsNotFoundError({ path: resolvedRoot }),
-      )
-    }
-
-    // Check for HNSW parameter mismatch
-    yield* checkHnswMismatch(loadResult.hnswMismatch)
-
-    // Determine the text to embed
-    // If HyDE is enabled, generate a hypothetical document first
-    let textToEmbed: string
-    let hydeResult: HydeResult | undefined
-
-    if (options.hyde) {
-      // Generate hypothetical document using LLM
-      hydeResult = yield* generateHypotheticalDocument(query, {
-        model: options.hydeOptions?.model,
-        maxTokens: options.hydeOptions?.maxTokens,
-        temperature: options.hydeOptions?.temperature,
-      })
-      textToEmbed = hydeResult.hypotheticalDocument
-      yield* Effect.logDebug(
-        `HyDE generated ${hydeResult.tokensUsed} tokens ($${hydeResult.cost.toFixed(6)})`,
-      )
-    } else {
-      // Preprocess query for better recall (unless disabled)
-      textToEmbed = options.skipPreprocessing ? query : preprocessQuery(query)
-    }
-
-    // Embed the query (or hypothetical document)
-    const queryResult = yield* wrapEmbedding(
-      provider.embed([textToEmbed]),
-      currentProviderName,
-    )
-
-    const queryVector = queryResult.embeddings[0]
-    if (!queryVector) {
-      return yield* Effect.fail(
-        new EmbeddingError({
-          reason: 'Unknown',
-          message: 'Failed to generate query embedding',
-          provider: currentProviderName,
-        }),
-      )
-    }
-
-    // Search with stats
-    const limit = options.limit ?? 10
-    const threshold = options.threshold ?? 0
-
-    // Convert quality mode to efSearch value
-    const efSearch = options.quality
-      ? QUALITY_EF_SEARCH[options.quality]
-      : undefined
-
-    const searchResultWithStats = yield* vectorStore.searchWithStats(
-      queryVector,
-      limit * 2,
-      threshold,
-      { efSearch },
-    )
-
-    // Apply path filter if specified
-    let filteredResults = searchResultWithStats.results
-    if (options.pathPattern) {
-      filteredResults = searchResultWithStats.results.filter((r) =>
-        matchPath(r.documentPath, options.pathPattern!),
-      )
-    }
-
-    // Apply ranking boost (heading + file importance, enabled by default)
-    const applyBoost = options.headingBoost !== false
-    const boostedResults = applyBoost
-      ? filteredResults.map((r) => ({
-          ...r,
-          similarity: Math.min(
-            1,
-            r.similarity +
-              calculateHeadingBoost(r.heading, query) +
-              calculateFileImportanceBoost(r.documentPath),
-          ),
-        }))
-      : filteredResults
-
-    // Re-sort by boosted similarity and convert to SemanticSearchResult
-    const sortedResults = boostedResults.sort(
-      (a, b) => b.similarity - a.similarity,
-    )
-    const totalAvailable = sortedResults.length
-    const limitedResults = sortedResults.slice(0, limit)
-
-    // If context lines are requested, load section content
-    let results: readonly SemanticSearchResult[]
-    if (
-      options.contextBefore !== undefined ||
-      options.contextAfter !== undefined
-    ) {
-      const storage = createStorage(resolvedRoot)
-      const sectionIndex = yield* loadSectionIndex(storage)
-
-      if (sectionIndex) {
-        results = yield* addContextLinesToResults(
-          limitedResults,
-          sectionIndex,
-          resolvedRoot,
-          options,
-        )
-      } else {
-        results = limitedResults.map((r) => ({
-          sectionId: r.sectionId,
-          documentPath: r.documentPath,
-          heading: r.heading,
-          similarity: r.similarity,
-        }))
-      }
-    } else {
-      results = limitedResults.map((r) => ({
-        sectionId: r.sectionId,
-        documentPath: r.documentPath,
-        heading: r.heading,
-        similarity: r.similarity,
-      }))
-    }
 
     return {
       results,
