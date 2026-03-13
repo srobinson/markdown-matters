@@ -183,6 +183,10 @@ export const helpContent: Record<string, CommandHelp> = {
         description: 'Generate AI summary of search results',
       },
       {
+        name: '--refine',
+        description: 'Additional filter terms to narrow results',
+      },
+      {
         name: '-y, --yes',
         description: 'Skip cost confirmation for paid AI providers',
       },
