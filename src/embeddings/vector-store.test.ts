@@ -383,6 +383,65 @@ describe('legacy JSON metadata migration', () => {
 })
 
 // ============================================================================
+// Corrupted metadata validation
+// ============================================================================
+
+describe('corrupted metadata validation', () => {
+  it('load fails with VectorStoreError for malformed binary metadata', async () => {
+    const dir = await createTempDir()
+
+    // Save a valid index first so we have a vectors.bin file
+    const store1 = createVectorStore(dir, DIMS)
+    await run(store1.add([makeEntry('c1', 1)]))
+    await run(store1.save())
+
+    // Overwrite metadata with invalid structure
+    const indexDir = path.join(dir, '.mdcontext')
+    const metaPath = path.join(indexDir, 'vectors.meta.bin')
+    const { encode } = await import('@msgpack/msgpack')
+    await fs.writeFile(metaPath, encode({ bad: 'data', version: 'wrong' }))
+
+    const store2 = createVectorStore(dir, DIMS)
+    const exit = await runExit(store2.load())
+
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) {
+      const error = exit.cause
+      expect(String(error)).toContain('schema validation failed')
+    }
+  })
+
+  it('load fails with VectorStoreError for malformed JSON metadata', async () => {
+    const dir = await createTempDir()
+
+    // Save a valid index first so we have a vectors.bin file
+    const store1 = createVectorStore(dir, DIMS)
+    await run(store1.add([makeEntry('c2', 2)]))
+    await run(store1.save())
+
+    // Replace binary metadata with invalid JSON at legacy path
+    const indexDir = path.join(dir, '.mdcontext')
+    const binPath = path.join(indexDir, 'vectors.meta.bin')
+    const jsonPath = path.join(indexDir, 'vectors.meta.json')
+
+    await fs.unlink(binPath)
+    await fs.writeFile(
+      jsonPath,
+      JSON.stringify({ entries: 'not-an-object', dimensions: 'wrong' }),
+    )
+
+    const store2 = createVectorStore(dir, DIMS)
+    const exit = await runExit(store2.load())
+
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) {
+      const error = exit.cause
+      expect(String(error)).toContain('schema validation failed')
+    }
+  })
+})
+
+// ============================================================================
 // getStats
 // ============================================================================
 

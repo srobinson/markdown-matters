@@ -13,7 +13,7 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import * as msgpack from '@msgpack/msgpack'
-import { Effect } from 'effect'
+import { Effect, Schema } from 'effect'
 import HierarchicalNSW from 'hnswlib-node'
 import { DimensionMismatchError, VectorStoreError } from '../errors/index.js'
 import { INDEX_DIR } from '../index/types.js'
@@ -32,6 +32,59 @@ import type { VectorEntry, VectorIndex } from './types.js'
 const VECTOR_INDEX_FILE = 'vectors.bin'
 const VECTOR_META_FILE = 'vectors.meta.bin'
 const INDEX_VERSION = 1
+
+// ============================================================================
+// Runtime Schema Validation for Vector Metadata
+// ============================================================================
+
+// Schema.optional accepts undefined but msgpack serializes undefined as null.
+// Use Schema.NullishOr to accept both null and undefined for optional fields.
+const NullishString = Schema.Union(Schema.String, Schema.Null, Schema.Undefined)
+
+const VectorEntrySchema = Schema.Struct({
+  id: Schema.String,
+  sectionId: Schema.String,
+  documentPath: Schema.String,
+  heading: Schema.String,
+  embedding: Schema.Array(Schema.Number),
+})
+
+const HnswIndexParamsSchema = Schema.Struct({
+  m: Schema.Number,
+  efConstruction: Schema.Number,
+})
+
+const VectorIndexSchema = Schema.Struct({
+  version: Schema.Number,
+  provider: Schema.String,
+  providerModel: Schema.optional(NullishString),
+  providerBaseURL: Schema.optional(NullishString),
+  dimensions: Schema.Number,
+  entries: Schema.Record({ key: Schema.String, value: VectorEntrySchema }),
+  totalCost: Schema.Number,
+  totalTokens: Schema.Number,
+  createdAt: Schema.String,
+  updatedAt: Schema.String,
+  hnswParams: Schema.optional(
+    Schema.Union(HnswIndexParamsSchema, Schema.Null, Schema.Undefined),
+  ),
+})
+
+const decodeVectorIndex = (
+  raw: unknown,
+  source: string,
+): Effect.Effect<VectorIndex, VectorStoreError> =>
+  Schema.decodeUnknown(VectorIndexSchema)(raw).pipe(
+    Effect.mapError(
+      (parseError) =>
+        new VectorStoreError({
+          operation: 'load',
+          message: `Corrupted vector metadata (${source}): schema validation failed: ${String(parseError)}`,
+        }),
+    ),
+    // Schema output type is structurally compatible with VectorIndex
+    Effect.map((validated) => validated as unknown as VectorIndex),
+  )
 
 // ============================================================================
 // Vector Store
@@ -529,34 +582,27 @@ class HnswVectorStore implements VectorStore {
           return { loaded: false }
         }
 
-        // Load metadata - try binary first, fall back to JSON for migration
-        const loadedMeta = yield* Effect.tryPromise({
+        // Load raw metadata - try binary first, fall back to JSON for migration
+        const rawMeta = yield* Effect.tryPromise({
           try: async () => {
             // Try binary format first (new)
             try {
               await fs.access(metaPath)
               const buffer = await fs.readFile(metaPath)
-              return msgpack.decode(buffer) as VectorIndex
+              return {
+                data: msgpack.decode(buffer) as unknown,
+                source: 'binary' as const,
+              }
             } catch {
               // Fall back to JSON for migration (old)
               const jsonPath = metaPath.replace('.bin', '.json')
               try {
                 await fs.access(jsonPath)
                 const json = await fs.readFile(jsonPath, 'utf-8')
-                const meta = JSON.parse(json) as VectorIndex
-
-                // Auto-migrate to binary format (safe for concurrent access)
-                try {
-                  const encoded = msgpack.encode(meta)
-                  await fs.writeFile(metaPath, encoded)
-
-                  // Remove old JSON file (ignore errors if already deleted by another process)
-                  await fs.unlink(jsonPath).catch(() => {})
-                } catch {
-                  // Migration failed, but we have the data - continue
+                return {
+                  data: JSON.parse(json) as unknown,
+                  source: 'json' as const,
                 }
-
-                return meta
               } catch {
                 throw new Error('Metadata file not found')
               }
@@ -570,10 +616,36 @@ class HnswVectorStore implements VectorStore {
             }),
         })
 
-        // Apply legacy index migration: default to 'openai' if provider is missing
-        const meta: VectorIndex = {
-          ...loadedMeta,
-          provider: loadedMeta.provider || 'openai',
+        // Apply legacy index migration: default to 'openai' if provider is missing.
+        // Patch raw data before schema validation so legacy indexes pass.
+        const patched =
+          rawMeta.data &&
+          typeof rawMeta.data === 'object' &&
+          !(
+            'provider' in rawMeta.data &&
+            (rawMeta.data as Record<string, unknown>).provider
+          )
+            ? { ...rawMeta.data, provider: 'openai' }
+            : rawMeta.data
+
+        // Validate metadata against schema
+        const meta = yield* decodeVectorIndex(patched, rawMeta.source)
+
+        // Auto-migrate JSON metadata to binary format
+        if (rawMeta.source === 'json') {
+          yield* Effect.tryPromise({
+            try: async () => {
+              const encoded = msgpack.encode(meta)
+              await fs.writeFile(metaPath, encoded)
+              const jsonPath = metaPath.replace('.bin', '.json')
+              await fs.unlink(jsonPath).catch(() => {})
+            },
+            catch: () =>
+              new VectorStoreError({
+                operation: 'load',
+                message: 'Failed to migrate metadata to binary format',
+              }),
+          }).pipe(Effect.catchAll(() => Effect.void))
         }
 
         // Verify dimensions match - fail with clear error if mismatch
