@@ -6,6 +6,7 @@
  * Exposes markdown analysis tools for Claude integration
  */
 
+import * as fs from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import * as path from 'node:path'
 
@@ -212,23 +213,47 @@ const tools: Tool[] = [
  * the root boundary. Returns the resolved absolute path or throws if the
  * path escapes the root (e.g. via `../` traversal or absolute paths outside root).
  */
-export const resolveAndValidatePath = (
+const pathTraversalError = (filePath: string): CallToolResult => ({
+  content: [{ type: 'text', text: `Error: Path outside root: ${filePath}` }],
+  isError: true,
+})
+
+const isPathError = (
+  result: string | CallToolResult,
+): result is CallToolResult => typeof result !== 'string'
+
+export const resolveAndValidatePath = async (
   rootPath: string,
   filePath: string,
-): string => {
+): Promise<string | CallToolResult> => {
   const normalizedRoot = path.resolve(rootPath)
   const resolved = path.isAbsolute(filePath)
     ? path.resolve(filePath)
     : path.resolve(normalizedRoot, filePath)
 
+  // Lexical check: catch obvious traversal without filesystem access
   if (
     !resolved.startsWith(normalizedRoot + path.sep) &&
     resolved !== normalizedRoot
   ) {
-    throw new Error(`Path outside root: ${filePath}`)
+    return pathTraversalError(filePath)
   }
 
-  return resolved
+  // Canonicalize via realpath to detect symlinks pointing outside root.
+  // If the target does not exist (e.g. index creation on a new directory),
+  // realpath throws ENOENT and the lexical check above is sufficient.
+  try {
+    const canonical = await fs.realpath(resolved)
+    if (
+      !canonical.startsWith(normalizedRoot + path.sep) &&
+      canonical !== normalizedRoot
+    ) {
+      return pathTraversalError(filePath)
+    }
+    return canonical
+  } catch {
+    return resolved
+  }
 }
 
 // ============================================================================
@@ -405,7 +430,8 @@ const handleMdContext = async (
   const level = validated.level ?? 'summary'
   const maxTokens = validated.max_tokens
 
-  const resolvedPath = resolveAndValidatePath(rootPath, filePath)
+  const resolvedPath = await resolveAndValidatePath(rootPath, filePath)
+  if (isPathError(resolvedPath)) return resolvedPath
 
   // Note: catchAll is intentional - MCP boundary converts errors to JSON format
   const result = await Effect.runPromise(
@@ -434,7 +460,8 @@ const handleMdStructure = async (
   if (isValidationError(validated)) return validated
 
   const filePath = validated.path
-  const resolvedPath = resolveAndValidatePath(rootPath, filePath)
+  const resolvedPath = await resolveAndValidatePath(rootPath, filePath)
+  if (isPathError(resolvedPath)) return resolvedPath
 
   // Note: catchAll is intentional - MCP boundary converts errors to JSON format
   const result = await Effect.runPromise(
@@ -565,7 +592,8 @@ const handleMdIndex = async (
   const indexPath = validated.path ?? '.'
   const force = validated.force ?? false
 
-  const resolvedPath = resolveAndValidatePath(rootPath, indexPath)
+  const resolvedPath = await resolveAndValidatePath(rootPath, indexPath)
+  if (isPathError(resolvedPath)) return resolvedPath
 
   // Note: catchAll is intentional - MCP boundary converts errors to JSON format
   const result = await Effect.runPromise(
@@ -599,7 +627,8 @@ const handleMdLinks = async (
   if (isValidationError(validated)) return validated
 
   const filePath = validated.path
-  const resolvedPath = resolveAndValidatePath(rootPath, filePath)
+  const resolvedPath = await resolveAndValidatePath(rootPath, filePath)
+  if (isPathError(resolvedPath)) return resolvedPath
 
   // Note: catchAll is intentional - MCP boundary converts errors to JSON format
   const result = await Effect.runPromise(
@@ -639,7 +668,8 @@ const handleMdBacklinks = async (
   if (isValidationError(validated)) return validated
 
   const filePath = validated.path
-  const resolvedPath = resolveAndValidatePath(rootPath, filePath)
+  const resolvedPath = await resolveAndValidatePath(rootPath, filePath)
+  if (isPathError(resolvedPath)) return resolvedPath
 
   // Note: catchAll is intentional - MCP boundary converts errors to JSON format
   const result = await Effect.runPromise(

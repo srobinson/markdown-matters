@@ -369,62 +369,74 @@ describe('MCP Server', () => {
   // ==========================================================================
 
   describe('security: path traversal', () => {
-    // Path traversal causes resolveAndValidatePath to throw before the
-    // Effect pipeline, propagating as an MCP protocol error (McpError).
-    // The server should reject these paths rather than returning file contents.
+    // Path traversal returns a structured MCP tool error (isError: true)
+    // rather than throwing, so clients receive a well-formed response
+    // instead of a protocol-level rejection.
 
     it('should reject absolute paths outside root', async () => {
-      await expect(
-        client.callTool({
-          name: 'md_context',
-          arguments: { path: '/etc/passwd' },
-        }),
-      ).rejects.toThrow(/Path outside root/)
+      const result = await client.callTool({
+        name: 'md_context',
+        arguments: { path: '/etc/passwd' },
+      })
+      expect(result.isError).toBe(true)
+      expect((result.content as Array<{ text: string }>)[0]?.text).toMatch(
+        /Path outside root/,
+      )
     })
 
     it('should reject relative traversal above root', async () => {
-      await expect(
-        client.callTool({
-          name: 'md_context',
-          arguments: { path: '../../.ssh/id_rsa' },
-        }),
-      ).rejects.toThrow(/Path outside root/)
+      const result = await client.callTool({
+        name: 'md_context',
+        arguments: { path: '../../.ssh/id_rsa' },
+      })
+      expect(result.isError).toBe(true)
+      expect((result.content as Array<{ text: string }>)[0]?.text).toMatch(
+        /Path outside root/,
+      )
     })
 
     it('should reject path traversal in md_structure', async () => {
-      await expect(
-        client.callTool({
-          name: 'md_structure',
-          arguments: { path: '../../../etc/passwd' },
-        }),
-      ).rejects.toThrow(/Path outside root/)
+      const result = await client.callTool({
+        name: 'md_structure',
+        arguments: { path: '../../../etc/passwd' },
+      })
+      expect(result.isError).toBe(true)
+      expect((result.content as Array<{ text: string }>)[0]?.text).toMatch(
+        /Path outside root/,
+      )
     })
 
     it('should reject path traversal in md_links', async () => {
-      await expect(
-        client.callTool({
-          name: 'md_links',
-          arguments: { path: '/etc/passwd' },
-        }),
-      ).rejects.toThrow(/Path outside root/)
+      const result = await client.callTool({
+        name: 'md_links',
+        arguments: { path: '/etc/passwd' },
+      })
+      expect(result.isError).toBe(true)
+      expect((result.content as Array<{ text: string }>)[0]?.text).toMatch(
+        /Path outside root/,
+      )
     })
 
     it('should reject path traversal in md_backlinks', async () => {
-      await expect(
-        client.callTool({
-          name: 'md_backlinks',
-          arguments: { path: '../../.ssh/id_rsa' },
-        }),
-      ).rejects.toThrow(/Path outside root/)
+      const result = await client.callTool({
+        name: 'md_backlinks',
+        arguments: { path: '../../.ssh/id_rsa' },
+      })
+      expect(result.isError).toBe(true)
+      expect((result.content as Array<{ text: string }>)[0]?.text).toMatch(
+        /Path outside root/,
+      )
     })
 
     it('should reject path traversal in md_index', async () => {
-      await expect(
-        client.callTool({
-          name: 'md_index',
-          arguments: { path: '/tmp/evil' },
-        }),
-      ).rejects.toThrow(/Path outside root/)
+      const result = await client.callTool({
+        name: 'md_index',
+        arguments: { path: '/tmp/evil' },
+      })
+      expect(result.isError).toBe(true)
+      expect((result.content as Array<{ text: string }>)[0]?.text).toMatch(
+        /Path outside root/,
+      )
     })
   })
 
@@ -532,49 +544,61 @@ describe('MCP Server', () => {
 describe('resolveAndValidatePath', () => {
   const root = '/home/user/docs'
 
-  it('should resolve relative paths within root', () => {
-    const result = resolveAndValidatePath(root, 'README.md')
+  // Helper: rejected paths return a CallToolResult with isError: true
+  const expectPathError = (result: unknown) => {
+    expect(result).toMatchObject({
+      isError: true,
+      content: [
+        { type: 'text', text: expect.stringContaining('Path outside root') },
+      ],
+    })
+  }
+
+  it('should resolve relative paths within root', async () => {
+    const result = await resolveAndValidatePath(root, 'README.md')
     expect(result).toBe(path.resolve(root, 'README.md'))
   })
 
-  it('should resolve nested relative paths within root', () => {
-    const result = resolveAndValidatePath(root, 'subdir/file.md')
+  it('should resolve nested relative paths within root', async () => {
+    const result = await resolveAndValidatePath(root, 'subdir/file.md')
     expect(result).toBe(path.resolve(root, 'subdir/file.md'))
   })
 
-  it('should allow the root path itself', () => {
-    const result = resolveAndValidatePath(root, '.')
+  it('should allow the root path itself', async () => {
+    const result = await resolveAndValidatePath(root, '.')
     expect(result).toBe(path.resolve(root))
   })
 
-  it('should reject paths that escape root via ../', () => {
-    expect(() => resolveAndValidatePath(root, '../../etc/passwd')).toThrow(
-      'Path outside root',
+  it('should reject paths that escape root via ../', async () => {
+    const result = await resolveAndValidatePath(root, '../../etc/passwd')
+    expectPathError(result)
+  })
+
+  it('should reject absolute paths outside root', async () => {
+    const result = await resolveAndValidatePath(root, '/etc/passwd')
+    expectPathError(result)
+  })
+
+  it('should reject sneaky traversal with intermediate ..', async () => {
+    const result = await resolveAndValidatePath(
+      root,
+      'subdir/../../.ssh/id_rsa',
     )
+    expectPathError(result)
   })
 
-  it('should reject absolute paths outside root', () => {
-    expect(() => resolveAndValidatePath(root, '/etc/passwd')).toThrow(
-      'Path outside root',
-    )
-  })
-
-  it('should reject sneaky traversal with intermediate ..', () => {
-    expect(() =>
-      resolveAndValidatePath(root, 'subdir/../../.ssh/id_rsa'),
-    ).toThrow('Path outside root')
-  })
-
-  it('should allow absolute paths within root', () => {
+  it('should allow absolute paths within root', async () => {
     const innerPath = path.resolve(root, 'subdir', 'file.md')
-    const result = resolveAndValidatePath(root, innerPath)
+    const result = await resolveAndValidatePath(root, innerPath)
     expect(result).toBe(innerPath)
   })
 
-  it('should reject paths that are root prefix but not subdirectory', () => {
+  it('should reject paths that are root prefix but not subdirectory', async () => {
     // /home/user/docs-evil should not pass when root is /home/user/docs
-    expect(() =>
-      resolveAndValidatePath(root, '/home/user/docs-evil/file.md'),
-    ).toThrow('Path outside root')
+    const result = await resolveAndValidatePath(
+      root,
+      '/home/user/docs-evil/file.md',
+    )
+    expectPathError(result)
   })
 })
