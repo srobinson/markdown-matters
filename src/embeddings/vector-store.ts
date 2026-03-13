@@ -84,6 +84,14 @@ export interface VectorStore {
    * so they are excluded from search results without rebuilding the index.
    */
   removeEntries(ids: string[]): Effect.Effect<void, VectorStoreError>
+  /** Set the embedding provider metadata (name, model, base URL). */
+  setProvider(name: string, model?: string, baseURL?: string): void
+  /** Accumulate embedding cost and token usage. */
+  addCost(cost: number, tokens: number): void
+  /** Set a namespace prefix for index file paths. */
+  setNamespace(namespace: string): void
+  /** Return the current namespace, if any. */
+  getNamespace(): string | undefined
 }
 
 export interface VectorSearchResult {

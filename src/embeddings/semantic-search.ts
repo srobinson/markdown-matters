@@ -58,7 +58,6 @@ import {
   createNamespacedVectorStore,
   type HnswBuildOptions,
   type HnswMismatchWarning,
-  type HnswVectorStore,
   type VectorSearchResult,
   type VectorStore,
   type VectorStoreLoadResult,
@@ -380,7 +379,7 @@ export const buildEmbeddings = (
       providerModel,
       dimensions,
       options.hnswOptions,
-    ) as HnswVectorStore
+    )
 
     // Set provider metadata
     if (hasProviderMetadata(provider)) {

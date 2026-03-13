@@ -11,10 +11,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { Effect } from 'effect'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import {
-  createVectorStore,
-  type HnswVectorStore,
-} from '../../src/embeddings/vector-store.js'
+import { createVectorStore } from '../../src/embeddings/vector-store.js'
 import { buildIndex } from '../../src/index/indexer.js'
 import {
   createStorage,
@@ -509,7 +506,7 @@ describe('Embed + Index Integration Tests', () => {
       await Effect.runPromise(buildIndex(tempDir))
 
       // Save with provider metadata
-      const vectorStore1 = createVectorStore(tempDir, 512) as HnswVectorStore
+      const vectorStore1 = createVectorStore(tempDir, 512)
       vectorStore1.setProvider('openai', 'text-embedding-3-small', undefined)
       await Effect.runPromise(
         vectorStore1.add([
