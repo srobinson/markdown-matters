@@ -448,5 +448,4 @@ describe.concurrent('mdm CLI e2e', () => {
       expect(output).toContain('Content search')
     })
   })
-
 })

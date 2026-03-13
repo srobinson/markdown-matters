@@ -357,7 +357,7 @@ export const load = (options: LoadOptions = {}): MdmConfig => {
     merged = mergePartials(merged, cliOverrides)
   }
 
-  return mergeWithDefaults(merged)
+  return validateConfig(mergeWithDefaults(merged))
 }
 
 // ============================================================================

@@ -15,7 +15,6 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { Option } from 'effect'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { defaultConfig } from './schema.js'
 import {
   load,
   loadConfigFile,
@@ -25,6 +24,7 @@ import {
   readEnvVarsMap,
   validateConfig,
 } from './loader.js'
+import { defaultConfig } from './schema.js'
 
 // ============================================================================
 // Helpers
@@ -157,7 +157,9 @@ describe('mergeWithDefaults', () => {
     const result = mergeWithDefaults({ embeddings: { provider: 'ollama' } })
     expect(result.embeddings.provider).toBe('ollama')
     expect(result.embeddings.model).toBe(defaultConfig.embeddings.model)
-    expect(result.embeddings.dimensions).toBe(defaultConfig.embeddings.dimensions)
+    expect(result.embeddings.dimensions).toBe(
+      defaultConfig.embeddings.dimensions,
+    )
     expect(result.embeddings.batchSize).toBe(defaultConfig.embeddings.batchSize)
   })
 
@@ -169,7 +171,9 @@ describe('mergeWithDefaults', () => {
     expect(result.index.maxDepth).toBe(3)
     expect(result.index.followSymlinks).toBe(defaultConfig.index.followSymlinks)
     expect(result.search.defaultLimit).toBe(50)
-    expect(result.search.includeSnippets).toBe(defaultConfig.search.includeSnippets)
+    expect(result.search.includeSnippets).toBe(
+      defaultConfig.search.includeSnippets,
+    )
   })
 
   it('treats false as a valid boolean override', () => {
@@ -437,7 +441,10 @@ describe('validateConfig', () => {
 
   it('replaces invalid embeddings.provider with default', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const config = { ...defaultConfig, embeddings: { ...defaultConfig.embeddings, provider: 'invalid' as any } }
+    const config = {
+      ...defaultConfig,
+      embeddings: { ...defaultConfig.embeddings, provider: 'invalid' as any },
+    }
     const result = validateConfig(config)
     expect(result.embeddings.provider).toBe(defaultConfig.embeddings.provider)
     expect(warnSpy).toHaveBeenCalled()
@@ -446,7 +453,10 @@ describe('validateConfig', () => {
 
   it('replaces invalid output.format with default', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const config = { ...defaultConfig, output: { ...defaultConfig.output, format: 'xml' as any } }
+    const config = {
+      ...defaultConfig,
+      output: { ...defaultConfig.output, format: 'xml' as any },
+    }
     const result = validateConfig(config)
     expect(result.output.format).toBe(defaultConfig.output.format)
     expect(warnSpy).toHaveBeenCalled()
@@ -457,7 +467,10 @@ describe('validateConfig', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const config = {
       ...defaultConfig,
-      aiSummarization: { ...defaultConfig.aiSummarization, mode: 'invalid' as any },
+      aiSummarization: {
+        ...defaultConfig.aiSummarization,
+        mode: 'invalid' as any,
+      },
     }
     const result = validateConfig(config)
     expect(result.aiSummarization.mode).toBe(defaultConfig.aiSummarization.mode)

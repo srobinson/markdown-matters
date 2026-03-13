@@ -132,7 +132,11 @@ export const initCommand = Command.make(
 
       // Case 2: Global exists, offer to add this directory as a source
       if (hasGlobalDir && !local && !useGlobal) {
-        const shouldAdd = yes || (yield* confirm('Global ~/.mdm/ exists. Add this directory as a source?'))
+        const shouldAdd =
+          yes ||
+          (yield* confirm(
+            'Global ~/.mdm/ exists. Add this directory as a source?',
+          ))
         if (shouldAdd) {
           appendSource(globalConfigPath, cwd)
           yield* Console.log(`Added ${cwd} to global sources.`)
@@ -157,10 +161,12 @@ export const initCommand = Command.make(
       yield* Console.log('Where should the index live?')
       yield* Console.log('')
       yield* Console.log('  1. Local  - .mdm/ in this directory (project-only)')
-      yield* Console.log('  2. Global - ~/.mdm/ (shared across all your documents)')
+      yield* Console.log(
+        '  2. Global - ~/.mdm/ (shared across all your documents)',
+      )
       yield* Console.log('')
 
-      const choice = yes ? '1' : (yield* prompt('Choose [1/2]: '))
+      const choice = yes ? '1' : yield* prompt('Choose [1/2]: ')
 
       if (choice === '2' || choice.toLowerCase() === 'global') {
         yield* initGlobal(cwd, globalMdmDir, globalConfigPath, yes)

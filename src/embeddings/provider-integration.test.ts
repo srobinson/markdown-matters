@@ -96,7 +96,10 @@ describe('Provider Integration Tests', () => {
       const fileConfig = {
         embeddings: { provider: 'ollama', model: 'nomic-embed-text' },
       }
-      writeTomlConfig(tempDir, fileConfig as Record<string, Record<string, unknown>>)
+      writeTomlConfig(
+        tempDir,
+        fileConfig as Record<string, Record<string, unknown>>,
+      )
 
       const result = load({
         workingDir: tempDir,
@@ -112,7 +115,10 @@ describe('Provider Integration Tests', () => {
       const fileConfig = {
         embeddings: { provider: 'openai', model: 'text-embedding-3-small' },
       }
-      writeTomlConfig(tempDir, fileConfig as Record<string, Record<string, unknown>>)
+      writeTomlConfig(
+        tempDir,
+        fileConfig as Record<string, Record<string, unknown>>,
+      )
 
       // Env says ollama
       process.env.MDM_EMBEDDINGS_PROVIDER = 'ollama'
@@ -167,7 +173,10 @@ describe('Provider Integration Tests', () => {
           batchSize: 50,
         },
       }
-      writeTomlConfig(tempDir, fileConfig as Record<string, Record<string, unknown>>)
+      writeTomlConfig(
+        tempDir,
+        fileConfig as Record<string, Record<string, unknown>>,
+      )
 
       // Env: provider=ollama
       process.env.MDM_EMBEDDINGS_PROVIDER = 'ollama'
@@ -421,7 +430,10 @@ describe('Provider Integration Tests', () => {
       const fileConfig = {
         embeddings: { provider: 'ollama' },
       }
-      writeTomlConfig(tempDir, fileConfig as Record<string, Record<string, unknown>>)
+      writeTomlConfig(
+        tempDir,
+        fileConfig as Record<string, Record<string, unknown>>,
+      )
 
       const result = load({
         workingDir: tempDir,
@@ -435,7 +447,10 @@ describe('Provider Integration Tests', () => {
       const fileConfig = {
         embeddings: { provider: 'lm-studio' },
       }
-      writeTomlConfig(tempDir, fileConfig as Record<string, Record<string, unknown>>)
+      writeTomlConfig(
+        tempDir,
+        fileConfig as Record<string, Record<string, unknown>>,
+      )
 
       const result = load({
         workingDir: tempDir,
@@ -449,7 +464,10 @@ describe('Provider Integration Tests', () => {
       const fileConfig = {
         embeddings: { provider: 'openrouter' },
       }
-      writeTomlConfig(tempDir, fileConfig as Record<string, Record<string, unknown>>)
+      writeTomlConfig(
+        tempDir,
+        fileConfig as Record<string, Record<string, unknown>>,
+      )
 
       const result = load({
         workingDir: tempDir,
@@ -467,7 +485,10 @@ describe('Provider Integration Tests', () => {
           baseURL: customURL,
         },
       }
-      writeTomlConfig(tempDir, fileConfig as Record<string, Record<string, unknown>>)
+      writeTomlConfig(
+        tempDir,
+        fileConfig as Record<string, Record<string, unknown>>,
+      )
 
       const result = load({
         workingDir: tempDir,
@@ -545,7 +566,10 @@ describe('Provider Integration Tests', () => {
         },
       }
 
-      writeTomlConfig(tempDir, openaiConfig as Record<string, Record<string, unknown>>)
+      writeTomlConfig(
+        tempDir,
+        openaiConfig as Record<string, Record<string, unknown>>,
+      )
 
       let result = load({ workingDir: tempDir, skipEnv: true })
 
@@ -559,7 +583,10 @@ describe('Provider Integration Tests', () => {
         },
       }
 
-      writeTomlConfig(tempDir, ollamaConfig as Record<string, Record<string, unknown>>)
+      writeTomlConfig(
+        tempDir,
+        ollamaConfig as Record<string, Record<string, unknown>>,
+      )
 
       result = load({ workingDir: tempDir, skipEnv: true })
 
@@ -576,7 +603,10 @@ describe('Provider Integration Tests', () => {
         },
       }
 
-      writeTomlConfig(tempDir, fileConfig as Record<string, Record<string, unknown>>)
+      writeTomlConfig(
+        tempDir,
+        fileConfig as Record<string, Record<string, unknown>>,
+      )
 
       // One-off CLI override to use Ollama
       const result = load({

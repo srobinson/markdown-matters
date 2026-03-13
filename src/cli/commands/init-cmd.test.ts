@@ -19,8 +19,12 @@ let originalHome: string
 
 beforeEach(() => {
   // Use fs.realpathSync to resolve macOS /var -> /private/var symlink
-  tempDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'mdm-init-test-')))
-  fakeHome = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'mdm-init-home-')))
+  tempDir = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), 'mdm-init-test-')),
+  )
+  fakeHome = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), 'mdm-init-home-')),
+  )
   originalHome = process.env.HOME ?? os.homedir()
   process.env.HOME = fakeHome
 })
@@ -40,10 +44,7 @@ const runInit = async (
   cwd: string,
 ): Promise<{ stdout: string; stderr: string; code: number }> => {
   const { execSync } = await import('node:child_process')
-  const bin = path.resolve(
-    import.meta.dirname,
-    '../../../dist/cli/main.js',
-  )
+  const bin = path.resolve(import.meta.dirname, '../../../dist/cli/main.js')
   try {
     const stdout = execSync(`node ${bin} init ${args}`, {
       cwd,
@@ -80,10 +81,7 @@ describe('mdm init --local', () => {
     // Create a fake git repo
     fs.mkdirSync(path.join(tempDir, '.git'))
     await runInit('--local --yes', tempDir)
-    const gitignore = fs.readFileSync(
-      path.join(tempDir, '.gitignore'),
-      'utf-8',
-    )
+    const gitignore = fs.readFileSync(path.join(tempDir, '.gitignore'), 'utf-8')
     expect(gitignore).toContain('.mdm/')
   })
 
@@ -95,15 +93,9 @@ describe('mdm init --local', () => {
 
   it('appends to existing .gitignore without duplicating', async () => {
     fs.mkdirSync(path.join(tempDir, '.git'))
-    fs.writeFileSync(
-      path.join(tempDir, '.gitignore'),
-      'node_modules/\n',
-    )
+    fs.writeFileSync(path.join(tempDir, '.gitignore'), 'node_modules/\n')
     await runInit('--local --yes', tempDir)
-    const gitignore = fs.readFileSync(
-      path.join(tempDir, '.gitignore'),
-      'utf-8',
-    )
+    const gitignore = fs.readFileSync(path.join(tempDir, '.gitignore'), 'utf-8')
     expect(gitignore).toContain('node_modules/')
     expect(gitignore).toContain('.mdm/')
   })
@@ -148,12 +140,16 @@ describe('mdm init --global', () => {
     await runInit('--global --yes', tempDir)
     const configPath = path.join(fakeHome, '.mdm', '.mdm.toml')
     const content = fs.readFileSync(configPath, 'utf-8')
-    const matches = content.match(new RegExp(tempDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'))
+    const matches = content.match(
+      new RegExp(tempDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'),
+    )
     expect(matches).toHaveLength(1)
   })
 
   it('appends new source from different directory', async () => {
-    const secondDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'mdm-init-2-')))
+    const secondDir = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), 'mdm-init-2-')),
+    )
     try {
       await runInit('--global --yes', tempDir)
       await runInit('--global --yes', secondDir)
