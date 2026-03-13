@@ -85,10 +85,12 @@ const findGitRoot = (startDir: string): string | null => {
 
 /**
  * Find a config file starting from the given directory.
- * Searches up the directory tree until a config file is found or the boundary
- * is reached. The boundary is the git repository root when inside a repo, or
- * the filesystem root otherwise. This prevents a malicious config file in an
- * ancestor directory outside the project from being executed via dynamic import.
+ *
+ * When inside a git repository, searches up from startDir to the repository
+ * root. When outside a git repository, searches only the startDir itself.
+ * This prevents a malicious config file in an ancestor directory from being
+ * executed via dynamic import when there is no repository boundary to
+ * constrain the walk.
  *
  * @param startDir - Directory to start searching from
  * @returns The path to the config file if found, or null
@@ -98,20 +100,30 @@ export const findConfigFile = (
 ): { path: string; format: ConfigFileFormat } | null => {
   let currentDir = path.resolve(startDir)
   const gitRoot = findGitRoot(currentDir)
-  const boundary = gitRoot ?? path.parse(currentDir).root
 
-  // Walk up until we pass the boundary
+  // Without a git boundary, only check the starting directory.
+  // Traversing to filesystem root would allow arbitrary ancestor
+  // directories to inject executable config files.
+  if (!gitRoot) {
+    for (const fileName of CONFIG_FILE_NAMES) {
+      const configPath = path.join(currentDir, fileName)
+      if (fs.existsSync(configPath)) {
+        return { path: configPath, format: getConfigFormat(fileName) }
+      }
+    }
+    return null
+  }
+
+  // Walk up from startDir to git root (inclusive)
   while (true) {
     for (const fileName of CONFIG_FILE_NAMES) {
       const configPath = path.join(currentDir, fileName)
       if (fs.existsSync(configPath)) {
-        const format = getConfigFormat(fileName)
-        return { path: configPath, format }
+        return { path: configPath, format: getConfigFormat(fileName) }
       }
     }
 
-    // Stop if we've reached or passed the boundary
-    if (currentDir === boundary) break
+    if (currentDir === gitRoot) break
 
     const parentDir = path.dirname(currentDir)
     if (parentDir === currentDir) break

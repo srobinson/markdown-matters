@@ -69,7 +69,9 @@ describe('File-based ConfigProvider', () => {
       expect(result?.format).toBe('json')
     })
 
-    it('should find config in parent directory', () => {
+    it('should find config in parent directory within a git repo', () => {
+      // Create a git root marker so upward traversal is allowed
+      fs.mkdirSync(path.join(tempDir, '.git'))
       const subDir = path.join(tempDir, 'subdir')
       fs.mkdirSync(subDir)
       const configPath = path.join(tempDir, 'mdcontext.config.json')
@@ -78,6 +80,16 @@ describe('File-based ConfigProvider', () => {
       const result = findConfigFile(subDir)
       expect(result).not.toBeNull()
       expect(result?.path).toBe(configPath)
+    })
+
+    it('should not traverse to parent directory outside a git repo', () => {
+      // Without a .git marker, findConfigFile only checks startDir
+      const subDir = path.join(tempDir, 'subdir')
+      fs.mkdirSync(subDir)
+      fs.writeFileSync(path.join(tempDir, 'mdcontext.config.json'), '{}')
+
+      const result = findConfigFile(subDir)
+      expect(result).toBeNull()
     })
 
     it('should prefer higher precedence files', () => {
