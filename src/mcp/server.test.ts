@@ -566,7 +566,7 @@ describe('resolveAndValidatePath', () => {
   })
 
   it('should allow absolute paths within root', () => {
-    const innerPath = path.join(root, 'subdir', 'file.md')
+    const innerPath = path.resolve(root, 'subdir', 'file.md')
     const result = resolveAndValidatePath(root, innerPath)
     expect(result).toBe(innerPath)
   })

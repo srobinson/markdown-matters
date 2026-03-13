@@ -74,20 +74,25 @@ describe('createStorage', () => {
   })
 
   it('returns correct index paths for given rootPath', () => {
+    const root = path.resolve('/tmp/test-root')
     const storage = createStorage('/tmp/test-root')
-    expect(storage.paths.root).toBe('/tmp/test-root/.mdcontext')
-    expect(storage.paths.config).toBe('/tmp/test-root/.mdcontext/config.json')
+    expect(storage.paths.root).toBe(path.join(root, '.mdcontext'))
+    expect(storage.paths.config).toBe(
+      path.join(root, '.mdcontext', 'config.json'),
+    )
     expect(storage.paths.documents).toBe(
-      '/tmp/test-root/.mdcontext/indexes/documents.json',
+      path.join(root, '.mdcontext', 'indexes', 'documents.json'),
     )
     expect(storage.paths.sections).toBe(
-      '/tmp/test-root/.mdcontext/indexes/sections.json',
+      path.join(root, '.mdcontext', 'indexes', 'sections.json'),
     )
     expect(storage.paths.links).toBe(
-      '/tmp/test-root/.mdcontext/indexes/links.json',
+      path.join(root, '.mdcontext', 'indexes', 'links.json'),
     )
-    expect(storage.paths.cache).toBe('/tmp/test-root/.mdcontext/cache')
-    expect(storage.paths.parsed).toBe('/tmp/test-root/.mdcontext/cache/parsed')
+    expect(storage.paths.cache).toBe(path.join(root, '.mdcontext', 'cache'))
+    expect(storage.paths.parsed).toBe(
+      path.join(root, '.mdcontext', 'cache', 'parsed'),
+    )
   })
 })
 
