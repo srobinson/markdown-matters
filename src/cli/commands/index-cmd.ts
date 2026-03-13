@@ -27,7 +27,15 @@ import {
 } from '../shared-error-handling.js'
 import { formatJson, hasEmbeddings } from '../utils.js'
 
+const isInteractiveTTY = (): boolean =>
+  Boolean(process.stdout.isTTY && process.stdin.isTTY)
+
 const promptUser = (message: string): Promise<string> => {
+  if (!isInteractiveTTY()) {
+    // Non-interactive: default to declining prompts.
+    // Users should pass --embed or --no-embed explicitly in CI/piped contexts.
+    return Promise.resolve('n')
+  }
   return new Promise((resolve) => {
     const rl = readline.createInterface({
       input: process.stdin,

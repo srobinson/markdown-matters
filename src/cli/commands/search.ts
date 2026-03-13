@@ -141,7 +141,15 @@ const filterResultsByRefineTerms = <T>(
     return checkedResults.filter((r): r is T => r !== null).slice(0, limit)
   })
 
+const isInteractiveTTY = (): boolean =>
+  Boolean(process.stdout.isTTY && process.stdin.isTTY)
+
 const promptUser = (message: string): Promise<string> => {
+  if (!isInteractiveTTY()) {
+    // Non-interactive: default to declining prompts.
+    // Users should pass --yes/-y explicitly in CI/piped contexts.
+    return Promise.resolve('n')
+  }
   return new Promise((resolve) => {
     const rl = readline.createInterface({
       input: process.stdin,
