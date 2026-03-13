@@ -35,9 +35,9 @@ describe('Config Integration Tests', () => {
 
   beforeEach(() => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mdcontext-integration-'))
-    // Save and clear MDCONTEXT_ env vars
+    // Save and clear MDM_ env vars
     for (const key of Object.keys(process.env)) {
-      if (key.startsWith('MDCONTEXT_')) {
+      if (key.startsWith('MDM_')) {
         savedEnv[key] = process.env[key]
         delete process.env[key]
       }
@@ -48,7 +48,7 @@ describe('Config Integration Tests', () => {
     fs.rmSync(tempDir, { recursive: true, force: true })
     // Restore env vars
     for (const key of Object.keys(process.env)) {
-      if (key.startsWith('MDCONTEXT_')) {
+      if (key.startsWith('MDM_')) {
         delete process.env[key]
       }
     }
@@ -120,7 +120,7 @@ describe('Config Integration Tests', () => {
       )
 
       // Set env vars (should override file)
-      process.env.MDCONTEXT_INDEX_MAXDEPTH = '30'
+      process.env.MDM_INDEX_MAXDEPTH = '30'
 
       const provider = await Effect.runPromise(
         createConfigProvider({
@@ -151,7 +151,7 @@ describe('Config Integration Tests', () => {
       )
 
       // Set env var
-      process.env.MDCONTEXT_INDEX_MAXDEPTH = '30'
+      process.env.MDM_INDEX_MAXDEPTH = '30'
 
       const provider = await Effect.runPromise(
         createConfigProvider({
@@ -184,8 +184,8 @@ describe('Config Integration Tests', () => {
       )
 
       // Set env vars (should override some file values)
-      process.env.MDCONTEXT_INDEX_MAXDEPTH = '30'
-      process.env.MDCONTEXT_SEARCH_DEFAULTLIMIT = '75'
+      process.env.MDM_INDEX_MAXDEPTH = '30'
+      process.env.MDM_SEARCH_DEFAULTLIMIT = '75'
 
       // CLI overrides (should override both env and file)
       const cliOverrides = {
@@ -255,7 +255,7 @@ describe('Config Integration Tests', () => {
       )
 
       // Env vars use comma-separated format
-      process.env.MDCONTEXT_INDEX_EXCLUDEPATTERNS = 'env-ignore,env-pattern'
+      process.env.MDM_INDEX_EXCLUDEPATTERNS = 'env-ignore,env-pattern'
 
       const provider = await Effect.runPromise(
         createConfigProvider({
@@ -275,7 +275,7 @@ describe('Config Integration Tests', () => {
     })
 
     it('should override arrays via CLI', async () => {
-      process.env.MDCONTEXT_INDEX_EXCLUDEPATTERNS = 'env-ignore'
+      process.env.MDM_INDEX_EXCLUDEPATTERNS = 'env-ignore'
 
       const provider = createConfigProviderSync({
         skipConfigFile: true,
@@ -482,8 +482,8 @@ describe('Config Integration Tests', () => {
       )
 
       // Developer enables debug mode
-      process.env.MDCONTEXT_OUTPUT_DEBUG = 'true'
-      process.env.MDCONTEXT_OUTPUT_VERBOSE = 'true'
+      process.env.MDM_OUTPUT_DEBUG = 'true'
+      process.env.MDM_OUTPUT_VERBOSE = 'true'
 
       const provider = await Effect.runPromise(
         createConfigProvider({
@@ -513,9 +513,9 @@ describe('Config Integration Tests', () => {
 
     it('should support CI environment with minimal config', async () => {
       // Scenario: CI uses env vars only, no config file
-      process.env.MDCONTEXT_OUTPUT_FORMAT = 'json'
-      process.env.MDCONTEXT_OUTPUT_COLOR = 'false'
-      process.env.MDCONTEXT_INDEX_MAXDEPTH = '100'
+      process.env.MDM_OUTPUT_FORMAT = 'json'
+      process.env.MDM_OUTPUT_COLOR = 'false'
+      process.env.MDM_INDEX_MAXDEPTH = '100'
 
       const provider = createConfigProviderSync({
         skipConfigFile: true,

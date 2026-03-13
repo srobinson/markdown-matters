@@ -536,7 +536,7 @@ const checkCommand = Command.make(
         : {}
 
       // Read environment variables
-      const envConfig = readEnvConfig('MDCONTEXT')
+      const envConfig = readEnvConfig('MDM')
 
       // Build config with source annotations
       const configWithSources: ConfigWithSources = {

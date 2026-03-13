@@ -19,7 +19,7 @@ import {
  *
  * This loads configuration with the standard precedence chain:
  * 1. CLI flags (highest priority)
- * 2. Environment variables (MDCONTEXT_*)
+ * 2. Environment variables (MDM_*)
  * 3. Config file (if found)
  * 4. Defaults
  *
@@ -68,7 +68,7 @@ export const makeCliConfigLayer = (
  * Create the default CLI configuration layer.
  *
  * This loads configuration from:
- * - Environment variables (MDCONTEXT_*)
+ * - Environment variables (MDM_*)
  * - Config file (mdcontext.config.ts/json)
  * - Built-in defaults
  *

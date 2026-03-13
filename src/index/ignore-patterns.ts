@@ -5,7 +5,7 @@
  * Implements the following precedence (highest to lowest):
  *
  * 1. CLI --exclude flag
- * 2. MDCONTEXT_INDEX_EXCLUDEPATTERNS env var
+ * 2. MDM_INDEX_EXCLUDEPATTERNS env var
  * 3. Config file excludePatterns
  * 4. .mdmignore file
  * 5. .gitignore file

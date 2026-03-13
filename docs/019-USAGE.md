@@ -579,7 +579,7 @@ By default, indexes are stored in `.mdcontext/` in your project root:
 | `OPENROUTER_API_KEY` | For OpenRouter provider     | OpenRouter API key (cloud provider)  |
 | N/A                  | Ollama / LM Studio          | Local providers - no API key needed  |
 
-All configuration options can also be set via `MDCONTEXT_*` environment variables. See [CONFIG.md](./CONFIG.md#environment-variables) for the complete reference.
+All configuration options can also be set via `MDM_*` environment variables. See [CONFIG.md](./CONFIG.md#environment-variables) for the complete reference.
 
 ### Supported File Types
 

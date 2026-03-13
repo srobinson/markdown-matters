@@ -276,10 +276,10 @@ export default {
 
 | Variable | Description |
 |----------|-------------|
-| `MDCONTEXT_AISUMMARIZATION_MODE` | 'cli' or 'api' |
-| `MDCONTEXT_AISUMMARIZATION_PROVIDER` | Provider name |
-| `MDCONTEXT_AISUMMARIZATION_MODEL` | Model name (API only) |
-| `MDCONTEXT_AISUMMARIZATION_STREAM` | 'true' or 'false' |
+| `MDM_AISUMMARIZATION_MODE` | 'cli' or 'api' |
+| `MDM_AISUMMARIZATION_PROVIDER` | Provider name |
+| `MDM_AISUMMARIZATION_MODEL` | Model name (API only) |
+| `MDM_AISUMMARIZATION_STREAM` | 'true' or 'false' |
 
 ## Troubleshooting
 

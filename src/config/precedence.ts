@@ -6,9 +6,9 @@
  * ```
  * CLI Flags (highest priority)
  *     ↓
- * Environment Variables (MDCONTEXT_*)
+ * Environment Variables (MDM_*)
  *     ↓
- * Config File (mdcontext.config.ts/json)
+ * Config File (mdm.config.ts/json)
  *     ↓
  * Defaults (lowest priority)
  * ```
@@ -65,8 +65,8 @@ export interface ConfigProviderOptions {
 
   /**
    * Environment variable prefix
-   * Defaults to 'MDCONTEXT'
-   * Variables are expected in format: MDCONTEXT_INDEX_MAXDEPTH
+   * Defaults to 'MDM'
+   * Variables are expected in format: MDM_INDEX_MAXDEPTH
    */
   envPrefix?: string
 
@@ -134,7 +134,7 @@ export const flattenConfig = (
 
 /**
  * Sequence delimiter for array values in environment variables.
- * MDCONTEXT_INDEX_EXCLUDEPATTERNS=node_modules,dist
+ * MDM_INDEX_EXCLUDEPATTERNS=node_modules,dist
  */
 const ENV_SEQ_DELIM = ','
 
@@ -193,7 +193,7 @@ export const CONFIG_SCHEMA_KEYS = {
 /**
  * Generate the ENV_KEY_MAPPING from the schema definition.
  *
- * ENV format: MDCONTEXT_SECTION_KEY (all lowercase)
+ * ENV format: MDM_SECTION_KEY (all lowercase)
  * Config format: section.key (camelCase preserved)
  */
 const generateEnvKeyMapping = (): Record<string, string> => {
@@ -233,10 +233,10 @@ type _CompletenessCheck = AssertTrue<
 /**
  * Read environment variables with the given prefix and map them to config keys.
  *
- * @param prefix - Environment variable prefix (default: 'MDCONTEXT')
+ * @param prefix - Environment variable prefix (default: 'MDM')
  * @returns Map of config keys to values
  */
-export const readEnvConfig = (prefix = 'MDCONTEXT'): Map<string, string> => {
+export const readEnvConfig = (prefix = 'MDM'): Map<string, string> => {
   const result = new Map<string, string>()
   const prefixWithUnderscore = `${prefix}_`
 
@@ -258,11 +258,11 @@ export const readEnvConfig = (prefix = 'MDCONTEXT'): Map<string, string> => {
  * Create a ConfigProvider from environment variables with the given prefix.
  * Kept for backwards compatibility.
  *
- * @param prefix - Environment variable prefix (default: 'MDCONTEXT')
+ * @param prefix - Environment variable prefix (default: 'MDM')
  * @returns ConfigProvider that reads from environment
  */
 export const createEnvConfigProvider = (
-  prefix = 'MDCONTEXT',
+  prefix = 'MDM',
 ): ConfigProvider.ConfigProvider => {
   const envMap = readEnvConfig(prefix)
   return ConfigProvider.fromMap(envMap, {
@@ -280,7 +280,7 @@ export const createEnvConfigProvider = (
  *
  * Precedence (highest to lowest):
  * 1. CLI flags (if provided)
- * 2. Environment variables (MDCONTEXT_*)
+ * 2. Environment variables (MDM_*)
  * 3. Config file (if found)
  * 4. Built-in defaults (handled by Config schema)
  *
@@ -295,7 +295,7 @@ export const createConfigProvider = (
       cliOverrides,
       configPath,
       workingDir = process.cwd(),
-      envPrefix = 'MDCONTEXT',
+      envPrefix = 'MDM',
       skipConfigFile = false,
       skipEnv = false,
     } = options
@@ -365,7 +365,7 @@ export const createConfigProviderSync = (
   const {
     cliOverrides,
     fileConfig,
-    envPrefix = 'MDCONTEXT',
+    envPrefix = 'MDM',
     skipConfigFile = false,
     skipEnv = false,
   } = options

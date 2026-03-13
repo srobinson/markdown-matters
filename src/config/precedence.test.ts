@@ -24,9 +24,9 @@ describe('Config Precedence Chain', () => {
 
   beforeEach(() => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mdcontext-precedence-'))
-    // Clear any MDCONTEXT env vars
+    // Clear any MDM env vars
     for (const key of Object.keys(process.env)) {
-      if (key.startsWith('MDCONTEXT_') || key.startsWith('CUSTOM_')) {
+      if (key.startsWith('MDM_') || key.startsWith('CUSTOM_')) {
         delete process.env[key]
       }
     }
@@ -35,7 +35,7 @@ describe('Config Precedence Chain', () => {
   afterEach(() => {
     fs.rmSync(tempDir, { recursive: true, force: true })
     for (const key of Object.keys(process.env)) {
-      if (key.startsWith('MDCONTEXT_') || key.startsWith('CUSTOM_')) {
+      if (key.startsWith('MDM_') || key.startsWith('CUSTOM_')) {
         delete process.env[key]
       }
     }
@@ -140,15 +140,15 @@ describe('Config Precedence Chain', () => {
   })
 
   describe('readEnvConfig', () => {
-    it('should read MDCONTEXT_ prefixed env vars', () => {
-      process.env.MDCONTEXT_INDEX_MAXDEPTH = '25'
+    it('should read MDM_ prefixed env vars', () => {
+      process.env.MDM_INDEX_MAXDEPTH = '25'
       const result = readEnvConfig()
       expect(result.get('index.maxDepth')).toBe('25')
     })
 
     it('should map env vars to correct config keys', () => {
-      process.env.MDCONTEXT_SEARCH_DEFAULTLIMIT = '50'
-      process.env.MDCONTEXT_OUTPUT_VERBOSE = 'true'
+      process.env.MDM_SEARCH_DEFAULTLIMIT = '50'
+      process.env.MDM_OUTPUT_VERBOSE = 'true'
       const result = readEnvConfig()
       expect(result.get('search.defaultLimit')).toBe('50')
       expect(result.get('output.verbose')).toBe('true')
@@ -161,7 +161,7 @@ describe('Config Precedence Chain', () => {
     })
 
     it('should ignore unknown env vars', () => {
-      process.env.MDCONTEXT_UNKNOWN_SETTING = 'value'
+      process.env.MDM_UNKNOWN_SETTING = 'value'
       const result = readEnvConfig()
       expect(result.has('unknown.setting')).toBe(false)
     })
@@ -169,7 +169,7 @@ describe('Config Precedence Chain', () => {
 
   describe('createEnvConfigProvider', () => {
     it('should create provider from env vars', async () => {
-      process.env.MDCONTEXT_INDEX_MAXDEPTH = '42'
+      process.env.MDM_INDEX_MAXDEPTH = '42'
       const provider = createEnvConfigProvider()
 
       const program = Effect.gen(function* () {
@@ -221,7 +221,7 @@ describe('Config Precedence Chain', () => {
     })
 
     it('should generate correct env key format', () => {
-      process.env.MDCONTEXT_INDEX_MAXDEPTH = '42'
+      process.env.MDM_INDEX_MAXDEPTH = '42'
       const result = readEnvConfig()
       expect(result.get('index.maxDepth')).toBe('42')
     })

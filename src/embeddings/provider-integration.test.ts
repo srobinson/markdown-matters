@@ -36,9 +36,9 @@ describe('Provider Integration Tests', () => {
 
     // Save and clear relevant env vars
     const envKeys = [
-      'MDCONTEXT_EMBEDDINGS_PROVIDER',
-      'MDCONTEXT_EMBEDDINGS_BASEURL',
-      'MDCONTEXT_EMBEDDINGS_MODEL',
+      'MDM_EMBEDDINGS_PROVIDER',
+      'MDM_EMBEDDINGS_BASEURL',
+      'MDM_EMBEDDINGS_MODEL',
       'OPENAI_API_KEY',
       'OPENROUTER_API_KEY',
     ]
@@ -116,7 +116,7 @@ describe('Provider Integration Tests', () => {
       )
 
       // Env says ollama
-      process.env.MDCONTEXT_EMBEDDINGS_PROVIDER = 'ollama'
+      process.env.MDM_EMBEDDINGS_PROVIDER = 'ollama'
 
       const provider = await Effect.runPromise(
         createConfigProvider({
@@ -134,7 +134,7 @@ describe('Provider Integration Tests', () => {
 
     it('CLI flag overrides environment variable', async () => {
       // Env says openai
-      process.env.MDCONTEXT_EMBEDDINGS_PROVIDER = 'openai'
+      process.env.MDM_EMBEDDINGS_PROVIDER = 'openai'
 
       // CLI says ollama
       const provider = createConfigProviderSync({
@@ -191,7 +191,7 @@ describe('Provider Integration Tests', () => {
       )
 
       // Env: provider=ollama
-      process.env.MDCONTEXT_EMBEDDINGS_PROVIDER = 'ollama'
+      process.env.MDM_EMBEDDINGS_PROVIDER = 'ollama'
 
       // CLI: provider=openrouter
       const provider = await Effect.runPromise(
@@ -547,8 +547,8 @@ describe('Provider Integration Tests', () => {
   // ==========================================================================
 
   describe('Environment Variable Provider Selection', () => {
-    it('MDCONTEXT_EMBEDDINGS_PROVIDER=ollama works', async () => {
-      process.env.MDCONTEXT_EMBEDDINGS_PROVIDER = 'ollama'
+    it('MDM_EMBEDDINGS_PROVIDER=ollama works', async () => {
+      process.env.MDM_EMBEDDINGS_PROVIDER = 'ollama'
 
       const provider = createConfigProviderSync({
         skipConfigFile: true,
@@ -562,8 +562,8 @@ describe('Provider Integration Tests', () => {
       expect(result.embeddings.provider).toBe('ollama')
     })
 
-    it('MDCONTEXT_EMBEDDINGS_PROVIDER=lm-studio works', async () => {
-      process.env.MDCONTEXT_EMBEDDINGS_PROVIDER = 'lm-studio'
+    it('MDM_EMBEDDINGS_PROVIDER=lm-studio works', async () => {
+      process.env.MDM_EMBEDDINGS_PROVIDER = 'lm-studio'
 
       const provider = createConfigProviderSync({
         skipConfigFile: true,
@@ -577,8 +577,8 @@ describe('Provider Integration Tests', () => {
       expect(result.embeddings.provider).toBe('lm-studio')
     })
 
-    it('MDCONTEXT_EMBEDDINGS_PROVIDER=openrouter works', async () => {
-      process.env.MDCONTEXT_EMBEDDINGS_PROVIDER = 'openrouter'
+    it('MDM_EMBEDDINGS_PROVIDER=openrouter works', async () => {
+      process.env.MDM_EMBEDDINGS_PROVIDER = 'openrouter'
 
       const provider = createConfigProviderSync({
         skipConfigFile: true,
@@ -592,9 +592,9 @@ describe('Provider Integration Tests', () => {
       expect(result.embeddings.provider).toBe('openrouter')
     })
 
-    it('MDCONTEXT_EMBEDDINGS_MODEL works', async () => {
-      process.env.MDCONTEXT_EMBEDDINGS_PROVIDER = 'ollama'
-      process.env.MDCONTEXT_EMBEDDINGS_MODEL = 'mxbai-embed-large'
+    it('MDM_EMBEDDINGS_MODEL works', async () => {
+      process.env.MDM_EMBEDDINGS_PROVIDER = 'ollama'
+      process.env.MDM_EMBEDDINGS_MODEL = 'mxbai-embed-large'
 
       const provider = createConfigProviderSync({
         skipConfigFile: true,

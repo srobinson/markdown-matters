@@ -70,7 +70,7 @@ Built-in Defaults   (lowest priority)
 
 ```bash
 # Config file sets: index.maxDepth = 10
-# Environment sets: MDCONTEXT_INDEX_MAXDEPTH = 5
+# Environment sets: MDM_INDEX_MAXDEPTH = 5
 # CLI flag: --max-depth 3
 
 # Effective value: 3 (CLI wins)
@@ -557,7 +557,7 @@ export default defineConfig({
 
 ## Environment Variables
 
-All configuration options can be set via environment variables using the `MDCONTEXT_` prefix.
+All configuration options can be set via environment variables using the `MDM_` prefix.
 
 ### Variable Naming
 
@@ -565,7 +565,7 @@ Convert the config key to uppercase and replace dots with underscores:
 
 ```
 config key:        index.maxDepth
-environment var:   MDCONTEXT_INDEX_MAXDEPTH
+environment var:   MDM_INDEX_MAXDEPTH
 ```
 
 ### Complete Variable Reference
@@ -574,57 +574,57 @@ environment var:   MDCONTEXT_INDEX_MAXDEPTH
 
 | Variable                          | Config Key               |
 | --------------------------------- | ------------------------ |
-| `MDCONTEXT_INDEX_MAXDEPTH`        | `index.maxDepth`         |
-| `MDCONTEXT_INDEX_EXCLUDEPATTERNS` | `index.excludePatterns`  |
-| `MDCONTEXT_INDEX_FILEEXTENSIONS`  | `index.fileExtensions`   |
-| `MDCONTEXT_INDEX_FOLLOWSYMLINKS`  | `index.followSymlinks`   |
-| `MDCONTEXT_INDEX_INDEXDIR`        | `index.indexDir`         |
+| `MDM_INDEX_MAXDEPTH`        | `index.maxDepth`         |
+| `MDM_INDEX_EXCLUDEPATTERNS` | `index.excludePatterns`  |
+| `MDM_INDEX_FILEEXTENSIONS`  | `index.fileExtensions`   |
+| `MDM_INDEX_FOLLOWSYMLINKS`  | `index.followSymlinks`   |
+| `MDM_INDEX_INDEXDIR`        | `index.indexDir`         |
 
 #### Search Configuration
 
 | Variable                            | Config Key                |
 | ----------------------------------- | ------------------------- |
-| `MDCONTEXT_SEARCH_DEFAULTLIMIT`     | `search.defaultLimit`     |
-| `MDCONTEXT_SEARCH_MAXLIMIT`         | `search.maxLimit`         |
-| `MDCONTEXT_SEARCH_MINSIMILARITY`    | `search.minSimilarity`    |
-| `MDCONTEXT_SEARCH_INCLUDESNIPPETS`  | `search.includeSnippets`  |
-| `MDCONTEXT_SEARCH_SNIPPETLENGTH`    | `search.snippetLength`    |
-| `MDCONTEXT_SEARCH_AUTOINDEXTHRESHOLD` | `search.autoIndexThreshold` |
+| `MDM_SEARCH_DEFAULTLIMIT`     | `search.defaultLimit`     |
+| `MDM_SEARCH_MAXLIMIT`         | `search.maxLimit`         |
+| `MDM_SEARCH_MINSIMILARITY`    | `search.minSimilarity`    |
+| `MDM_SEARCH_INCLUDESNIPPETS`  | `search.includeSnippets`  |
+| `MDM_SEARCH_SNIPPETLENGTH`    | `search.snippetLength`    |
+| `MDM_SEARCH_AUTOINDEXTHRESHOLD` | `search.autoIndexThreshold` |
 
 #### Embeddings Configuration
 
 | Variable                          | Config Key               |
 | --------------------------------- | ------------------------ |
-| `MDCONTEXT_EMBEDDINGS_PROVIDER`   | `embeddings.provider`    |
-| `MDCONTEXT_EMBEDDINGS_MODEL`      | `embeddings.model`       |
-| `MDCONTEXT_EMBEDDINGS_DIMENSIONS` | `embeddings.dimensions`  |
-| `MDCONTEXT_EMBEDDINGS_BATCHSIZE`  | `embeddings.batchSize`   |
-| `MDCONTEXT_EMBEDDINGS_MAXRETRIES` | `embeddings.maxRetries`  |
-| `MDCONTEXT_EMBEDDINGS_RETRYDELAYMS` | `embeddings.retryDelayMs` |
-| `MDCONTEXT_EMBEDDINGS_TIMEOUTMS`  | `embeddings.timeoutMs`   |
-| `MDCONTEXT_EMBEDDINGS_APIKEY`     | `embeddings.apiKey`      |
+| `MDM_EMBEDDINGS_PROVIDER`   | `embeddings.provider`    |
+| `MDM_EMBEDDINGS_MODEL`      | `embeddings.model`       |
+| `MDM_EMBEDDINGS_DIMENSIONS` | `embeddings.dimensions`  |
+| `MDM_EMBEDDINGS_BATCHSIZE`  | `embeddings.batchSize`   |
+| `MDM_EMBEDDINGS_MAXRETRIES` | `embeddings.maxRetries`  |
+| `MDM_EMBEDDINGS_RETRYDELAYMS` | `embeddings.retryDelayMs` |
+| `MDM_EMBEDDINGS_TIMEOUTMS`  | `embeddings.timeoutMs`   |
+| `MDM_EMBEDDINGS_APIKEY`     | `embeddings.apiKey`      |
 
 #### Summarization Configuration
 
 | Variable                                   | Config Key                       |
 | ------------------------------------------ | -------------------------------- |
-| `MDCONTEXT_SUMMARIZATION_BRIEFTOKENBUDGET` | `summarization.briefTokenBudget` |
-| `MDCONTEXT_SUMMARIZATION_SUMMARYTOKENBUDGET` | `summarization.summaryTokenBudget` |
-| `MDCONTEXT_SUMMARIZATION_COMPRESSIONRATIO` | `summarization.compressionRatio` |
-| `MDCONTEXT_SUMMARIZATION_MINSECTIONTOKENS` | `summarization.minSectionTokens` |
-| `MDCONTEXT_SUMMARIZATION_MAXTOPICS`        | `summarization.maxTopics`        |
-| `MDCONTEXT_SUMMARIZATION_MINPARTIALBUDGET` | `summarization.minPartialBudget` |
+| `MDM_SUMMARIZATION_BRIEFTOKENBUDGET` | `summarization.briefTokenBudget` |
+| `MDM_SUMMARIZATION_SUMMARYTOKENBUDGET` | `summarization.summaryTokenBudget` |
+| `MDM_SUMMARIZATION_COMPRESSIONRATIO` | `summarization.compressionRatio` |
+| `MDM_SUMMARIZATION_MINSECTIONTOKENS` | `summarization.minSectionTokens` |
+| `MDM_SUMMARIZATION_MAXTOPICS`        | `summarization.maxTopics`        |
+| `MDM_SUMMARIZATION_MINPARTIALBUDGET` | `summarization.minPartialBudget` |
 
 #### AI Summarization Configuration
 
 | Variable                                | Config Key                  |
 | --------------------------------------- | --------------------------- |
-| `MDCONTEXT_AISUMMARIZATION_MODE`        | `aiSummarization.mode`      |
-| `MDCONTEXT_AISUMMARIZATION_PROVIDER`    | `aiSummarization.provider`  |
-| `MDCONTEXT_AISUMMARIZATION_MODEL`       | `aiSummarization.model`     |
-| `MDCONTEXT_AISUMMARIZATION_STREAM`      | `aiSummarization.stream`    |
-| `MDCONTEXT_AISUMMARIZATION_BASEURL`     | `aiSummarization.baseURL`   |
-| `MDCONTEXT_AISUMMARIZATION_APIKEY`      | `aiSummarization.apiKey`    |
+| `MDM_AISUMMARIZATION_MODE`        | `aiSummarization.mode`      |
+| `MDM_AISUMMARIZATION_PROVIDER`    | `aiSummarization.provider`  |
+| `MDM_AISUMMARIZATION_MODEL`       | `aiSummarization.model`     |
+| `MDM_AISUMMARIZATION_STREAM`      | `aiSummarization.stream`    |
+| `MDM_AISUMMARIZATION_BASEURL`     | `aiSummarization.baseURL`   |
+| `MDM_AISUMMARIZATION_APIKEY`      | `aiSummarization.apiKey`    |
 
 **Note:** For API providers, also set the provider-specific API key environment variable:
 - `DEEPSEEK_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `QWEN_API_KEY`
@@ -633,27 +633,27 @@ environment var:   MDCONTEXT_INDEX_MAXDEPTH
 
 | Variable                        | Config Key          |
 | ------------------------------- | ------------------- |
-| `MDCONTEXT_OUTPUT_FORMAT`       | `output.format`     |
-| `MDCONTEXT_OUTPUT_COLOR`        | `output.color`      |
-| `MDCONTEXT_OUTPUT_PRETTYJSON`   | `output.prettyJson` |
-| `MDCONTEXT_OUTPUT_VERBOSE`      | `output.verbose`    |
-| `MDCONTEXT_OUTPUT_DEBUG`        | `output.debug`      |
+| `MDM_OUTPUT_FORMAT`       | `output.format`     |
+| `MDM_OUTPUT_COLOR`        | `output.color`      |
+| `MDM_OUTPUT_PRETTYJSON`   | `output.prettyJson` |
+| `MDM_OUTPUT_VERBOSE`      | `output.verbose`    |
+| `MDM_OUTPUT_DEBUG`        | `output.debug`      |
 
 #### Paths Configuration
 
 | Variable                      | Config Key         |
 | ----------------------------- | ------------------ |
-| `MDCONTEXT_PATHS_ROOT`        | `paths.root`       |
-| `MDCONTEXT_PATHS_CONFIGFILE`  | `paths.configFile` |
-| `MDCONTEXT_PATHS_CACHEDIR`    | `paths.cacheDir`   |
+| `MDM_PATHS_ROOT`        | `paths.root`       |
+| `MDM_PATHS_CONFIGFILE`  | `paths.configFile` |
+| `MDM_PATHS_CACHEDIR`    | `paths.cacheDir`   |
 
 ### Array Values
 
 For array values, use comma-separated strings:
 
 ```bash
-export MDCONTEXT_INDEX_EXCLUDEPATTERNS="node_modules,.git,dist,vendor"
-export MDCONTEXT_INDEX_FILEEXTENSIONS=".md,.mdx,.markdown"
+export MDM_INDEX_EXCLUDEPATTERNS="node_modules,.git,dist,vendor"
+export MDM_INDEX_FILEEXTENSIONS=".md,.mdx,.markdown"
 ```
 
 ### Boolean Values
@@ -661,8 +661,8 @@ export MDCONTEXT_INDEX_FILEEXTENSIONS=".md,.mdx,.markdown"
 Use `true` or `false`:
 
 ```bash
-export MDCONTEXT_INDEX_FOLLOWSYMLINKS=true
-export MDCONTEXT_OUTPUT_COLOR=false
+export MDM_INDEX_FOLLOWSYMLINKS=true
+export MDM_OUTPUT_COLOR=false
 ```
 
 ### Example: CI Environment
@@ -670,9 +670,9 @@ export MDCONTEXT_OUTPUT_COLOR=false
 ```bash
 # .github/workflows/docs.yml
 env:
-  MDCONTEXT_OUTPUT_COLOR: 'false'
-  MDCONTEXT_OUTPUT_FORMAT: 'json'
-  MDCONTEXT_SEARCH_DEFAULTLIMIT: '50'
+  MDM_OUTPUT_COLOR: 'false'
+  MDM_OUTPUT_FORMAT: 'json'
+  MDM_SEARCH_DEFAULTLIMIT: '50'
 ```
 
 ---
@@ -805,7 +805,7 @@ If you've been setting environment variables:
 ```bash
 # .bashrc or .zshrc
 export OPENAI_API_KEY=sk-...
-export MDCONTEXT_SEARCH_DEFAULTLIMIT=20
+export MDM_SEARCH_DEFAULTLIMIT=20
 ```
 
 You can now move project-specific settings to a config file while keeping environment variables for:
@@ -912,10 +912,10 @@ If your config file isn't being used:
 
 ### Environment Variables Not Working
 
-1. **Check variable name:** Must be uppercase with `MDCONTEXT_` prefix
+1. **Check variable name:** Must be uppercase with `MDM_` prefix
    ```bash
    # Correct
-   export MDCONTEXT_SEARCH_DEFAULTLIMIT=20
+   export MDM_SEARCH_DEFAULTLIMIT=20
 
    # Wrong - will not work
    export mdcontext_search_defaultLimit=20
@@ -929,7 +929,7 @@ If your config file isn't being used:
 
 3. **Array values:** Use comma-separated strings
    ```bash
-   export MDCONTEXT_INDEX_EXCLUDEPATTERNS="node_modules,.git,dist"
+   export MDM_INDEX_EXCLUDEPATTERNS="node_modules,.git,dist"
    ```
 
 ### Config Not Taking Effect
@@ -997,8 +997,8 @@ jobs:
   check-docs:
     runs-on: ubuntu-latest
     env:
-      MDCONTEXT_OUTPUT_COLOR: 'false'
-      MDCONTEXT_OUTPUT_FORMAT: 'json'
+      MDM_OUTPUT_COLOR: 'false'
+      MDM_OUTPUT_FORMAT: 'json'
     steps:
       - uses: actions/checkout@v4
       - run: npm install -g mdcontext
