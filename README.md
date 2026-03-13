@@ -4,14 +4,17 @@
 
 ```bash
 QUICK REFERENCE
-  mdm index [path]           Index markdown files (add --embed for semantic search)
-  mdm search <query> [path]  Search by meaning or structure
-  mdm context <files...>     Get LLM-ready summary
-  mdm tree [path|file]       Show files or document outline
-  mdm config <command>       Configuration management (init, show, check)
-  mdm links <file>           Outgoing links
-  mdm backlinks <file>       Incoming links
-  mdm stats [path]           Index statistics
+  mdm init [options]              Initialize mdm in a directory
+  mdm index [path] [options]      Index markdown files (add --embed for semantic search)
+  mdm search <query> [options]    Search by meaning or structure
+  mdm context <files...>          Get LLM-ready summary
+  mdm tree [path]                 Show files or document outline
+  mdm config <command>            Configuration management (init, show, check)
+  mdm duplicates [path]           Find duplicate content
+  mdm embeddings <command>        Manage embedding namespaces
+  mdm links <file>                Outgoing links
+  mdm backlinks <file>            Incoming links
+  mdm stats [path]                Index statistics
 ```
 
 ---
@@ -43,18 +46,38 @@ Requires Node.js 18+. Semantic search requires an embedding provider (OpenAI, Ol
 
 ## Commands
 
+### init
+
+Initialize mdm in a directory. Supports both local project setup and global shared indexing.
+
+```bash
+mdm init                        # Interactive setup (prompts for local or global)
+mdm init --local                # Initialize locally (.mdm/ in current directory)
+mdm init --global               # Initialize globally (~/.mdm/)
+mdm init --yes                  # Accept all defaults without prompting
+```
+
+Local setup creates `.mdm/` and `.mdm.toml` in your project. Global setup creates `~/.mdm/` with source registration for multi-project indexing.
+
+Config resolution: Local `.mdm.toml` takes precedence over `~/.mdm/.mdm.toml`, which falls back to built-in defaults.
+
 ### index
 
-Index markdown files. Run this first.
+Index markdown files for fast searching.
 
 ```bash
 mdm index                       # Index current directory (prompts for semantic)
 mdm index ./docs                # Index specific path
-mdm index --embed               # Also build embeddings for semantic search
+mdm index --embed               # Build embeddings for semantic search
 mdm index --no-embed            # Skip the semantic search prompt
-mdm index --watch               # Watch for changes
-mdm index --force               # Force full rebuild
+mdm index --watch               # Watch for changes and re-index automatically
+mdm index --force               # Bypass cache, re-process all files
+mdm index --all                 # Index all registered global sources from ~/.mdm/.mdm.toml
+mdm index --exclude "*.draft.md,research/**"  # Exclude patterns (comma-separated)
+mdm index --no-gitignore        # Ignore .gitignore file
 ```
+
+By default, mdm respects `.gitignore` and `.mdmignore` patterns. Use `--exclude` to add CLI-level patterns (highest priority).
 
 ### search
 
@@ -181,6 +204,31 @@ mdm stats                       # Current directory
 mdm stats ./docs                # Specific path
 ```
 
+### duplicates
+
+Detect duplicate content in markdown files.
+
+```bash
+mdm duplicates                  # Find duplicates in current directory
+mdm duplicates docs/            # Find duplicates in specific directory
+mdm duplicates --min-length 100 # Only flag sections over 100 characters
+mdm duplicates -p "docs/**"     # Filter by path pattern
+```
+
+### embeddings
+
+Manage embedding providers and namespaces.
+
+```bash
+mdm embeddings list             # List all embedding namespaces
+mdm embeddings current          # Show active namespace
+mdm embeddings switch openai    # Switch to OpenAI embeddings
+mdm embeddings remove ollama    # Remove Ollama embeddings
+mdm embeddings remove openai -f # Force remove active namespace
+```
+
+Namespaces store embeddings separately by provider/model. Switching is instant without rebuild.
+
 ---
 
 ## Workflows
@@ -276,20 +324,18 @@ mdm config init
 # Check your configuration
 mdm config check
 
-# Customize settings in mdm.config.js
+# Customize settings in .mdm.toml
 ```
 
-```javascript
-// mdm.config.js
-/** @type {import('markdown-matters').PartialMdmConfig} */
-export default {
-  index: {
-    excludePatterns: ['node_modules', '.git', 'dist', 'vendor']
-  },
-  search: {
-    defaultLimit: 20
-  }
-}
+```toml
+# .mdm.toml
+[index]
+maxDepth = 10
+excludePatterns = ["node_modules", ".git", "dist", "build"]
+
+[search]
+defaultLimit = 20
+minSimilarity = 0.35
 ```
 
 Configuration precedence: CLI flags > Environment variables > Config file > Defaults
@@ -376,15 +422,11 @@ Just run `--summarize` - mdm finds installed CLI tools automatically.
 
 **Option 2: Config file**
 
-```javascript
-// mdm.config.js
-/** @type {import('markdown-matters').PartialMdmConfig} */
-export default {
-  aiSummarization: {
-    mode: 'cli',        // 'cli' (free) or 'api' (paid)
-    provider: 'claude', // Provider name
-  },
-}
+```toml
+# .mdm.toml
+[aiSummarization]
+mode = "cli"        # 'cli' (free) or 'api' (paid)
+provider = "claude" # Provider name
 ```
 
 **Option 3: Environment variables**

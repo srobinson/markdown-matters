@@ -27,136 +27,137 @@ mdm supports a layered configuration system that allows you to set persistent de
 Create a config file in your project root:
 
 ```bash
-# Generate a JavaScript config with type annotations (recommended)
+# Generate a .mdm.toml config file
 mdm config init
 
-# Or generate a JSON config
-mdm config init --format json
+# Or generate a global config in ~/.mdm/
+mdm config init --global
+
+# Overwrite existing config
+mdm config init --force
 ```
 
-This creates `mdm.config.js` with documented defaults:
+This creates `.mdm.toml` with documented defaults:
 
-```javascript
-/** @type {import('markdown-matters').PartialMdmConfig} */
-export default {
-  index: {
-    maxDepth: 10,
-    excludePatterns: ['node_modules', '.git', 'dist', 'build'],
-  },
-  search: {
-    defaultLimit: 10,
-    minSimilarity: 0.35,
-  },
-}
+```toml
+# .mdm.toml
+[index]
+maxDepth = 10
+excludePatterns = ["node_modules", ".git", "dist", "build"]
+fileExtensions = [".md", ".mdx"]
+followSymlinks = false
+indexDir = ".mdm"
+
+[search]
+defaultLimit = 10
+maxLimit = 100
+minSimilarity = 0.35
+includeSnippets = true
+snippetLength = 200
+
+[embeddings]
+provider = "openai"
+model = "text-embedding-3-small"
+batchSize = 100
 ```
 
 ---
 
 ## Configuration Precedence
 
-mdm uses a layered configuration system. Values from higher-priority sources override lower ones:
+mdm uses a layered configuration system with two-tier file resolution. Values from higher-priority sources override lower ones:
 
 ```
 CLI Flags           (highest priority)
     |
-Environment Variables
+Environment Variables (MDM_*)
     |
-Config File
+Config File (.mdm.toml)
     |
 Built-in Defaults   (lowest priority)
 ```
 
+**Config File Resolution** (two-tier):
+1. Local: `PWD/.mdm.toml` (project-specific)
+2. Global: `~/.mdm/.mdm.toml` (fallback)
+3. Defaults (hardcoded)
+
 **Example:**
 
 ```bash
-# Config file sets: index.maxDepth = 10
+# Local config sets: index.maxDepth = 10
 # Environment sets: MDM_INDEX_MAXDEPTH = 5
-# CLI flag: --max-depth 3
+# CLI flag: --exclude "*.draft.md"
 
-# Effective value: 3 (CLI wins)
+# Effective values:
+# - index.maxDepth = 5 (environment wins)
+# - index.excludePatterns includes *.draft.md (CLI wins)
 ```
 
 ---
 
 ## Config File Formats
 
-mdm searches for configuration files in this order:
+mdm uses TOML for configuration. The config file must be named `.mdm.toml` and is searched in this order:
 
-| Filename                  | Format     | Notes                         |
-| ------------------------- | ---------- | ----------------------------- |
-| `mdm.config.js`     | JavaScript | Best: type-safe with JSDoc    |
-| `mdm.config.mjs`    | ESM        | ES modules only               |
-| `mdm.config.json`   | JSON       | Simple, no code               |
-| `.mdmrc`            | JSON       | Hidden file, JSON format      |
-| `.mdmrc.json`       | JSON       | Explicit JSON rc file         |
-| `mdm.config.ts`     | TypeScript | Not supported (see note below)|
+1. `.mdm.toml` in current directory (project-local)
+2. `~/.mdm/.mdm.toml` in home directory (global)
+3. Built-in defaults
 
-### JavaScript Config with Types (Recommended)
+### TOML Config Format (Recommended)
 
-Using JSDoc type annotations provides full type safety and IDE autocompletion:
+TOML is the standard format for mdm configuration:
 
-```javascript
-// mdm.config.js
-/** @type {import('markdown-matters').PartialMdmConfig} */
-export default {
-  index: {
-    maxDepth: 10,
-    excludePatterns: ['node_modules', '.git', 'dist', 'build'],
-    fileExtensions: ['.md', '.mdx'],
-    followSymlinks: false,
-    indexDir: '.mdm',
-  },
-  search: {
-    defaultLimit: 10,
-    maxLimit: 100,
-    minSimilarity: 0.35,
-    includeSnippets: true,
-    snippetLength: 200,
-  },
-  embeddings: {
-    provider: 'openai',
-    model: 'text-embedding-3-small',
-    batchSize: 100,
-    maxRetries: 3,
-  },
-  output: {
-    format: 'text',
-    color: true,
-    verbose: false,
-  },
-}
+```toml
+# .mdm.toml
+[index]
+maxDepth = 10
+excludePatterns = ["node_modules", ".git", "dist", "build"]
+fileExtensions = [".md", ".mdx"]
+followSymlinks = false
+indexDir = ".mdm"
+
+[search]
+defaultLimit = 10
+maxLimit = 100
+minSimilarity = 0.35
+includeSnippets = true
+snippetLength = 200
+autoIndexThreshold = 10
+
+[embeddings]
+provider = "openai"
+model = "text-embedding-3-small"
+dimensions = 512
+batchSize = 100
+maxRetries = 3
+# baseURL = "https://custom-endpoint.example.com"
+# apiKey = "sk-..."
+
+[summarization]
+briefTokenBudget = 100
+summaryTokenBudget = 500
+compressionRatio = 0.3
+minSectionTokens = 20
+maxTopics = 10
+minPartialBudget = 50
+
+[aiSummarization]
+mode = "cli"
+provider = "claude"
+stream = false
+# model = "claude-sonnet-4-20250514"
+# baseURL = "https://api.anthropic.com"
+# apiKey = "sk-ant-..."
+
+[output]
+format = "text"
+color = true
+prettyJson = true
+verbose = false
+debug = false
 ```
 
-The `@type` JSDoc annotation provides TypeScript type checking and IDE autocompletion while remaining a valid JavaScript file that Node.js can import directly.
-
-**Note:** TypeScript (`.ts`) config files are not currently supported because Node.js cannot import them without a loader. Use JavaScript with JSDoc types instead.
-
-### JSON Config
-
-```json
-{
-  "$schema": "https://mdm.dev/schema.json",
-  "index": {
-    "maxDepth": 10,
-    "excludePatterns": ["node_modules", ".git", "dist", "build"],
-    "fileExtensions": [".md", ".mdx"]
-  },
-  "search": {
-    "defaultLimit": 10,
-    "minSimilarity": 0.35
-  }
-}
-```
-
-### Using a Custom Config Path
-
-```bash
-# Use a specific config file
-mdm --config ./config/mdm.json index
-
-# Short form
-mdm -c ./custom.config.json search "query"
-```
 
 ---
 
@@ -176,29 +177,19 @@ Controls how markdown files are discovered and indexed.
 
 **Example:**
 
-```typescript
-export default defineConfig({
-  index: {
-    // Only index top 5 levels of directories
-    maxDepth: 5,
+```toml
+[index]
+# Only index top 5 levels of directories
+maxDepth = 5
 
-    // Exclude additional directories
-    excludePatterns: [
-      'node_modules',
-      '.git',
-      'dist',
-      'build',
-      'vendor',
-      '__tests__',
-    ],
+# Exclude additional directories
+excludePatterns = ["node_modules", ".git", "dist", "build", "vendor", "__tests__"]
 
-    // Only index standard markdown
-    fileExtensions: ['.md'],
+# Only index standard markdown
+fileExtensions = [".md"]
 
-    // Store index in a custom location
-    indexDir: '.cache/mdm',
-  },
-})
+# Store index in a custom location
+indexDir = ".cache/mdm"
 ```
 
 ### Excluding Files
@@ -271,19 +262,16 @@ Controls search behavior and defaults.
 
 **Example:**
 
-```typescript
-export default defineConfig({
-  search: {
-    // Return more results by default
-    defaultLimit: 20,
+```toml
+[search]
+# Return more results by default
+defaultLimit = 20
 
-    // Require higher similarity for matches
-    minSimilarity: 0.7,
+# Require higher similarity for matches
+minSimilarity = 0.7
 
-    // Longer snippets for more context
-    snippetLength: 300,
-  },
-})
+# Longer snippets for more context
+snippetLength = 300
 ```
 
 ### Embeddings Configuration
@@ -309,11 +297,10 @@ Dimensions are now automatically configured based on the model. If not explicitl
 - **Ollama mxbai-embed-large/bge-m3**: Uses 1024 native dimensions
 
 You can override dimensions for models that support Matryoshka reduction:
-```javascript
-embeddings: {
-  model: 'text-embedding-3-small',
-  dimensions: 1024  // Higher accuracy, larger index
-}
+```toml
+[embeddings]
+model = "text-embedding-3-small"
+dimensions = 1024  # Higher accuracy, larger index
 ```
 
 **Available Models:**
@@ -329,20 +316,17 @@ embeddings: {
 
 **Example:**
 
-```typescript
-export default defineConfig({
-  embeddings: {
-    // Use higher quality model
-    model: 'text-embedding-3-large',
+```toml
+[embeddings]
+# Use higher quality model
+model = "text-embedding-3-large"
 
-    // Smaller batches for rate limiting
-    batchSize: 50,
+# Smaller batches for rate limiting
+batchSize = 50
 
-    // More aggressive retries
-    maxRetries: 5,
-    retryDelayMs: 2000,
-  },
-})
+# More aggressive retries
+maxRetries = 5
+retryDelayMs = 2000
 ```
 
 ---
@@ -400,13 +384,10 @@ mdm index --embed --provider lm-studio
 
 ### Configuration
 
-```javascript
-export default {
-  embeddings: {
-    provider: 'ollama',
-    model: 'nomic-embed-text',
-  },
-}
+```toml
+[embeddings]
+provider = "ollama"
+model = "nomic-embed-text"
 ```
 
 **Note:** Re-indexing required when switching providers.
@@ -428,16 +409,13 @@ Controls context assembly and summarization behavior.
 
 **Example:**
 
-```typescript
-export default defineConfig({
-  summarization: {
-    // More detailed brief summaries
-    briefTokenBudget: 150,
+```toml
+[summarization]
+# More detailed brief summaries
+briefTokenBudget = 150
 
-    // Higher compression for large docs
-    compressionRatio: 0.2,
-  },
-})
+# Higher compression for large docs
+compressionRatio = 0.2
 ```
 
 ### AI Summarization Configuration
@@ -475,29 +453,21 @@ Controls AI-powered summarization of search results. This is separate from `summ
 
 **Example:**
 
-```javascript
-// mdm.config.js
-/** @type {import('markdown-matters').PartialMdmConfig} */
-export default {
-  aiSummarization: {
-    // Use Claude CLI (free with subscription)
-    mode: 'cli',
-    provider: 'claude',
-  },
-}
+```toml
+[aiSummarization]
+# Use Claude CLI (free with subscription)
+mode = "cli"
+provider = "claude"
 ```
 
 **Example with API provider:**
 
-```javascript
-export default {
-  aiSummarization: {
-    // Use DeepSeek API (ultra-cheap)
-    mode: 'api',
-    provider: 'deepseek',
-    model: 'deepseek-chat',
-  },
-}
+```toml
+[aiSummarization]
+# Use DeepSeek API (ultra-cheap)
+mode = "api"
+provider = "deepseek"
+model = "deepseek-chat"
 ```
 
 See [docs/summarization.md](./summarization.md) for architecture details and adding new providers.
@@ -516,17 +486,14 @@ Controls CLI output formatting.
 
 **Example:**
 
-```typescript
-export default defineConfig({
-  output: {
-    // Always output JSON for scripting
-    format: 'json',
-    prettyJson: true,
+```toml
+[output]
+# Always output JSON for scripting
+format = "json"
+prettyJson = true
 
-    // Disable colors for CI environments
-    color: false,
-  },
-})
+# Disable colors for CI environments
+color = false
 ```
 
 ### Paths Configuration
@@ -541,16 +508,13 @@ Controls file path behavior.
 
 **Example:**
 
-```typescript
-export default defineConfig({
-  paths: {
-    // Index a specific subdirectory
-    root: './docs',
+```toml
+[paths]
+# Index a specific subdirectory
+root = "./docs"
 
-    // Custom cache location
-    cacheDir: '.cache/mdm',
-  },
-})
+# Custom cache location
+cacheDir = ".cache/mdm"
 ```
 
 ---
@@ -681,26 +645,26 @@ env:
 
 ### config init
 
-Create a starter configuration file.
+Create a starter `.mdm.toml` configuration file.
 
 ```bash
 mdm config init [options]
 
 Options:
-  -f, --format <ts|json>  Config file format (default: ts)
-  --force                 Overwrite existing config file
-  --json                  Output as JSON
-  --pretty                Pretty-print JSON output
+  --global    Write to ~/.mdm/.mdm.toml instead of PWD
+  --force     Overwrite existing config file
+  --json      Output as JSON
+  --pretty    Pretty-print JSON output
 ```
 
 **Examples:**
 
 ```bash
-# Create TypeScript config
+# Create local config
 mdm config init
 
-# Create JSON config
-mdm config init --format json
+# Create global config
+mdm config init --global
 
 # Overwrite existing config
 mdm config init --force
@@ -717,6 +681,8 @@ Options:
   --json    Output as JSON
   --pretty  Pretty-print JSON output
 ```
+
+Shows which config file is being used (local or global).
 
 ### config check
 
@@ -772,19 +738,14 @@ Create a config file to persist these settings:
 mdm config init
 ```
 
-Edit `mdm.config.ts`:
+Edit `.mdm.toml`:
 
-```typescript
-import { defineConfig } from 'mdm'
+```toml
+[index]
+excludePatterns = ["node_modules", ".git", "dist", "build", "vendor", "__tests__"]
 
-export default defineConfig({
-  index: {
-    excludePatterns: ['node_modules', '.git', 'dist', 'build', 'vendor', '__tests__'],
-  },
-  search: {
-    defaultLimit: 20,
-  },
-})
+[search]
+defaultLimit = 20
 ```
 
 Now commands use your defaults:
@@ -873,7 +834,7 @@ If your config file isn't being used:
    ```bash
    mdm config show
    ```
-   This shows which config file mdm is using, if any.
+   This shows which config file mdm is using (local or global).
 
 2. **Check for errors:**
    ```bash
@@ -882,33 +843,10 @@ If your config file isn't being used:
    The `errors` array will show any loading failures.
 
 3. **Common issues:**
-   - **JSON syntax errors:** Validate your JSON with `jq` or an online validator
-   - **TypeScript files:** Not currently supported - use `.js` or `.json` instead (see below)
-   - **Wrong export:** Ensure `.js` files use `export default { ... }`
-   - **File location:** Config must be in project root or parent directory
-
-### TypeScript Config Files
-
-**Current Limitation:** `.ts` config files are not supported because Node.js cannot import TypeScript directly without a loader.
-
-**Recommended Alternatives:**
-
-1. **JavaScript with JSDoc types** (recommended):
-   ```javascript
-   // mdm.config.js
-   /** @type {import('markdown-matters').PartialMdmConfig} */
-   export default {
-     index: {
-       maxDepth: 10,
-     },
-   }
-   ```
-   This provides full type checking and IDE autocompletion while working at runtime.
-
-2. **JSON format** (simplest):
-   ```bash
-   mdm config init --format json
-   ```
+   - **TOML syntax errors:** Validate your TOML at https://www.toml-lint.com/
+   - **File not found:** Ensure `.mdm.toml` is in your project root or `~/.mdm/.mdm.toml` for global
+   - **Wrong location:** Config must be `.mdm.toml` (TOML format only)
+   - **Indentation:** TOML is whitespace-sensitive; check alignment
 
 ### Environment Variables Not Working
 
@@ -948,11 +886,6 @@ If you've set config but commands still use defaults:
    ```
    Shows exactly what values are being used and why.
 
-3. **Try explicit config path:**
-   ```bash
-   mdm --config ./mdm.config.json index
-   ```
-
 ---
 
 ## Examples
@@ -961,32 +894,20 @@ If you've set config but commands still use defaults:
 
 Share consistent settings across a team:
 
-```typescript
-// mdm.config.ts
-import { defineConfig } from 'mdm'
+```toml
+# .mdm.toml
+[index]
+# Exclude team-specific directories
+excludePatterns = ["node_modules", ".git", "dist", "build", ".next", "coverage"]
 
-export default defineConfig({
-  index: {
-    // Exclude team-specific directories
-    excludePatterns: [
-      'node_modules',
-      '.git',
-      'dist',
-      'build',
-      '.next',
-      'coverage',
-    ],
-  },
-  search: {
-    // Team prefers more results
-    defaultLimit: 20,
-    minSimilarity: 0.6,
-  },
-  output: {
-    // Consistent formatting
-    prettyJson: true,
-  },
-})
+[search]
+# Team prefers more results
+defaultLimit = 20
+minSimilarity = 0.6
+
+[output]
+# Consistent formatting
+prettyJson = true
 ```
 
 ### CI/CD Pipeline
@@ -1008,20 +929,15 @@ jobs:
 
 ### Monorepo Setup
 
-```typescript
-// packages/docs/mdm.config.ts
-import { defineConfig } from 'mdm'
+```toml
+# packages/docs/.mdm.toml
+[paths]
+root = "./content"
 
-export default defineConfig({
-  paths: {
-    root: './content',
-  },
-  index: {
-    // Only this package's docs
-    excludePatterns: ['node_modules'],
-    maxDepth: 5,
-  },
-})
+[index]
+# Only this package's docs
+excludePatterns = ["node_modules"]
+maxDepth = 5
 ```
 
 ---
