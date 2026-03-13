@@ -11,6 +11,9 @@
  *   4. output.color config value (when available via resolveColorEnabled)
  */
 
+import * as fs from 'node:fs'
+import * as path from 'node:path'
+
 // ============================================================================
 // Color Support
 // ============================================================================
@@ -18,13 +21,87 @@
 /**
  * Determine whether ANSI color codes should be emitted.
  *
- * Checked before config is loaded, so uses env/argv/TTY signals only.
- * Config-level output.color is handled separately in the command handlers.
+ * Checks in priority order:
+ *   1. NO_COLOR env var (always wins per no-color.org spec)
+ *   2. --no-color CLI flag
+ *   3. Non-TTY stdout (piped output)
+ *   4. output.color from config file (if --config is specified)
+ *
+ * The config peek is a lightweight sync read that extracts only the
+ * output.color field. This runs before the full config loading pipeline
+ * so help output can honor the setting.
  */
 export const shouldUseColor = (): boolean => {
   if (process.env.NO_COLOR !== undefined) return false
   if (process.argv.includes('--no-color')) return false
   if (!process.stdout.isTTY) return false
+
+  // Peek at config file for output.color if --config is specified
+  const configColor = peekConfigColor()
+  if (configColor === false) return false
+
+  return true
+}
+
+/**
+ * Extract --config path from process.argv without full preprocessing.
+ * Returns undefined if no --config flag is present.
+ */
+const extractConfigPathFromArgv = (): string | undefined => {
+  const argv = process.argv
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]
+    if (arg === undefined) continue
+
+    if (arg.startsWith('--config=')) {
+      const value = arg.slice('--config='.length)
+      return value.length > 0 ? value : undefined
+    }
+    if (arg.startsWith('-c=')) {
+      const value = arg.slice('-c='.length)
+      return value.length > 0 ? value : undefined
+    }
+    if (
+      (arg === '--config' || arg === '-c') &&
+      argv[i + 1] &&
+      !argv[i + 1]!.startsWith('-')
+    ) {
+      return argv[i + 1]
+    }
+  }
+  return undefined
+}
+
+/**
+ * Lightweight sync peek at a config file's output.color value.
+ * Returns false if config explicitly disables color, true otherwise.
+ * Silently returns true on any read/parse error (fail open for color).
+ *
+ * Exported for testing. Not part of the public API.
+ */
+export const peekConfigColor = (): boolean => {
+  const configPath = extractConfigPathFromArgv()
+  if (!configPath) return true
+
+  try {
+    const resolved = path.resolve(configPath)
+    const content = fs.readFileSync(resolved, 'utf-8')
+    const parsed = JSON.parse(content) as Record<string, unknown>
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      'output' in parsed &&
+      parsed.output &&
+      typeof parsed.output === 'object' &&
+      'color' in (parsed.output as Record<string, unknown>) &&
+      (parsed.output as Record<string, unknown>).color === false
+    ) {
+      return false
+    }
+  } catch {
+    // Fail open: if we can't read the config, allow color
+  }
+
   return true
 }
 

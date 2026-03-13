@@ -8,6 +8,7 @@ import * as path from 'node:path'
 import * as readline from 'node:readline'
 import { Args, Command, Options } from '@effect/cli'
 import { Console, Effect, Option } from 'effect'
+import { getConfigValue } from '../../config/service.js'
 import type {
   BuildEmbeddingsResult,
   EmbeddingEstimate,
@@ -142,6 +143,7 @@ export const indexCommand = Command.make(
   }) =>
     Effect.gen(function* () {
       const resolvedDir = path.resolve(dirPath)
+      const colorEnabled = yield* getConfigValue('output', 'color')
 
       // Parse exclude patterns - CLI adds to ignore files
       // Note: buildIndex now honors .gitignore and .mdcontextignore by default
@@ -184,13 +186,14 @@ export const indexCommand = Command.make(
         yield* Console.log(`Indexing ${resolvedDir}...`)
 
         const isTTY = process.stdout.isTTY
+        const showProgress = isTTY && colorEnabled
 
         const result = yield* buildIndex(resolvedDir, {
           force,
           exclude: cliExcludePatterns,
           honorGitignore: !noGitignore,
           onProgress: (progress) => {
-            if (!json && isTTY) {
+            if (!json && showProgress) {
               const progressMsg = `  [${progress.current}/${progress.total}] ${progress.filePath}`
               process.stdout.write(`\x1b[2K\r${progressMsg}`)
             }
@@ -198,7 +201,7 @@ export const indexCommand = Command.make(
         })
 
         // Clear the progress line after indexing completes
-        if (!json && isTTY) {
+        if (!json && showProgress) {
           process.stdout.write('\x1b[2K\r')
         }
 
@@ -318,24 +321,28 @@ export const indexCommand = Command.make(
             providerConfig,
             hnswOptions,
             onFileProgress: (progress) => {
-              if (!json && isTTY) {
+              if (!json && showProgress) {
                 const progressMsg = `  [${progress.fileIndex}/${progress.totalFiles}] ${progress.filePath} (${progress.sectionCount} sections)...`
                 process.stdout.write(`\x1b[2K\r${progressMsg}`)
               }
             },
             onBatchProgress: (progress) => {
-              if (!json && isTTY) {
+              if (!json && showProgress) {
                 const progressMsg = `  Embedding [${progress.processedSections}/${progress.totalSections}] sections (batch ${progress.batchIndex}/${progress.totalBatches})...`
                 process.stdout.write(`\x1b[2K\r${progressMsg}`)
               }
             },
           })
 
-          if (!json && isTTY) {
-            // Clear the progress line completely
+          // Clear the ANSI progress line (only if progress was rendered)
+          if (!json && showProgress) {
             process.stdout.write(
               `\r${' '.repeat(process.stdout.columns ?? 80)}\r`,
             )
+          }
+
+          // Show result summary (plain text, no ANSI escapes)
+          if (!json && isTTY) {
             yield* Console.log('')
 
             if (embedResult.cacheHit) {
