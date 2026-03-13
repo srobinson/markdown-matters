@@ -342,7 +342,7 @@ export const searchContent = (
         )
         if (Option.isNone(readResult)) continue
         fileContent = readResult.value
-        fileLines = fileContent!.split('\n')
+        fileLines = fileContent.split('\n')
       }
 
       for (const section of sections) {

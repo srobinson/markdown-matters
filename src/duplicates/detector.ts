@@ -164,7 +164,7 @@ const createFileContentCache = (): FileContentCache => {
           Effect.tapError((e) => Effect.logWarning(`Skipping file: ${e.path}`)),
           Effect.option,
         )
-        const content = Option.isSome(readResult) ? readResult.value : null
+        const content = Option.getOrNull(readResult)
         cache.set(documentPath, content)
         return content
       }),
