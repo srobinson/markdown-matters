@@ -1,6 +1,6 @@
-# mdcontext Usage Guide
+# mdm Usage Guide
 
-Complete command reference and workflows for mdcontext.
+Complete command reference and workflows for mdm.
 
 ## Table of Contents
 
@@ -24,10 +24,10 @@ Complete command reference and workflows for mdcontext.
 
 ```bash
 # Global install
-npm install -g mdcontext
+npm install -g markdown-matters
 
 # Or use npx
-npx mdcontext --help
+npx markdown-matters --help
 ```
 
 **Requirements:**
@@ -43,32 +43,32 @@ npx mdcontext --help
 
 ```bash
 # 1. Index your markdown files
-mdcontext index ./docs
+mdm index ./docs
 
 # 2. View structure
-mdcontext tree ./docs                 # File list
-mdcontext tree ./docs/README.md       # Document outline
+mdm tree ./docs                 # File list
+mdm tree ./docs/README.md       # Document outline
 
 # 3. Get LLM-ready context
-mdcontext context ./docs/README.md
+mdm context ./docs/README.md
 
 # 4. Enable semantic search (optional)
 # Choose ONE provider:
 
 # Option A: OpenAI (cloud, requires API key)
 export OPENAI_API_KEY=sk-...
-mdcontext index --embed
+mdm index --embed
 
 # Option B: Ollama (free, local, no API key needed)
 ollama serve && ollama pull nomic-embed-text
-mdcontext index --embed --provider ollama --provider-model nomic-embed-text
+mdm index --embed --provider ollama --provider-model nomic-embed-text
 
 # Option C: LM Studio (free, local, no API key needed)
 # Start LM Studio, load an embedding model, then:
-mdcontext index --embed --provider lm-studio
+mdm index --embed --provider lm-studio
 
 # Then search by meaning:
-mdcontext search "how to authenticate"
+mdm search "how to authenticate"
 ```
 
 ---
@@ -80,7 +80,7 @@ mdcontext search "how to authenticate"
 Build or update the document index. Run this first before using other commands.
 
 ```bash
-mdcontext index [path] [options]
+mdm index [path] [options]
 ```
 
 **Arguments:**
@@ -103,22 +103,22 @@ mdcontext index [path] [options]
 
 ```bash
 # Index current directory
-mdcontext index
+mdm index
 
 # Index specific directory
-mdcontext index ./docs
+mdm index ./docs
 
 # Index with embeddings for semantic search
-mdcontext index --embed
+mdm index --embed
 
 # Watch mode for development
-mdcontext index --watch
+mdm index --watch
 
 # Force rebuild
-mdcontext index --force
+mdm index --force
 ```
 
-**Index location:** `.mdcontext/indexes/`
+**Index location:** `.mdm/indexes/`
 
 ---
 
@@ -127,7 +127,7 @@ mdcontext index --force
 Search by meaning (semantic) or by structure (heading patterns).
 
 ```bash
-mdcontext search [options] <query> [path]
+mdm search [options] <query> [path]
 ```
 
 **Arguments:**
@@ -156,19 +156,19 @@ mdcontext search [options] <query> [path]
 
 ```bash
 # Semantic search (if embeddings exist)
-mdcontext search "how to authenticate"
+mdm search "how to authenticate"
 
 # Keyword search (exact text match)
-mdcontext search -k "Setup|Install"
+mdm search -k "Setup|Install"
 
 # Limit results
-mdcontext search -n 5 "api"
+mdm search -n 5 "api"
 
 # Higher similarity threshold
-mdcontext search --threshold 0.8 "deploy"
+mdm search --threshold 0.8 "deploy"
 
 # Search in specific directory
-mdcontext search "config" ./docs
+mdm search "config" ./docs
 ```
 
 ---
@@ -178,7 +178,7 @@ mdcontext search "config" ./docs
 Get LLM-ready context from one or more files.
 
 ```bash
-mdcontext context [options] <files...>
+mdm context [options] <files...>
 ```
 
 **Arguments:**
@@ -201,22 +201,22 @@ mdcontext context [options] <files...>
 
 ```bash
 # Single file
-mdcontext context README.md
+mdm context README.md
 
 # Multiple files
-mdcontext context README.md docs/api.md docs/setup.md
+mdm context README.md docs/api.md docs/setup.md
 
 # Glob patterns
-mdcontext context docs/*.md
+mdm context docs/*.md
 
 # With token budget
-mdcontext context -t 500 README.md
+mdm context -t 500 README.md
 
 # Brief summary
-mdcontext context --brief README.md
+mdm context --brief README.md
 
 # Full content
-mdcontext context --full README.md
+mdm context --full README.md
 ```
 
 **Output includes:**
@@ -233,7 +233,7 @@ mdcontext context --full README.md
 Display file structure or document outline.
 
 ```bash
-mdcontext tree [path] [options]
+mdm tree [path] [options]
 ```
 
 **Arguments:**
@@ -258,13 +258,13 @@ mdcontext tree [path] [options]
 
 ```bash
 # File list in current directory
-mdcontext tree
+mdm tree
 
 # File list in specific directory
-mdcontext tree ./docs
+mdm tree ./docs
 
 # Document outline
-mdcontext tree README.md
+mdm tree README.md
 ```
 
 **Directory output:**
@@ -298,7 +298,7 @@ docs/
 Show outgoing links from a file.
 
 ```bash
-mdcontext links <file> [options]
+mdm links <file> [options]
 ```
 
 **Arguments:**
@@ -318,7 +318,7 @@ mdcontext links <file> [options]
 **Example:**
 
 ```bash
-mdcontext links docs/README.md
+mdm links docs/README.md
 ```
 
 **Output:**
@@ -340,7 +340,7 @@ External Links:
 Show files that link to a specific file.
 
 ```bash
-mdcontext backlinks <file> [options]
+mdm backlinks <file> [options]
 ```
 
 **Arguments:**
@@ -360,7 +360,7 @@ mdcontext backlinks <file> [options]
 **Example:**
 
 ```bash
-mdcontext backlinks docs/api/authentication.md
+mdm backlinks docs/api/authentication.md
 ```
 
 **Output:**
@@ -378,7 +378,7 @@ Files linking to docs/api/authentication.md:
 Show index statistics.
 
 ```bash
-mdcontext stats [path] [options]
+mdm stats [path] [options]
 ```
 
 **Arguments:**
@@ -397,7 +397,7 @@ mdcontext stats [path] [options]
 **Example:**
 
 ```bash
-mdcontext stats
+mdm stats
 ```
 
 **Output:**
@@ -417,12 +417,12 @@ Index Statistics:
 
 ## MCP Server
 
-mdcontext includes an MCP server for integration with AI assistants.
+mdm includes an MCP server for integration with AI assistants.
 
 ### Starting the Server
 
 ```bash
-mdcontext-mcp
+mdm-mcp
 ```
 
 ### Available Tools
@@ -440,8 +440,8 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
-    "mdcontext": {
-      "command": "mdcontext-mcp",
+    "mdm": {
+      "command": "mdm-mcp",
       "args": []
     }
   }
@@ -455,8 +455,8 @@ Add to `.claude/settings.json`:
 ```json
 {
   "mcpServers": {
-    "mdcontext": {
-      "command": "mdcontext-mcp",
+    "mdm": {
+      "command": "mdm-mcp",
       "args": []
     }
   }
@@ -471,42 +471,42 @@ Add to `.claude/settings.json`:
 
 ```bash
 # 1. See what's available
-mdcontext tree ./docs
+mdm tree ./docs
 
 # 2. Check document structure
-mdcontext tree docs/api.md
+mdm tree docs/api.md
 
 # 3. Get context for specific file
-mdcontext context -t 500 docs/api.md
+mdm context -t 500 docs/api.md
 
 # 4. Or combine multiple files
-mdcontext context -t 2000 README.md docs/setup.md docs/api.md
+mdm context -t 2000 README.md docs/setup.md docs/api.md
 ```
 
 ### Finding Related Documentation
 
 ```bash
 # 1. See what a file links to
-mdcontext links docs/README.md
+mdm links docs/README.md
 
 # 2. See what links to a file
-mdcontext backlinks docs/api/authentication.md
+mdm backlinks docs/api/authentication.md
 
 # 3. Use semantic search to find related content
-mdcontext search "user authentication and session management"
+mdm search "user authentication and session management"
 ```
 
 ### Keeping Index Updated
 
 ```bash
 # One-time index
-mdcontext index
+mdm index
 
 # Watch mode during development
-mdcontext index --watch
+mdm index --watch
 
 # Force full rebuild after major changes
-mdcontext index --force
+mdm index --force
 ```
 
 ### Setting Up Semantic Search
@@ -516,52 +516,52 @@ mdcontext index --force
 export OPENAI_API_KEY=sk-...
 
 # 2. Build embeddings
-mdcontext index --embed
+mdm index --embed
 
 # 3. Search by meaning
-mdcontext search "how to handle authentication errors"
+mdm search "how to handle authentication errors"
 ```
 
 ### Optimizing for Token Budget
 
 ```bash
 # Check document size
-mdcontext tree docs/large-doc.md
+mdm tree docs/large-doc.md
 
 # Get brief summary
-mdcontext context docs/large-doc.md --brief
+mdm context docs/large-doc.md --brief
 
 # Or set explicit budget
-mdcontext context -t 200 docs/large-doc.md
+mdm context -t 200 docs/large-doc.md
 
 # Combine multiple files with shared budget
-mdcontext context -t 1000 a.md b.md c.md
+mdm context -t 1000 a.md b.md c.md
 ```
 
 ---
 
 ## Configuration
 
-mdcontext supports a layered configuration system with files, environment variables, and CLI flags.
+mdm supports a layered configuration system with files, environment variables, and CLI flags.
 
 **Quick start:**
 
 ```bash
 # Create a config file
-mdcontext config init
+mdm config init
 
 # Check current configuration
-mdcontext config check
+mdm config check
 ```
 
 **For full configuration documentation, see [CONFIG.md](./CONFIG.md).**
 
 ### Index Directory
 
-By default, indexes are stored in `.mdcontext/` in your project root:
+By default, indexes are stored in `.mdm/` in your project root:
 
 ```
-.mdcontext/
+.mdm/
 ├── indexes/
 │   ├── documents.json    # Document metadata
 │   ├── sections.json     # Section index
@@ -600,7 +600,7 @@ All configuration options can also be set via `MDM_*` environment variables. See
 
 ### "No index found"
 
-Run `mdcontext index` to build the index first.
+Run `mdm index` to build the index first.
 
 ### "Semantic search not available"
 
@@ -609,14 +609,14 @@ Run `mdcontext index` to build the index first.
    - **OpenRouter (cloud):** Set `OPENROUTER_API_KEY` environment variable
    - **Ollama (free, local):** Run `ollama serve` (no API key needed)
    - **LM Studio (free, local):** Start the server GUI (no API key needed)
-2. Run `mdcontext index --embed` to build embedding index
-   - For local providers: `mdcontext index --embed --provider ollama`
+2. Run `mdm index --embed` to build embedding index
+   - For local providers: `mdm index --embed --provider ollama`
 3. See [CONFIG.md](./CONFIG.md) for detailed provider setup
 
 ### "File not found in index"
 
 1. Check file is in indexed directory
-2. Run `mdcontext index --force` to rebuild
+2. Run `mdm index --force` to rebuild
 
 ### High token counts
 

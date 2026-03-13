@@ -1,6 +1,6 @@
-# Contributing to mdcontext
+# Contributing to mdm
 
-Thank you for your interest in contributing to mdcontext! This guide will help you get started.
+Thank you for your interest in contributing to mdm! This guide will help you get started.
 
 ## Development Setup
 
@@ -14,8 +14,8 @@ Thank you for your interest in contributing to mdcontext! This guide will help y
 
 ```bash
 # Clone the repository
-git clone https://github.com/mdcontext/mdcontext.git
-cd mdcontext
+git clone https://github.com/mdm/mdm.git
+cd mdm
 
 # Install dependencies
 pnpm install
@@ -68,7 +68,7 @@ pnpm changeset
 ```
 
 This will prompt you to:
-1. Select the package (mdcontext)
+1. Select the package (mdm)
 2. Choose a bump type (patch/minor/major)
 3. Write a summary of your changes
 
@@ -87,7 +87,7 @@ A markdown file will be created in the `.changeset/` directory. **Commit this fi
 **Patch** (bug fix):
 ```markdown
 ---
-"mdcontext": patch
+"mdm": patch
 ---
 
 Fixed section extraction to correctly handle nested headings
@@ -96,7 +96,7 @@ Fixed section extraction to correctly handle nested headings
 **Minor** (new feature):
 ```markdown
 ---
-"mdcontext": minor
+"mdm": minor
 ---
 
 Added --json flag to context command for structured output
@@ -105,12 +105,12 @@ Added --json flag to context command for structured output
 **Major** (breaking change):
 ```markdown
 ---
-"mdcontext": major
+"mdm": major
 ---
 
 Changed search command syntax: path argument now comes before query
 
-Migration: `mdcontext search "query" path/` becomes `mdcontext search path/ "query"`
+Migration: `mdm search "query" path/` becomes `mdm search path/ "query"`
 ```
 
 ### When You Don't Need a Changeset
@@ -181,6 +181,6 @@ pnpm test:watch
 
 - Open an issue for bugs or feature requests
 - Check existing issues before creating new ones
-- For questions about using mdcontext, see the README and docs/
+- For questions about using mdm, see the README and docs/
 
 Thank you for contributing!

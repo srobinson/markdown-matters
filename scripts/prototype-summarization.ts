@@ -3,7 +3,7 @@
  * Prototype: AI Summarization of Search Results
  *
  * Quick validation script to test the summarization approach.
- * Uses the actual mdcontext search and Claude CLI integration.
+ * Uses the actual mdm search and Claude CLI integration.
  *
  * Usage:
  *   npx tsx scripts/prototype-summarization.ts
@@ -39,7 +39,7 @@ interface SummaryResult {
 }
 
 /**
- * Run mdcontext search and get JSON results
+ * Run mdm search and get JSON results
  */
 async function runSearch(query: string, dir: string): Promise<SearchResult[]> {
   return new Promise((resolve, reject) => {

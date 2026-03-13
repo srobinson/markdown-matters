@@ -1,4 +1,4 @@
-# Design: @hw/mdcontext
+# Design: @hw/mdm
 
 ## Data Model
 
@@ -82,7 +82,7 @@ interface MdCodeBlock {
 ### File Layout
 
 ```
-.mdcontext/
+.mdm/
   config.json              # Configuration
   indexes/
     documents.json         # Document metadata index
@@ -254,29 +254,29 @@ Level 3: Collection summary (key documents, themes)
 
 | Metric                              | Type      | Labels  | Description               |
 | ----------------------------------- | --------- | ------- | ------------------------- |
-| `mdcontext_parse_duration_ms`       | Histogram | -       | Time to parse a document  |
-| `mdcontext_index_build_duration_ms` | Histogram | `type`  | Time to build index       |
-| `mdcontext_query_duration_ms`       | Histogram | `type`  | Query execution time      |
-| `mdcontext_embed_duration_ms`       | Histogram | `model` | Embedding generation time |
-| `mdcontext_cache_hit_total`         | Counter   | `cache` | Cache hits                |
-| `mdcontext_cache_miss_total`        | Counter   | `cache` | Cache misses              |
+| `mdm_parse_duration_ms`       | Histogram | -       | Time to parse a document  |
+| `mdm_index_build_duration_ms` | Histogram | `type`  | Time to build index       |
+| `mdm_query_duration_ms`       | Histogram | `type`  | Query execution time      |
+| `mdm_embed_duration_ms`       | Histogram | `model` | Embedding generation time |
+| `mdm_cache_hit_total`         | Counter   | `cache` | Cache hits                |
+| `mdm_cache_miss_total`        | Counter   | `cache` | Cache misses              |
 
 #### Usage Metrics
 
 | Metric                          | Type    | Labels | Description              |
 | ------------------------------- | ------- | ------ | ------------------------ |
-| `mdcontext_queries_total`       | Counter | `type` | Total queries            |
-| `mdcontext_tokens_input_total`  | Counter | -      | Tokens sent to embedding |
-| `mdcontext_tokens_output_total` | Counter | -      | Tokens in responses      |
-| `mdcontext_documents_indexed`   | Gauge   | -      | Documents in index       |
-| `mdcontext_sections_indexed`    | Gauge   | -      | Sections in index        |
+| `mdm_queries_total`       | Counter | `type` | Total queries            |
+| `mdm_tokens_input_total`  | Counter | -      | Tokens sent to embedding |
+| `mdm_tokens_output_total` | Counter | -      | Tokens in responses      |
+| `mdm_documents_indexed`   | Gauge   | -      | Documents in index       |
+| `mdm_sections_indexed`    | Gauge   | -      | Sections in index        |
 
 #### Quality Metrics
 
 | Metric                              | Type      | Labels  | Description              |
 | ----------------------------------- | --------- | ------- | ------------------------ |
-| `mdcontext_search_results_returned` | Histogram | -       | Results per query        |
-| `mdcontext_compression_ratio`       | Histogram | `level` | Token reduction achieved |
+| `mdm_search_results_returned` | Histogram | -       | Results per query        |
+| `mdm_compression_ratio`       | Histogram | `level` | Token reduction achieved |
 
 ### Query Logging
 
@@ -362,34 +362,34 @@ interface ContextOptions {
 
 ```bash
 # Indexing
-mdcontext index [dir]                 # Index directory (default: .)
-mdcontext index --watch               # Index and watch for changes
-mdcontext index --force               # Force full rebuild
+mdm index [dir]                 # Index directory (default: .)
+mdm index --watch               # Index and watch for changes
+mdm index --force               # Force full rebuild
 
 # Search
-mdcontext search "query"              # Semantic search
-mdcontext search "query" --limit 5    # Limit results
-mdcontext search "query" --json       # JSON output
+mdm search "query"              # Semantic search
+mdm search "query" --limit 5    # Limit results
+mdm search "query" --json       # JSON output
 
 # Context
-mdcontext context <path>              # Full document context
-mdcontext context <path> --brief      # Brief summary
-mdcontext context <path> --tokens 500 # Token budget
+mdm context <path>              # Full document context
+mdm context <path> --brief      # Brief summary
+mdm context <path> --tokens 500 # Token budget
 
 # Structure
-mdcontext structure <path>            # Show document structure
-mdcontext structure <path> --tree     # Tree view
-mdcontext links <path>                # Show link graph
-mdcontext backlinks <path>            # What links to this?
+mdm structure <path>            # Show document structure
+mdm structure <path> --tree     # Tree view
+mdm links <path>                # Show link graph
+mdm backlinks <path>            # What links to this?
 
 # Metrics
-mdcontext metrics                     # Show current metrics
-mdcontext metrics --json              # JSON format
-mdcontext metrics --reset             # Reset counters
+mdm metrics                     # Show current metrics
+mdm metrics --json              # JSON format
+mdm metrics --reset             # Reset counters
 
 # Daemon
-mdcontext daemon                      # Run as daemon
-mdcontext daemon --port 8765          # Custom port
+mdm daemon                      # Run as daemon
+mdm daemon --port 8765          # Custom port
 ```
 
 ---

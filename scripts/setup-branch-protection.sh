@@ -3,7 +3,7 @@
 # Usage: ./setup-branch-protection.sh owner/repo [branch]
 #
 # Example:
-#   ./setup-branch-protection.sh mdcontext/mdcontext main
+#   ./setup-branch-protection.sh mdm/mdm main
 #   ./setup-branch-protection.sh myorg/myrepo
 
 set -e

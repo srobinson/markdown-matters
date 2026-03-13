@@ -5,7 +5,7 @@
 # Templates: full-ci-matrix, simple, minimal, strict
 #
 # Examples:
-#   ./apply-branch-protection.sh mdcontext/mdcontext full-ci-matrix
+#   ./apply-branch-protection.sh mdm/mdm full-ci-matrix
 #   ./apply-branch-protection.sh myorg/myrepo simple main
 #   ./apply-branch-protection.sh myorg/myrepo minimal develop
 

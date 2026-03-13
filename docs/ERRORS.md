@@ -1,6 +1,6 @@
 # Error Handling Patterns
 
-This document describes the error handling conventions used in mdcontext, following Effect's "errors as values" philosophy.
+This document describes the error handling conventions used in mdm, following Effect's "errors as values" philosophy.
 
 ## Error Type Taxonomy
 
@@ -92,10 +92,10 @@ Error codes enable reliable scripting and CI/CD integration:
 
 ```bash
 # Check for specific error codes in output
-mdcontext search "query" 2>&1 | grep -q "\[E400\]" && echo "Index not found"
+mdm search "query" 2>&1 | grep -q "\[E400\]" && echo "Index not found"
 
 # Use exit codes for control flow
-mdcontext index || {
+mdm index || {
   case $? in
     1) echo "User error - check arguments" ;;
     2) echo "System error - check permissions" ;;
@@ -336,7 +336,7 @@ export ANTHROPIC_API_KEY=sk-ant-...
 - Consider switching to CLI provider (free with subscription)
 
 **"Summarization failed: timeout"**
-- Reduce results: `mdcontext search "query" --limit 5 --summarize`
+- Reduce results: `mdm search "query" --limit 5 --summarize`
 - The default timeout is 60 seconds
 
 **"No summarization providers available"**
@@ -371,7 +371,7 @@ Error formatting (user-friendly messages) should only happen at the CLI boundary
 
 ```typescript
 // src/cli/error-handler.ts
-const formatError = (error: MdContextError): string => {
+const formatError = (error: MdmError): string => {
   switch (error._tag) {
     case 'FileReadError':
       return `Cannot read file: ${error.path}\n${error.message}`

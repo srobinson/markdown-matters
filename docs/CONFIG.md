@@ -1,6 +1,6 @@
 # Configuration Guide
 
-mdcontext supports a layered configuration system that allows you to set persistent defaults, override them with environment variables, and use CLI flags for one-off changes.
+mdm supports a layered configuration system that allows you to set persistent defaults, override them with environment variables, and use CLI flags for one-off changes.
 
 ## Table of Contents
 
@@ -28,16 +28,16 @@ Create a config file in your project root:
 
 ```bash
 # Generate a JavaScript config with type annotations (recommended)
-mdcontext config init
+mdm config init
 
 # Or generate a JSON config
-mdcontext config init --format json
+mdm config init --format json
 ```
 
-This creates `mdcontext.config.js` with documented defaults:
+This creates `mdm.config.js` with documented defaults:
 
 ```javascript
-/** @type {import('mdcontext').PartialMdContextConfig} */
+/** @type {import('markdown-matters').PartialMdmConfig} */
 export default {
   index: {
     maxDepth: 10,
@@ -54,7 +54,7 @@ export default {
 
 ## Configuration Precedence
 
-mdcontext uses a layered configuration system. Values from higher-priority sources override lower ones:
+mdm uses a layered configuration system. Values from higher-priority sources override lower ones:
 
 ```
 CLI Flags           (highest priority)
@@ -80,31 +80,31 @@ Built-in Defaults   (lowest priority)
 
 ## Config File Formats
 
-mdcontext searches for configuration files in this order:
+mdm searches for configuration files in this order:
 
 | Filename                  | Format     | Notes                         |
 | ------------------------- | ---------- | ----------------------------- |
-| `mdcontext.config.js`     | JavaScript | Best: type-safe with JSDoc    |
-| `mdcontext.config.mjs`    | ESM        | ES modules only               |
-| `mdcontext.config.json`   | JSON       | Simple, no code               |
-| `.mdcontextrc`            | JSON       | Hidden file, JSON format      |
-| `.mdcontextrc.json`       | JSON       | Explicit JSON rc file         |
-| `mdcontext.config.ts`     | TypeScript | Not supported (see note below)|
+| `mdm.config.js`     | JavaScript | Best: type-safe with JSDoc    |
+| `mdm.config.mjs`    | ESM        | ES modules only               |
+| `mdm.config.json`   | JSON       | Simple, no code               |
+| `.mdmrc`            | JSON       | Hidden file, JSON format      |
+| `.mdmrc.json`       | JSON       | Explicit JSON rc file         |
+| `mdm.config.ts`     | TypeScript | Not supported (see note below)|
 
 ### JavaScript Config with Types (Recommended)
 
 Using JSDoc type annotations provides full type safety and IDE autocompletion:
 
 ```javascript
-// mdcontext.config.js
-/** @type {import('mdcontext').PartialMdContextConfig} */
+// mdm.config.js
+/** @type {import('markdown-matters').PartialMdmConfig} */
 export default {
   index: {
     maxDepth: 10,
     excludePatterns: ['node_modules', '.git', 'dist', 'build'],
     fileExtensions: ['.md', '.mdx'],
     followSymlinks: false,
-    indexDir: '.mdcontext',
+    indexDir: '.mdm',
   },
   search: {
     defaultLimit: 10,
@@ -135,7 +135,7 @@ The `@type` JSDoc annotation provides TypeScript type checking and IDE autocompl
 
 ```json
 {
-  "$schema": "https://mdcontext.dev/schema.json",
+  "$schema": "https://mdm.dev/schema.json",
   "index": {
     "maxDepth": 10,
     "excludePatterns": ["node_modules", ".git", "dist", "build"],
@@ -152,10 +152,10 @@ The `@type` JSDoc annotation provides TypeScript type checking and IDE autocompl
 
 ```bash
 # Use a specific config file
-mdcontext --config ./config/mdcontext.json index
+mdm --config ./config/mdm.json index
 
 # Short form
-mdcontext -c ./custom.config.json search "query"
+mdm -c ./custom.config.json search "query"
 ```
 
 ---
@@ -172,7 +172,7 @@ Controls how markdown files are discovered and indexed.
 | `excludePatterns` | `string[]` | `['node_modules', '.git', 'dist', 'build']` | Glob patterns to exclude from indexing   |
 | `fileExtensions`  | `string[]` | `['.md', '.mdx']`                          | File extensions to index                 |
 | `followSymlinks`  | `boolean`  | `false`                                    | Whether to follow symbolic links         |
-| `indexDir`        | `string`   | `'.mdcontext'`                             | Directory for storing index files        |
+| `indexDir`        | `string`   | `'.mdm'`                             | Directory for storing index files        |
 
 **Example:**
 
@@ -196,22 +196,22 @@ export default defineConfig({
     fileExtensions: ['.md'],
 
     // Store index in a custom location
-    indexDir: '.cache/mdcontext',
+    indexDir: '.cache/mdm',
   },
 })
 ```
 
 ### Excluding Files
 
-mdcontext automatically respects standard ignore patterns.
+mdm automatically respects standard ignore patterns.
 
 #### .gitignore (Honored by Default)
 
 Your existing `.gitignore` is automatically respected. No additional configuration needed.
 
-#### .mdcontextignore (Custom Patterns)
+#### .mdmignore (Custom Patterns)
 
-Create `.mdcontextignore` in your project root for mdcontext-specific exclusions:
+Create `.mdmignore` in your project root for mdm-specific exclusions:
 
 ```gitignore
 # Ignore research notes
@@ -231,15 +231,15 @@ Patterns are applied in this order (later patterns override earlier):
 
 1. **Built-in defaults** - `node_modules`, `.git`, `dist`, `build`
 2. **.gitignore** - Standard git ignore patterns
-3. **.mdcontextignore** - mdcontext-specific patterns
+3. **.mdmignore** - mdm-specific patterns
 4. **CLI --exclude** - Highest priority, overrides all
 
 ```bash
 # Add patterns via CLI (highest priority)
-mdcontext index --exclude "*.draft.md,research/**"
+mdm index --exclude "*.draft.md,research/**"
 
 # Disable .gitignore honoring
-mdcontext index --no-gitignore
+mdm index --no-gitignore
 ```
 
 #### Pattern Syntax
@@ -349,7 +349,7 @@ export default defineConfig({
 
 ## Embedding Providers
 
-mdcontext supports multiple embedding providers:
+mdm supports multiple embedding providers:
 
 | Provider | Best For | Cost | Privacy | Production Ready |
 |----------|----------|------|---------|------------------|
@@ -381,21 +381,21 @@ mdcontext supports multiple embedding providers:
 **Example safe configurations:**
 ```bash
 # Safe: Local Ollama
-mdcontext index --embed --provider-base-url http://localhost:11434/v1
+mdm index --embed --provider-base-url http://localhost:11434/v1
 
 # Safe: Trusted internal server with encryption
-mdcontext index --embed --provider-base-url https://ollama.internal.company.com/v1
+mdm index --embed --provider-base-url https://ollama.internal.company.com/v1
 
 # Unsafe: Unknown external server
-mdcontext index --embed --provider-base-url http://random-server.example.com/v1  # ❌ DON'T DO THIS
+mdm index --embed --provider-base-url http://random-server.example.com/v1  # ❌ DON'T DO THIS
 ```
 
 ### CLI Usage
 
 ```bash
-mdcontext index --embed --provider ollama --provider-model nomic-embed-text
-mdcontext index --embed --provider openrouter
-mdcontext index --embed --provider lm-studio
+mdm index --embed --provider ollama --provider-model nomic-embed-text
+mdm index --embed --provider openrouter
+mdm index --embed --provider lm-studio
 ```
 
 ### Configuration
@@ -476,8 +476,8 @@ Controls AI-powered summarization of search results. This is separate from `summ
 **Example:**
 
 ```javascript
-// mdcontext.config.js
-/** @type {import('mdcontext').PartialMdContextConfig} */
+// mdm.config.js
+/** @type {import('markdown-matters').PartialMdmConfig} */
 export default {
   aiSummarization: {
     // Use Claude CLI (free with subscription)
@@ -537,7 +537,7 @@ Controls file path behavior.
 | ------------ | -------- | -------------------- | ------------------------------ |
 | `root`       | `string` | (current directory)  | Root directory for markdown files |
 | `configFile` | `string` | (auto-detected)      | Custom config file path        |
-| `cacheDir`   | `string` | `'.mdcontext/cache'` | Cache directory for temporary files |
+| `cacheDir`   | `string` | `'.mdm/cache'` | Cache directory for temporary files |
 
 **Example:**
 
@@ -548,7 +548,7 @@ export default defineConfig({
     root: './docs',
 
     // Custom cache location
-    cacheDir: '.cache/mdcontext',
+    cacheDir: '.cache/mdm',
   },
 })
 ```
@@ -684,7 +684,7 @@ env:
 Create a starter configuration file.
 
 ```bash
-mdcontext config init [options]
+mdm config init [options]
 
 Options:
   -f, --format <ts|json>  Config file format (default: ts)
@@ -697,13 +697,13 @@ Options:
 
 ```bash
 # Create TypeScript config
-mdcontext config init
+mdm config init
 
 # Create JSON config
-mdcontext config init --format json
+mdm config init --format json
 
 # Overwrite existing config
-mdcontext config init --force
+mdm config init --force
 ```
 
 ### config show
@@ -711,7 +711,7 @@ mdcontext config init --force
 Display the current config file location.
 
 ```bash
-mdcontext config show [options]
+mdm config show [options]
 
 Options:
   --json    Output as JSON
@@ -723,7 +723,7 @@ Options:
 Validate configuration and show effective values with their sources.
 
 ```bash
-mdcontext config check [options]
+mdm config check [options]
 
 Options:
   --json    Output as JSON
@@ -735,7 +735,7 @@ Options:
 ```
 Configuration validated successfully!
 
-Source: /project/mdcontext.config.ts
+Source: /project/mdm.config.ts
 
 Effective configuration:
   index:
@@ -743,7 +743,7 @@ Effective configuration:
     excludePatterns: ["node_modules",".git","dist"] (default)
     fileExtensions: [".md",".mdx"] (default)
     followSymlinks: false (default)
-    indexDir: .mdcontext (default)
+    indexDir: .mdm (default)
   search:
     defaultLimit: 20 (from environment)
     maxLimit: 100 (default)
@@ -761,21 +761,21 @@ If you've been passing flags on every command:
 
 ```bash
 # Before: Flags every time
-mdcontext index --exclude vendor --exclude __tests__
-mdcontext search "query" --limit 20
+mdm index --exclude vendor --exclude __tests__
+mdm search "query" --limit 20
 ```
 
 Create a config file to persist these settings:
 
 ```bash
 # Generate config
-mdcontext config init
+mdm config init
 ```
 
-Edit `mdcontext.config.ts`:
+Edit `mdm.config.ts`:
 
 ```typescript
-import { defineConfig } from 'mdcontext'
+import { defineConfig } from 'mdm'
 
 export default defineConfig({
   index: {
@@ -791,11 +791,11 @@ Now commands use your defaults:
 
 ```bash
 # After: Clean commands
-mdcontext index
-mdcontext search "query"
+mdm index
+mdm search "query"
 
 # Override when needed
-mdcontext search "query" --limit 5
+mdm search "query" --limit 5
 ```
 
 ### From Environment Variables
@@ -818,12 +818,12 @@ You can now move project-specific settings to a config file while keeping enviro
 
 ## Testing Configuration
 
-mdcontext provides utilities for testing with custom configurations.
+mdm provides utilities for testing with custom configurations.
 
 ### Test Utilities
 
 ```typescript
-import { TestConfigLayer, withTestConfig, runWithConfig } from 'mdcontext'
+import { TestConfigLayer, withTestConfig, runWithConfig } from 'mdm'
 import { Effect } from 'effect'
 
 // Option 1: Use TestConfigLayer directly
@@ -848,7 +848,7 @@ const result = await runWithConfig(
 ### Isolating Tests from Environment
 
 ```typescript
-import { createTestConfigProvider } from 'mdcontext'
+import { createTestConfigProvider } from 'mdm'
 
 // Creates a provider that ignores environment variables
 const provider = createTestConfigProvider(
@@ -871,13 +871,13 @@ If your config file isn't being used:
 
 1. **Verify the file is found:**
    ```bash
-   mdcontext config show
+   mdm config show
    ```
-   This shows which config file mdcontext is using, if any.
+   This shows which config file mdm is using, if any.
 
 2. **Check for errors:**
    ```bash
-   mdcontext config check --json
+   mdm config check --json
    ```
    The `errors` array will show any loading failures.
 
@@ -895,8 +895,8 @@ If your config file isn't being used:
 
 1. **JavaScript with JSDoc types** (recommended):
    ```javascript
-   // mdcontext.config.js
-   /** @type {import('mdcontext').PartialMdContextConfig} */
+   // mdm.config.js
+   /** @type {import('markdown-matters').PartialMdmConfig} */
    export default {
      index: {
        maxDepth: 10,
@@ -907,7 +907,7 @@ If your config file isn't being used:
 
 2. **JSON format** (simplest):
    ```bash
-   mdcontext config init --format json
+   mdm config init --format json
    ```
 
 ### Environment Variables Not Working
@@ -918,12 +918,12 @@ If your config file isn't being used:
    export MDM_SEARCH_DEFAULTLIMIT=20
 
    # Wrong - will not work
-   export mdcontext_search_defaultLimit=20
+   export mdm_search_defaultLimit=20
    ```
 
 2. **Verify with config check:**
    ```bash
-   mdcontext config check
+   mdm config check
    ```
    Look for "(from environment)" annotations.
 
@@ -939,18 +939,18 @@ If you've set config but commands still use defaults:
 1. **Check precedence:** CLI flags override everything
    ```bash
    # This ignores config file's defaultLimit setting
-   mdcontext search "query" --limit 5
+   mdm search "query" --limit 5
    ```
 
 2. **Verify effective config:**
    ```bash
-   mdcontext config check
+   mdm config check
    ```
    Shows exactly what values are being used and why.
 
 3. **Try explicit config path:**
    ```bash
-   mdcontext --config ./mdcontext.config.json index
+   mdm --config ./mdm.config.json index
    ```
 
 ---
@@ -962,8 +962,8 @@ If you've set config but commands still use defaults:
 Share consistent settings across a team:
 
 ```typescript
-// mdcontext.config.ts
-import { defineConfig } from 'mdcontext'
+// mdm.config.ts
+import { defineConfig } from 'mdm'
 
 export default defineConfig({
   index: {
@@ -1001,16 +1001,16 @@ jobs:
       MDM_OUTPUT_FORMAT: 'json'
     steps:
       - uses: actions/checkout@v4
-      - run: npm install -g mdcontext
-      - run: mdcontext index ./docs
-      - run: mdcontext stats --json > stats.json
+      - run: npm install -g markdown-matters
+      - run: mdm index ./docs
+      - run: mdm stats --json > stats.json
 ```
 
 ### Monorepo Setup
 
 ```typescript
-// packages/docs/mdcontext.config.ts
-import { defineConfig } from 'mdcontext'
+// packages/docs/mdm.config.ts
+import { defineConfig } from 'mdm'
 
 export default defineConfig({
   paths: {
@@ -1030,7 +1030,7 @@ _For CLI command reference, see [USAGE.md](./019-USAGE.md)_
 
 ## Hybrid Search
 
-mdcontext supports hybrid search combining BM25 keyword matching with semantic vector search for improved recall (15-30% improvement over single-method retrieval).
+mdm supports hybrid search combining BM25 keyword matching with semantic vector search for improved recall (15-30% improvement over single-method retrieval).
 
 ### How It Works
 
@@ -1042,16 +1042,16 @@ Hybrid mode uses Reciprocal Rank Fusion (RRF) to merge results from:
 
 ```bash
 # Auto-detect (uses hybrid if both indexes available)
-mdcontext search "authentication"
+mdm search "authentication"
 
 # Force hybrid mode
-mdcontext search --mode hybrid "authentication"
+mdm search --mode hybrid "authentication"
 
 # Force keyword-only (BM25)
-mdcontext search --mode keyword "authentication"
+mdm search --mode keyword "authentication"
 
 # Force semantic-only
-mdcontext search --mode semantic "authentication"
+mdm search --mode semantic "authentication"
 ```
 
 ### Building Indexes
@@ -1060,10 +1060,10 @@ Both indexes are built automatically:
 
 ```bash
 # Build document index and BM25 index
-mdcontext index
+mdm index
 
 # Build semantic embeddings (also updates BM25)
-mdcontext index --embed
+mdm index --embed
 ```
 
 ### Configuration
@@ -1081,7 +1081,7 @@ Default weights (no configuration needed):
 
 ## Pricing Data Maintenance
 
-mdcontext uses hardcoded OpenAI pricing for embedding cost estimates. Prices change rarely for embedding models.
+mdm uses hardcoded OpenAI pricing for embedding cost estimates. Prices change rarely for embedding models.
 
 ### Current Pricing
 
