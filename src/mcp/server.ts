@@ -212,7 +212,10 @@ const tools: Tool[] = [
  * the root boundary. Returns the resolved absolute path or throws if the
  * path escapes the root (e.g. via `../` traversal or absolute paths outside root).
  */
-const resolveAndValidatePath = (rootPath: string, filePath: string): string => {
+export const resolveAndValidatePath = (
+  rootPath: string,
+  filePath: string,
+): string => {
   const normalizedRoot = path.resolve(rootPath)
   const resolved = path.isAbsolute(filePath)
     ? path.resolve(filePath)
@@ -563,7 +566,7 @@ const handleMdBacklinks = async (
 // MCP Server Setup
 // ============================================================================
 
-const createServer = (rootPath: string, config: MdContextConfig) => {
+export const createServer = (rootPath: string, config: MdContextConfig) => {
   const server = new Server(
     {
       name: 'mdcontext-mcp',
@@ -623,7 +626,9 @@ const createServer = (rootPath: string, config: MdContextConfig) => {
  * Falls back to defaults on any config loading error to keep the
  * server operational even with a missing or malformed config file.
  */
-const loadConfig = async (rootPath: string): Promise<MdContextConfig> => {
+export const loadConfig = async (
+  rootPath: string,
+): Promise<MdContextConfig> => {
   const program = Effect.gen(function* () {
     const provider = yield* createConfigProvider({
       workingDir: rootPath,
