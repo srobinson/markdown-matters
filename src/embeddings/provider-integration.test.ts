@@ -86,7 +86,7 @@ describe('Provider Integration Tests', () => {
         embeddings: { provider: 'ollama', model: 'nomic-embed-text' },
       }
       fs.writeFileSync(
-        path.join(tempDir, 'mdcontext.config.json'),
+        path.join(tempDir, 'mdm.config.json'),
         JSON.stringify(fileConfig),
       )
 
@@ -111,7 +111,7 @@ describe('Provider Integration Tests', () => {
         embeddings: { provider: 'openai', model: 'text-embedding-3-small' },
       }
       fs.writeFileSync(
-        path.join(tempDir, 'mdcontext.config.json'),
+        path.join(tempDir, 'mdm.config.json'),
         JSON.stringify(fileConfig),
       )
 
@@ -186,7 +186,7 @@ describe('Provider Integration Tests', () => {
         },
       }
       fs.writeFileSync(
-        path.join(tempDir, 'mdcontext.config.json'),
+        path.join(tempDir, 'mdm.config.json'),
         JSON.stringify(fileConfig),
       )
 
@@ -449,7 +449,7 @@ describe('Provider Integration Tests', () => {
         embeddings: { provider: 'ollama' },
       }
       fs.writeFileSync(
-        path.join(tempDir, 'mdcontext.config.json'),
+        path.join(tempDir, 'mdm.config.json'),
         JSON.stringify(fileConfig),
       )
 
@@ -472,7 +472,7 @@ describe('Provider Integration Tests', () => {
         embeddings: { provider: 'lm-studio' },
       }
       fs.writeFileSync(
-        path.join(tempDir, 'mdcontext.config.json'),
+        path.join(tempDir, 'mdm.config.json'),
         JSON.stringify(fileConfig),
       )
 
@@ -495,7 +495,7 @@ describe('Provider Integration Tests', () => {
         embeddings: { provider: 'openrouter' },
       }
       fs.writeFileSync(
-        path.join(tempDir, 'mdcontext.config.json'),
+        path.join(tempDir, 'mdm.config.json'),
         JSON.stringify(fileConfig),
       )
 
@@ -522,7 +522,7 @@ describe('Provider Integration Tests', () => {
         },
       }
       fs.writeFileSync(
-        path.join(tempDir, 'mdcontext.config.json'),
+        path.join(tempDir, 'mdm.config.json'),
         JSON.stringify(fileConfig),
       )
 
@@ -625,7 +625,7 @@ describe('Provider Integration Tests', () => {
       }
 
       fs.writeFileSync(
-        path.join(tempDir, 'mdcontext.config.json'),
+        path.join(tempDir, 'mdm.config.json'),
         JSON.stringify(openaiConfig),
       )
 
@@ -648,7 +648,7 @@ describe('Provider Integration Tests', () => {
       }
 
       fs.writeFileSync(
-        path.join(tempDir, 'mdcontext.config.json'),
+        path.join(tempDir, 'mdm.config.json'),
         JSON.stringify(ollamaConfig),
       )
 
@@ -674,7 +674,7 @@ describe('Provider Integration Tests', () => {
       }
 
       fs.writeFileSync(
-        path.join(tempDir, 'mdcontext.config.json'),
+        path.join(tempDir, 'mdm.config.json'),
         JSON.stringify(fileConfig),
       )
 
@@ -702,7 +702,7 @@ describe('Provider Integration Tests', () => {
 
       // Verify config file unchanged
       const fileContent = fs.readFileSync(
-        path.join(tempDir, 'mdcontext.config.json'),
+        path.join(tempDir, 'mdm.config.json'),
         'utf-8',
       )
       const savedConfig = JSON.parse(fileContent)

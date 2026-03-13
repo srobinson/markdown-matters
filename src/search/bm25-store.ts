@@ -2,7 +2,7 @@
  * BM25 Index Store for keyword search
  *
  * Uses wink-bm25-text-search for efficient keyword matching.
- * Index is persisted to .mdcontext/bm25.json for fast startup.
+ * Index is persisted to .mdm/bm25.json for fast startup.
  */
 
 import * as fs from 'node:fs/promises'

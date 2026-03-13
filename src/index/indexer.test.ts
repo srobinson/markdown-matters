@@ -499,5 +499,5 @@ describe('buildIndex', () => {
 
   // maxDepth is not part of IndexOptions. Directory traversal depth is
   // unbounded by design; scoping is handled via exclude patterns and
-  // .mdcontextignore instead. No test is needed for an unimplemented option.
+  // .mdmignore instead. No test is needed for an unimplemented option.
 })

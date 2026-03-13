@@ -23,7 +23,7 @@ describe('File-based ConfigProvider', () => {
   let tempDir: string
 
   beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mdcontext-test-'))
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mdm-test-'))
   })
 
   afterEach(() => {
@@ -33,12 +33,12 @@ describe('File-based ConfigProvider', () => {
   describe('CONFIG_FILE_NAMES', () => {
     it('should have the expected file names in order of precedence', () => {
       expect(CONFIG_FILE_NAMES).toEqual([
-        'mdcontext.config.ts',
-        'mdcontext.config.js',
-        'mdcontext.config.mjs',
-        'mdcontext.config.json',
-        '.mdcontextrc',
-        '.mdcontextrc.json',
+        'mdm.config.ts',
+        'mdm.config.js',
+        'mdm.config.mjs',
+        'mdm.config.json',
+        '.mdmrc',
+        '.mdmrc.json',
       ])
     })
   })
@@ -49,8 +49,8 @@ describe('File-based ConfigProvider', () => {
       expect(result).toBeNull()
     })
 
-    it('should find mdcontext.config.json', () => {
-      const configPath = path.join(tempDir, 'mdcontext.config.json')
+    it('should find mdm.config.json', () => {
+      const configPath = path.join(tempDir, 'mdm.config.json')
       fs.writeFileSync(configPath, '{}')
 
       const result = findConfigFile(tempDir)
@@ -59,8 +59,8 @@ describe('File-based ConfigProvider', () => {
       expect(result?.format).toBe('json')
     })
 
-    it('should find .mdcontextrc', () => {
-      const configPath = path.join(tempDir, '.mdcontextrc')
+    it('should find .mdmrc', () => {
+      const configPath = path.join(tempDir, '.mdmrc')
       fs.writeFileSync(configPath, '{}')
 
       const result = findConfigFile(tempDir)
@@ -74,7 +74,7 @@ describe('File-based ConfigProvider', () => {
       fs.mkdirSync(path.join(tempDir, '.git'))
       const subDir = path.join(tempDir, 'subdir')
       fs.mkdirSync(subDir)
-      const configPath = path.join(tempDir, 'mdcontext.config.json')
+      const configPath = path.join(tempDir, 'mdm.config.json')
       fs.writeFileSync(configPath, '{}')
 
       const result = findConfigFile(subDir)
@@ -86,7 +86,7 @@ describe('File-based ConfigProvider', () => {
       // Without a .git marker, findConfigFile only checks startDir
       const subDir = path.join(tempDir, 'subdir')
       fs.mkdirSync(subDir)
-      fs.writeFileSync(path.join(tempDir, 'mdcontext.config.json'), '{}')
+      fs.writeFileSync(path.join(tempDir, 'mdm.config.json'), '{}')
 
       const result = findConfigFile(subDir)
       expect(result).toBeNull()
@@ -94,20 +94,17 @@ describe('File-based ConfigProvider', () => {
 
     it('should prefer higher precedence files', () => {
       // Create both .ts and .json files
-      fs.writeFileSync(
-        path.join(tempDir, 'mdcontext.config.ts'),
-        'export default {}',
-      )
-      fs.writeFileSync(path.join(tempDir, 'mdcontext.config.json'), '{}')
+      fs.writeFileSync(path.join(tempDir, 'mdm.config.ts'), 'export default {}')
+      fs.writeFileSync(path.join(tempDir, 'mdm.config.json'), '{}')
 
       const result = findConfigFile(tempDir)
       expect(result).not.toBeNull()
-      expect(result?.path).toBe(path.join(tempDir, 'mdcontext.config.ts'))
+      expect(result?.path).toBe(path.join(tempDir, 'mdm.config.ts'))
       expect(result?.format).toBe('ts')
     })
 
     it('should identify .js format correctly', () => {
-      const configPath = path.join(tempDir, 'mdcontext.config.js')
+      const configPath = path.join(tempDir, 'mdm.config.js')
       fs.writeFileSync(configPath, 'module.exports = {}')
 
       const result = findConfigFile(tempDir)
@@ -115,7 +112,7 @@ describe('File-based ConfigProvider', () => {
     })
 
     it('should identify .mjs format correctly', () => {
-      const configPath = path.join(tempDir, 'mdcontext.config.mjs')
+      const configPath = path.join(tempDir, 'mdm.config.mjs')
       fs.writeFileSync(configPath, 'export default {}')
 
       const result = findConfigFile(tempDir)
@@ -138,7 +135,7 @@ describe('File-based ConfigProvider', () => {
         output: { verbose: true },
       }
       fs.writeFileSync(
-        path.join(tempDir, 'mdcontext.config.json'),
+        path.join(tempDir, 'mdm.config.json'),
         JSON.stringify(config),
       )
 
@@ -146,16 +143,13 @@ describe('File-based ConfigProvider', () => {
       expect(result.found).toBe(true)
       if (result.found) {
         expect(result.config).toEqual(config)
-        expect(result.path).toContain('mdcontext.config.json')
+        expect(result.path).toContain('mdm.config.json')
       }
     })
 
-    it('should load .mdcontextrc file', async () => {
+    it('should load .mdmrc file', async () => {
       const config = { search: { defaultLimit: 20 } }
-      fs.writeFileSync(
-        path.join(tempDir, '.mdcontextrc'),
-        JSON.stringify(config),
-      )
+      fs.writeFileSync(path.join(tempDir, '.mdmrc'), JSON.stringify(config))
 
       const result = await Effect.runPromise(loadConfigFile(tempDir))
       expect(result.found).toBe(true)
@@ -165,10 +159,7 @@ describe('File-based ConfigProvider', () => {
     })
 
     it('should fail with ConfigError for invalid JSON', async () => {
-      fs.writeFileSync(
-        path.join(tempDir, 'mdcontext.config.json'),
-        'not valid json',
-      )
+      fs.writeFileSync(path.join(tempDir, 'mdm.config.json'), 'not valid json')
 
       const result = await Effect.runPromiseExit(loadConfigFile(tempDir))
       expect(result._tag).toBe('Failure')
@@ -284,7 +275,7 @@ describe('File-based ConfigProvider', () => {
         output: { debug: true },
       }
       fs.writeFileSync(
-        path.join(tempDir, 'mdcontext.config.json'),
+        path.join(tempDir, 'mdm.config.json'),
         JSON.stringify(config),
       )
 
@@ -305,7 +296,7 @@ describe('File-based ConfigProvider', () => {
 
   describe('JavaScript/TypeScript config loading', () => {
     it('should load .mjs config with default export', async () => {
-      const configPath = path.join(tempDir, 'mdcontext.config.mjs')
+      const configPath = path.join(tempDir, 'mdm.config.mjs')
       fs.writeFileSync(configPath, `export default { index: { maxDepth: 42 } }`)
 
       const result = await Effect.runPromise(loadConfigFile(tempDir))
@@ -316,7 +307,7 @@ describe('File-based ConfigProvider', () => {
     })
 
     it('should load .mjs config with named export', async () => {
-      const configPath = path.join(tempDir, 'mdcontext.config.mjs')
+      const configPath = path.join(tempDir, 'mdm.config.mjs')
       fs.writeFileSync(
         configPath,
         `export const config = { search: { defaultLimit: 50 } }`,
@@ -343,7 +334,7 @@ describe('File-based ConfigProvider', () => {
 
       // Place a config file ABOVE the git root (should not be found)
       fs.writeFileSync(
-        path.join(aboveGit, 'mdcontext.config.json'),
+        path.join(aboveGit, 'mdm.config.json'),
         JSON.stringify({ search: { defaultLimit: 999 } }),
       )
 
@@ -363,13 +354,13 @@ describe('File-based ConfigProvider', () => {
 
       // Place config at the git root itself
       fs.writeFileSync(
-        path.join(gitRoot, 'mdcontext.config.json'),
+        path.join(gitRoot, 'mdm.config.json'),
         JSON.stringify({ index: { maxDepth: 5 } }),
       )
 
       const result = findConfigFile(subDir)
       expect(result).not.toBeNull()
-      expect(result!.path).toBe(path.join(gitRoot, 'mdcontext.config.json'))
+      expect(result!.path).toBe(path.join(gitRoot, 'mdm.config.json'))
     })
   })
 })

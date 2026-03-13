@@ -3,7 +3,7 @@
  *
  * Tests verify:
  * - Pattern matching (globs, negation, comments, directory-only)
- * - Precedence (CLI > .mdcontextignore > .gitignore > defaults)
+ * - Precedence (CLI > .mdmignore > .gitignore > defaults)
  * - Edge cases (missing files, empty files, invalid patterns)
  */
 
@@ -107,9 +107,9 @@ describe('Ignore Patterns Module', () => {
   // ==========================================================================
 
   describe('Precedence', () => {
-    it('CLI patterns override .mdcontextignore', async () => {
+    it('CLI patterns override .mdmignore', async () => {
       await fs.writeFile(
-        path.join(testDir, '.mdcontextignore'),
+        path.join(testDir, '.mdmignore'),
         '*.md\n!important.md\n',
       )
 
@@ -124,10 +124,10 @@ describe('Ignore Patterns Module', () => {
       expect(shouldIgnore('important.md', result.filter)).toBe(true)
     })
 
-    it('.mdcontextignore overrides .gitignore', async () => {
+    it('.mdmignore overrides .gitignore', async () => {
       await fs.writeFile(path.join(testDir, '.gitignore'), '*.md\n')
       await fs.writeFile(
-        path.join(testDir, '.mdcontextignore'),
+        path.join(testDir, '.mdmignore'),
         '!README.md\n', // Allow README.md
       )
 
@@ -135,7 +135,7 @@ describe('Ignore Patterns Module', () => {
         createIgnoreFilter({ rootPath: testDir }),
       )
 
-      // .mdcontextignore negation should override .gitignore
+      // .mdmignore negation should override .gitignore
       expect(shouldIgnore('README.md', result.filter)).toBe(false)
       expect(shouldIgnore('other.md', result.filter)).toBe(true)
     })
@@ -172,21 +172,21 @@ describe('Ignore Patterns Module', () => {
       expect(shouldIgnore('node_modules/pkg/file.js', result.filter)).toBe(true)
     })
 
-    it('handles missing .mdcontextignore gracefully', async () => {
+    it('handles missing .mdmignore gracefully', async () => {
       await fs.writeFile(path.join(testDir, '.gitignore'), '*.log\n')
-      // No .mdcontextignore file exists
+      // No .mdmignore file exists
 
       const result = await Effect.runPromise(
         createIgnoreFilter({ rootPath: testDir }),
       )
 
       expect(result.sources).toContain('.gitignore')
-      expect(result.sources).not.toContain('.mdcontextignore')
+      expect(result.sources).not.toContain('.mdmignore')
     })
 
     it('handles empty files', async () => {
       await fs.writeFile(path.join(testDir, '.gitignore'), '')
-      await fs.writeFile(path.join(testDir, '.mdcontextignore'), '   \n\n')
+      await fs.writeFile(path.join(testDir, '.mdmignore'), '   \n\n')
 
       const result = await Effect.runPromise(
         createIgnoreFilter({ rootPath: testDir }),
@@ -195,7 +195,7 @@ describe('Ignore Patterns Module', () => {
       // Should work with just defaults
       expect(result.filter).toBeDefined()
       expect(result.sources).not.toContain('.gitignore')
-      expect(result.sources).not.toContain('.mdcontextignore')
+      expect(result.sources).not.toContain('.mdmignore')
     })
 
     it('handles whitespace-only patterns (skipped)', async () => {
@@ -268,19 +268,19 @@ describe('Ignore Patterns Module', () => {
       expect(result.sources).not.toContain('.gitignore')
     })
 
-    it('respects honorMdcontextignore=false', async () => {
-      await fs.writeFile(path.join(testDir, '.mdcontextignore'), 'drafts/\n')
+    it('respects honorMdmignore=false', async () => {
+      await fs.writeFile(path.join(testDir, '.mdmignore'), 'drafts/\n')
 
       const result = await Effect.runPromise(
         createIgnoreFilter({
           rootPath: testDir,
-          honorMdcontextignore: false,
+          honorMdmignore: false,
         }),
       )
 
-      // .mdcontextignore patterns should not be applied
+      // .mdmignore patterns should not be applied
       expect(shouldIgnore('drafts/doc.md', result.filter)).toBe(false)
-      expect(result.sources).not.toContain('.mdcontextignore')
+      expect(result.sources).not.toContain('.mdmignore')
     })
   })
 
@@ -338,7 +338,7 @@ describe('Ignore Patterns Module', () => {
   describe('Pattern Count', () => {
     it('counts patterns from all sources', async () => {
       await fs.writeFile(path.join(testDir, '.gitignore'), '*.log\n*.tmp\n')
-      await fs.writeFile(path.join(testDir, '.mdcontextignore'), 'drafts/\n')
+      await fs.writeFile(path.join(testDir, '.mdmignore'), 'drafts/\n')
 
       const result = await Effect.runPromise(
         createIgnoreFilter({
@@ -347,7 +347,7 @@ describe('Ignore Patterns Module', () => {
         }),
       )
 
-      // 4 defaults + 2 gitignore + 1 mdcontextignore + 1 CLI = 8
+      // 4 defaults + 2 gitignore + 1 mdmignore + 1 CLI = 8
       expect(result.patternCount).toBe(8)
     })
   })

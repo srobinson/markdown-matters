@@ -6,7 +6,7 @@
  * vector index and metadata.
  *
  * Directory structure:
- * .mdcontext/
+ * .mdm/
  *   embeddings/
  *     openai_text-embedding-3-small_512/
  *       vectors.bin

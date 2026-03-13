@@ -32,9 +32,9 @@ coverage/
 .env.*.local
 
 # mdcontext indexes (local data)
-.mdcontext/
-!tests/fixtures/cli/.mdcontext/
-!src/__tests__/fixtures/semantic-search/multi-word-corpus/.mdcontext/
+.mdm/
+!tests/fixtures/cli/.mdm/
+!src/__tests__/fixtures/semantic-search/multi-word-corpus/.mdm/
 
 # Temporary files
 *.tmp

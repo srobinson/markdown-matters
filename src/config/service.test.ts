@@ -61,7 +61,7 @@ describe('ConfigService', () => {
       expect(result.search.defaultLimit).toBe(10)
       expect(result.embeddings.provider).toBe('openai')
       expect(result.output.format).toBe('text')
-      expect(result.paths.cacheDir).toBe('.mdcontext/cache')
+      expect(result.paths.cacheDir).toBe('.mdm/cache')
     })
   })
 
@@ -192,7 +192,7 @@ describe('ConfigService', () => {
       expect(result.search.defaultLimit).toBe(10)
       expect(result.embeddings.provider).toBe('openai')
       expect(result.output.format).toBe('text')
-      expect(result.paths.cacheDir).toBe('.mdcontext/cache')
+      expect(result.paths.cacheDir).toBe('.mdm/cache')
     })
   })
 

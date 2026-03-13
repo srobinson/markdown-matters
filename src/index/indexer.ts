@@ -233,8 +233,8 @@ export interface IndexOptions {
   readonly exclude?: readonly string[] | undefined
   /** Whether to honor .gitignore (default: true) */
   readonly honorGitignore?: boolean | undefined
-  /** Whether to honor .mdcontextignore (default: true) */
-  readonly honorMdcontextignore?: boolean | undefined
+  /** Whether to honor .mdmignore (default: true) */
+  readonly honorMdmignore?: boolean | undefined
   /** Whether to follow symbolic links during directory traversal (default: false) */
   readonly followSymlinks?: boolean | undefined
   /** Callback for progress updates during file indexing */
@@ -286,12 +286,12 @@ export const buildIndex = (
       : (existingLinkIndex ?? createEmptyLinkIndex())
 
     // Build ignore filter with proper precedence:
-    // CLI/config patterns > .mdcontextignore > .gitignore > defaults
+    // CLI/config patterns > .mdmignore > .gitignore > defaults
     const ignoreResult = yield* createIgnoreFilter({
       rootPath: storage.rootPath,
       cliPatterns: options.exclude,
       honorGitignore: options.honorGitignore ?? true,
-      honorMdcontextignore: options.honorMdcontextignore ?? true,
+      honorMdmignore: options.honorMdmignore ?? true,
     })
 
     // Discover files: use changedPaths if provided (watcher mode),

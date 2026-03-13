@@ -141,7 +141,7 @@ describe.concurrent('mdcontext CLI e2e', () => {
     it('shows notes section when relevant', async () => {
       const indexHelp = await run('index --help')
       expect(indexHelp).toContain('NOTES')
-      expect(indexHelp).toContain('.mdcontext')
+      expect(indexHelp).toContain('.mdm')
 
       const searchHelp = await run('search --help')
       expect(searchHelp).toContain('NOTES')

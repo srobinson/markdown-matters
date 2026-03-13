@@ -68,7 +68,7 @@ export const indexCommand = Command.make(
     exclude: Options.text('exclude').pipe(
       Options.withAlias('x'),
       Options.withDescription(
-        'Additional patterns to exclude (comma-separated). Patterns from .gitignore and .mdcontextignore are honored automatically.',
+        'Additional patterns to exclude (comma-separated). Patterns from .gitignore and .mdmignore are honored automatically.',
       ),
       Options.optional,
     ),
@@ -146,7 +146,7 @@ export const indexCommand = Command.make(
       const colorEnabled = yield* getConfigValue('output', 'color')
 
       // Parse exclude patterns - CLI adds to ignore files
-      // Note: buildIndex now honors .gitignore and .mdcontextignore by default
+      // Note: buildIndex now honors .gitignore and .mdmignore by default
       const cliExcludePatterns =
         exclude._tag === 'Some'
           ? exclude.value.split(',').map((p) => p.trim())

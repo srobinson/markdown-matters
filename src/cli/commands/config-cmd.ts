@@ -26,13 +26,13 @@ import { formatJson } from '../utils.js'
 const generateConfigContent = (format: 'js' | 'json'): string => {
   if (format === 'json') {
     return `{
-  "$schema": "https://mdcontext.dev/schema.json",
+  "$schema": "https://mdm.dev/schema.json",
   "index": {
     "maxDepth": 10,
     "excludePatterns": ["node_modules", ".git", "dist", "build"],
     "fileExtensions": [".md", ".mdx"],
     "followSymlinks": false,
-    "indexDir": ".mdcontext"
+    "indexDir": ".mdm"
   },
   "search": {
     "defaultLimit": 10,
@@ -72,12 +72,12 @@ const generateConfigContent = (format: 'js' | 'json'): string => {
 
   // JavaScript format with JSDoc type annotation for type safety
   return `/**
- * mdcontext Configuration
+ * mdm Configuration
  *
- * This file configures mdcontext behavior for this project.
- * See https://mdcontext.dev/config for full documentation.
+ * This file configures mdm behavior for this project.
+ * See https://mdm.dev/config for full documentation.
  *
- * @type {import('mdcontext').PartialMdContextConfig}
+ * @type {import('mdm').PartialMdContextConfig}
  */
 export default {
   // Index settings - control how markdown files are discovered and parsed
@@ -94,8 +94,8 @@ export default {
     // Whether to follow symbolic links (default: false)
     followSymlinks: false,
 
-    // Directory for index storage (default: '.mdcontext')
-    indexDir: '.mdcontext',
+    // Directory for index storage (default: '.mdm')
+    indexDir: '.mdm',
   },
 
   // Search settings - configure search behavior and defaults
@@ -242,8 +242,7 @@ const initCommand = Command.make(
       }
 
       // Determine filename based on format
-      const filename =
-        format === 'json' ? 'mdcontext.config.json' : 'mdcontext.config.js'
+      const filename = format === 'json' ? 'mdm.config.json' : 'mdm.config.js'
       const filepath = path.join(cwd, filename)
 
       // Generate content
@@ -278,13 +277,9 @@ const initCommand = Command.make(
             '  - All available options including summarization',
           )
           yield* Console.log('')
-          yield* Console.log(
-            'Edit the file to customize mdcontext for your project.',
-          )
+          yield* Console.log('Edit the file to customize mdm for your project.')
         } else {
-          yield* Console.log(
-            'Edit the file to customize mdcontext for your project.',
-          )
+          yield* Console.log('Edit the file to customize mdm for your project.')
         }
       }
     }),
@@ -326,7 +321,7 @@ const showCommand = Command.make(
             yield* Console.log(`  - ${name}`)
           }
           yield* Console.log('')
-          yield* Console.log("Run 'mdcontext config init' to create one.")
+          yield* Console.log("Run 'mdm config init' to create one.")
         }
         return
       }

@@ -1,13 +1,13 @@
 /**
  * Ignore Pattern Support Module
  *
- * Provides .gitignore and .mdcontextignore support using the battle-tested `ignore` npm package.
+ * Provides .gitignore and .mdmignore support using the battle-tested `ignore` npm package.
  * Implements the following precedence (highest to lowest):
  *
  * 1. CLI --exclude flag
  * 2. MDCONTEXT_INDEX_EXCLUDEPATTERNS env var
  * 3. Config file excludePatterns
- * 4. .mdcontextignore file
+ * 4. .mdmignore file
  * 5. .gitignore file
  * 6. Built-in defaults: ['node_modules', '.git', 'dist', 'build']
  */
@@ -31,8 +31,8 @@ export interface IgnoreOptions {
   readonly cliPatterns?: readonly string[] | undefined
   /** Whether to honor .gitignore (default: true) */
   readonly honorGitignore?: boolean | undefined
-  /** Whether to honor .mdcontextignore (default: true) */
-  readonly honorMdcontextignore?: boolean | undefined
+  /** Whether to honor .mdmignore (default: true) */
+  readonly honorMdmignore?: boolean | undefined
 }
 
 /**
@@ -96,7 +96,7 @@ const countPatterns = (content: string): number => {
  * Loads patterns from (in order, lower priority first):
  * 1. Built-in defaults
  * 2. .gitignore (if exists and honorGitignore is true)
- * 3. .mdcontextignore (if exists and honorMdcontextignore is true)
+ * 3. .mdmignore (if exists and honorMdmignore is true)
  * 4. CLI/config patterns (highest priority)
  *
  * @example
@@ -123,7 +123,7 @@ export const createIgnoreFilter = (
       rootPath,
       cliPatterns = [],
       honorGitignore = true,
-      honorMdcontextignore = true,
+      honorMdmignore = true,
     } = options
 
     const ig = ignore()
@@ -146,16 +146,15 @@ export const createIgnoreFilter = (
       }
     }
 
-    // 3. Load .mdcontextignore if enabled
-    if (honorMdcontextignore) {
-      const mdcontextignorePath = path.join(rootPath, '.mdcontextignore')
-      const mdcontextignoreContent =
-        yield* tryReadIgnoreFile(mdcontextignorePath)
-      if (mdcontextignoreContent.trim()) {
-        ig.add(mdcontextignoreContent)
-        const count = countPatterns(mdcontextignoreContent)
+    // 3. Load .mdmignore if enabled
+    if (honorMdmignore) {
+      const mdmignorePath = path.join(rootPath, '.mdmignore')
+      const mdmignoreContent = yield* tryReadIgnoreFile(mdmignorePath)
+      if (mdmignoreContent.trim()) {
+        ig.add(mdmignoreContent)
+        const count = countPatterns(mdmignoreContent)
         patternCount += count
-        sources.push('.mdcontextignore')
+        sources.push('.mdmignore')
       }
     }
 
@@ -227,7 +226,7 @@ export const getChokidarIgnorePatterns = (
       rootPath,
       cliPatterns = [],
       honorGitignore = true,
-      honorMdcontextignore = true,
+      honorMdmignore = true,
     } = options
 
     const patterns: string[] = []
@@ -252,10 +251,10 @@ export const getChokidarIgnorePatterns = (
       }
     }
 
-    // Load .mdcontextignore patterns
-    if (honorMdcontextignore) {
-      const mdcontextignorePath = path.join(rootPath, '.mdcontextignore')
-      const content = yield* tryReadIgnoreFile(mdcontextignorePath)
+    // Load .mdmignore patterns
+    if (honorMdmignore) {
+      const mdmignorePath = path.join(rootPath, '.mdmignore')
+      const content = yield* tryReadIgnoreFile(mdmignorePath)
       if (content.trim()) {
         const parsed = parseIgnoreFile(content)
         for (const p of parsed) {

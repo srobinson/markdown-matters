@@ -2,8 +2,8 @@
  * Vector store using hnswlib-node
  *
  * Supports both legacy (flat) and namespaced storage layouts:
- * - Legacy: .mdcontext/vectors.bin, .mdcontext/vectors.meta.bin
- * - Namespaced: .mdcontext/embeddings/{namespace}/vectors.bin, vectors.meta.bin
+ * - Legacy: .mdm/vectors.bin, .mdm/vectors.meta.bin
+ * - Namespaced: .mdm/embeddings/{namespace}/vectors.bin, vectors.meta.bin
  *
  * New indexes are written using namespaced storage. Existing legacy indexes
  * continue to be loaded from their original flat locations; this module does
@@ -797,7 +797,7 @@ export const createVectorStore = (
  * Create a namespaced vector store for a specific provider/model.
  *
  * Uses the new namespaced storage structure:
- * .mdcontext/embeddings/{provider}_{model}_{dimensions}/vectors.bin
+ * .mdm/embeddings/{provider}_{model}_{dimensions}/vectors.bin
  *
  * @param rootPath - Root directory containing the index
  * @param provider - Provider name (e.g., "openai", "voyage")

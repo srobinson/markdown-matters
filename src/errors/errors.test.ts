@@ -318,22 +318,22 @@ describe('Error Types', () => {
 
   describe('IndexNotFoundError', () => {
     it('has correct _tag and error code', () => {
-      const error = new IndexNotFoundError({ path: '/.mdcontext/index.json' })
+      const error = new IndexNotFoundError({ path: '/.mdm/index.json' })
       expect(error._tag).toBe('IndexNotFoundError')
       expect(error.code).toBe(ErrorCode.INDEX_NOT_FOUND)
       expect(error.code).toBe('E400')
     })
 
     it('generates dynamic message', () => {
-      const error = new IndexNotFoundError({ path: '/.mdcontext/index.json' })
-      expect(error.message).toBe('Index not found at /.mdcontext/index.json')
+      const error = new IndexNotFoundError({ path: '/.mdm/index.json' })
+      expect(error.message).toBe('Index not found at /.mdm/index.json')
     })
   })
 
   describe('IndexCorruptedError', () => {
     it('has correct _tag and error code', () => {
       const error = new IndexCorruptedError({
-        path: '/.mdcontext/index.json',
+        path: '/.mdm/index.json',
         reason: 'InvalidJson',
       })
       expect(error._tag).toBe('IndexCorruptedError')
@@ -393,16 +393,16 @@ describe('Error Types', () => {
     it('supports optional indexPath field', () => {
       const error = new DocumentNotFoundError({
         path: '/doc.md',
-        indexPath: '/.mdcontext/index.json',
+        indexPath: '/.mdm/index.json',
       })
-      expect(error.indexPath).toBe('/.mdcontext/index.json')
+      expect(error.indexPath).toBe('/.mdm/index.json')
     })
   })
 
   describe('EmbeddingsNotFoundError', () => {
     it('has correct _tag and error code', () => {
       const error = new EmbeddingsNotFoundError({
-        path: '/.mdcontext/embeddings',
+        path: '/.mdm/embeddings',
       })
       expect(error._tag).toBe('EmbeddingsNotFoundError')
       expect(error.code).toBe(ErrorCode.EMBEDDINGS_NOT_FOUND)

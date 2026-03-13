@@ -321,7 +321,7 @@ export const formatError = (error: MdContextError): FormattedError =>
       code: e.code,
       message: 'Index not found',
       details: `No index at ${e.path}`,
-      suggestions: ["Run 'mdcontext index' first to build the index"] as const,
+      suggestions: ["Run 'mdm index' first to build the index"] as const,
       exitCode: EXIT_CODE.USER_ERROR,
     })),
     Match.tag('IndexCorruptedError', (e) => ({
@@ -329,7 +329,7 @@ export const formatError = (error: MdContextError): FormattedError =>
       message: 'Index is corrupted',
       details: e.details ?? `Corruption reason: ${e.reason}`,
       suggestions: [
-        "Delete the .mdcontext folder and run 'mdcontext index' again",
+        "Delete the .mdm folder and run 'mdm index' again",
       ] as const,
       exitCode: EXIT_CODE.USER_ERROR,
     })),
@@ -346,7 +346,7 @@ export const formatError = (error: MdContextError): FormattedError =>
       code: e.code,
       message: `Document not found in index: ${e.path}`,
       suggestions: [
-        "Run 'mdcontext index' to update the index",
+        "Run 'mdm index' to update the index",
         'Check the file path is correct',
       ] as const,
       exitCode: EXIT_CODE.USER_ERROR,
@@ -356,7 +356,7 @@ export const formatError = (error: MdContextError): FormattedError =>
       message: 'Embeddings not found',
       details: `No embeddings at ${e.path}`,
       suggestions: [
-        "Run 'mdcontext index --embed' to build embeddings for semantic search",
+        "Run 'mdm index --embed' to build embeddings for semantic search",
         'Use -k flag for keyword search instead',
       ] as const,
       exitCode: EXIT_CODE.USER_ERROR,
@@ -371,7 +371,7 @@ export const formatError = (error: MdContextError): FormattedError =>
         e.corpusProvider
           ? `Switch back to original provider: --provider ${e.corpusProvider.split(':')[0]} --provider-model ${e.corpusProvider.split(':')[1] ?? ''}`
           : 'Check your embedding provider configuration',
-        "Rebuild corpus with current provider: 'mdcontext index --embed --force'",
+        "Rebuild corpus with current provider: 'mdm index --embed --force'",
         'The corpus was created with different embedding dimensions than your current provider',
       ] as const,
       exitCode: EXIT_CODE.USER_ERROR,
@@ -383,7 +383,7 @@ export const formatError = (error: MdContextError): FormattedError =>
       message: `Vector store error during ${e.operation}`,
       details: e.message,
       suggestions: [
-        "Delete .mdcontext/embeddings and run 'mdcontext index --embed' again",
+        "Delete .mdm/embeddings and run 'mdm index --embed' again",
       ] as const,
       exitCode: EXIT_CODE.SYSTEM_ERROR,
     })),

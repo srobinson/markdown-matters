@@ -147,12 +147,12 @@ describe('Embedding Namespace', () => {
   describe('getEmbeddingsDir', () => {
     it('should return correct embeddings directory path', () => {
       const result = getEmbeddingsDir('/project')
-      expect(result).toBe(path.join('/project', '.mdcontext', 'embeddings'))
+      expect(result).toBe(path.join('/project', '.mdm', 'embeddings'))
     })
 
     it('should handle trailing slash in root path', () => {
       const result = getEmbeddingsDir('/project/')
-      expect(result).toBe(path.join('/project/', '.mdcontext', 'embeddings'))
+      expect(result).toBe(path.join('/project/', '.mdm', 'embeddings'))
     })
   })
 
@@ -165,7 +165,7 @@ describe('Embedding Namespace', () => {
       expect(result).toBe(
         path.join(
           '/project',
-          '.mdcontext',
+          '.mdm',
           'embeddings',
           'openai_text-embedding-3-small_512',
         ),
@@ -220,7 +220,7 @@ describe('Embedding Namespace', () => {
       expect(result).toBe(
         path.join(
           '/project',
-          '.mdcontext',
+          '.mdm',
           'embeddings',
           'openai_text-embedding-3-small_512',
           'vectors.bin',
@@ -242,7 +242,7 @@ describe('Embedding Namespace', () => {
       expect(result).toBe(
         path.join(
           '/project',
-          '.mdcontext',
+          '.mdm',
           'embeddings',
           'openai_text-embedding-3-small_512',
           'vectors.meta.bin',

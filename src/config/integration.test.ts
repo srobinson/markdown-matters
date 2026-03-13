@@ -86,7 +86,7 @@ describe('Config Integration Tests', () => {
         search: { defaultLimit: 50 },
       }
       fs.writeFileSync(
-        path.join(tempDir, 'mdcontext.config.json'),
+        path.join(tempDir, 'mdm.config.json'),
         JSON.stringify(fileConfig),
       )
 
@@ -115,7 +115,7 @@ describe('Config Integration Tests', () => {
         search: { defaultLimit: 50 },
       }
       fs.writeFileSync(
-        path.join(tempDir, 'mdcontext.config.json'),
+        path.join(tempDir, 'mdm.config.json'),
         JSON.stringify(fileConfig),
       )
 
@@ -146,7 +146,7 @@ describe('Config Integration Tests', () => {
         search: { defaultLimit: 50 },
       }
       fs.writeFileSync(
-        path.join(tempDir, 'mdcontext.config.json'),
+        path.join(tempDir, 'mdm.config.json'),
         JSON.stringify(fileConfig),
       )
 
@@ -179,7 +179,7 @@ describe('Config Integration Tests', () => {
         output: { verbose: true },
       }
       fs.writeFileSync(
-        path.join(tempDir, 'mdcontext.config.json'),
+        path.join(tempDir, 'mdm.config.json'),
         JSON.stringify(fileConfig),
       )
 
@@ -227,7 +227,7 @@ describe('Config Integration Tests', () => {
         index: { excludePatterns: ['custom-ignore', '*.bak'] },
       }
       fs.writeFileSync(
-        path.join(tempDir, 'mdcontext.config.json'),
+        path.join(tempDir, 'mdm.config.json'),
         JSON.stringify(fileConfig),
       )
 
@@ -250,7 +250,7 @@ describe('Config Integration Tests', () => {
         index: { excludePatterns: ['custom-ignore', '*.bak'] },
       }
       fs.writeFileSync(
-        path.join(tempDir, 'mdcontext.config.json'),
+        path.join(tempDir, 'mdm.config.json'),
         JSON.stringify(fileConfig),
       )
 
@@ -342,7 +342,7 @@ describe('Config Integration Tests', () => {
   describe('Invalid config error handling', () => {
     it('should produce ConfigError for invalid JSON in config file', async () => {
       fs.writeFileSync(
-        path.join(tempDir, 'mdcontext.config.json'),
+        path.join(tempDir, 'mdm.config.json'),
         'not valid json { broken',
       )
 
@@ -373,7 +373,7 @@ describe('Config Integration Tests', () => {
     it('should produce ConfigError with helpful details for malformed config', async () => {
       // Write config with invalid type (maxDepth should be number)
       fs.writeFileSync(
-        path.join(tempDir, 'mdcontext.config.json'),
+        path.join(tempDir, 'mdm.config.json'),
         JSON.stringify({ index: { maxDepth: 'not-a-number' } }),
       )
 
@@ -395,7 +395,7 @@ describe('Config Integration Tests', () => {
     })
 
     it('should include source file path in error for file-based errors', async () => {
-      const configPath = path.join(tempDir, 'mdcontext.config.json')
+      const configPath = path.join(tempDir, 'mdm.config.json')
       fs.writeFileSync(configPath, '{ invalid json }')
 
       const result = await Effect.runPromiseExit(loadConfigFromPath(configPath))
@@ -404,7 +404,7 @@ describe('Config Integration Tests', () => {
       if (result._tag === 'Failure') {
         const errorStr = String(result.cause)
         // Error should mention the file path
-        expect(errorStr).toContain('mdcontext.config.json')
+        expect(errorStr).toContain('mdm.config.json')
       }
     })
   })
@@ -413,7 +413,7 @@ describe('Config Integration Tests', () => {
     it('should load JSON config file', async () => {
       const config = { index: { maxDepth: 15 } }
       fs.writeFileSync(
-        path.join(tempDir, 'mdcontext.config.json'),
+        path.join(tempDir, 'mdm.config.json'),
         JSON.stringify(config),
       )
 
@@ -424,12 +424,9 @@ describe('Config Integration Tests', () => {
       }
     })
 
-    it('should load .mdcontextrc file (JSON format)', async () => {
+    it('should load .mdmrc file (JSON format)', async () => {
       const config = { search: { defaultLimit: 25 } }
-      fs.writeFileSync(
-        path.join(tempDir, '.mdcontextrc'),
-        JSON.stringify(config),
-      )
+      fs.writeFileSync(path.join(tempDir, '.mdmrc'), JSON.stringify(config))
 
       const result = await Effect.runPromise(loadConfigFile(tempDir))
       expect(result.found).toBe(true)
@@ -439,7 +436,7 @@ describe('Config Integration Tests', () => {
     })
 
     it('should load .mjs config with default export', async () => {
-      const configPath = path.join(tempDir, 'mdcontext.config.mjs')
+      const configPath = path.join(tempDir, 'mdm.config.mjs')
       fs.writeFileSync(
         configPath,
         `export default { output: { verbose: true } }`,
@@ -453,7 +450,7 @@ describe('Config Integration Tests', () => {
     })
 
     it('should load .mjs config with named export', async () => {
-      const configPath = path.join(tempDir, 'mdcontext.config.mjs')
+      const configPath = path.join(tempDir, 'mdm.config.mjs')
       fs.writeFileSync(
         configPath,
         `export const config = { embeddings: { batchSize: 50 } }`,
@@ -480,7 +477,7 @@ describe('Config Integration Tests', () => {
         output: { prettyJson: true },
       }
       fs.writeFileSync(
-        path.join(tempDir, 'mdcontext.config.json'),
+        path.join(tempDir, 'mdm.config.json'),
         JSON.stringify(teamConfig),
       )
 
@@ -543,7 +540,7 @@ describe('Config Integration Tests', () => {
         search: { defaultLimit: 20 },
       }
       fs.writeFileSync(
-        path.join(tempDir, 'mdcontext.config.json'),
+        path.join(tempDir, 'mdm.config.json'),
         JSON.stringify(fileConfig),
       )
 
@@ -585,7 +582,7 @@ describe('Config Integration Tests', () => {
     it('should use explicit config path over auto-detected config', async () => {
       // Create auto-detected config
       fs.writeFileSync(
-        path.join(tempDir, 'mdcontext.config.json'),
+        path.join(tempDir, 'mdm.config.json'),
         JSON.stringify({ index: { maxDepth: 10 } }),
       )
 

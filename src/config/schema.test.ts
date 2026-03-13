@@ -37,7 +37,7 @@ describe('Config Schema', () => {
       ])
       expect(result.fileExtensions).toEqual(['.md', '.mdx'])
       expect(result.followSymlinks).toBe(false)
-      expect(result.indexDir).toBe('.mdcontext')
+      expect(result.indexDir).toBe('.mdm')
     })
 
     it('should read values from ConfigProvider', async () => {
@@ -218,7 +218,7 @@ describe('Config Schema', () => {
 
       expect(Option.isNone(result.root)).toBe(true)
       expect(Option.isNone(result.configFile)).toBe(true)
-      expect(result.cacheDir).toBe('.mdcontext/cache')
+      expect(result.cacheDir).toBe('.mdm/cache')
     })
 
     it('should read values from ConfigProvider', async () => {
@@ -261,7 +261,7 @@ describe('Config Schema', () => {
       expect(result.search.defaultLimit).toBe(10)
       expect(result.embeddings.provider).toBe('openai')
       expect(result.output.format).toBe('text')
-      expect(result.paths.cacheDir).toBe('.mdcontext/cache')
+      expect(result.paths.cacheDir).toBe('.mdm/cache')
     })
 
     it('should read nested values from ConfigProvider with dot notation', async () => {
@@ -340,7 +340,7 @@ describe('Config Schema', () => {
       ])
       expect(defaultConfig.index.fileExtensions).toEqual(['.md', '.mdx'])
       expect(defaultConfig.index.followSymlinks).toBe(false)
-      expect(defaultConfig.index.indexDir).toBe('.mdcontext')
+      expect(defaultConfig.index.indexDir).toBe('.mdm')
 
       expect(defaultConfig.search.defaultLimit).toBe(10)
       expect(defaultConfig.search.maxLimit).toBe(100)
@@ -364,7 +364,7 @@ describe('Config Schema', () => {
 
       expect(Option.isNone(defaultConfig.paths.root)).toBe(true)
       expect(Option.isNone(defaultConfig.paths.configFile)).toBe(true)
-      expect(defaultConfig.paths.cacheDir).toBe('.mdcontext/cache')
+      expect(defaultConfig.paths.cacheDir).toBe('.mdm/cache')
     })
   })
 

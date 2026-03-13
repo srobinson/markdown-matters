@@ -2,11 +2,11 @@
  * File-based ConfigProvider
  *
  * Creates a custom ConfigProvider that reads from config files:
- * - mdcontext.config.ts (TypeScript - dynamic import)
- * - mdcontext.config.js (JavaScript - dynamic import)
- * - mdcontext.config.json (JSON - file read)
- * - .mdcontextrc (JSON - file read)
- * - .mdcontextrc.json (JSON - file read)
+ * - mdm.config.ts (TypeScript - dynamic import)
+ * - mdm.config.js (JavaScript - dynamic import)
+ * - mdm.config.json (JSON - file read)
+ * - .mdmrc (JSON - file read)
+ * - .mdmrc.json (JSON - file read)
  *
  * ## Usage
  *
@@ -37,12 +37,12 @@ import type { PartialMdContextConfig } from './service.js'
  * Supported config file names in order of precedence
  */
 export const CONFIG_FILE_NAMES = [
-  'mdcontext.config.ts',
-  'mdcontext.config.js',
-  'mdcontext.config.mjs',
-  'mdcontext.config.json',
-  '.mdcontextrc',
-  '.mdcontextrc.json',
+  'mdm.config.ts',
+  'mdm.config.js',
+  'mdm.config.mjs',
+  'mdm.config.json',
+  '.mdmrc',
+  '.mdmrc.json',
 ] as const
 
 export type ConfigFileName = (typeof CONFIG_FILE_NAMES)[number]

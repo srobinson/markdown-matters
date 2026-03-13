@@ -61,8 +61,8 @@ export interface WatcherOptions extends IndexOptions {
   readonly onError?: (error: WatchError) => void
   /** Whether to honor .gitignore for file watching (default: true) */
   readonly honorGitignore?: boolean
-  /** Whether to honor .mdcontextignore for file watching (default: true) */
-  readonly honorMdcontextignore?: boolean
+  /** Whether to honor .mdmignore for file watching (default: true) */
+  readonly honorMdmignore?: boolean
 }
 
 export interface Watcher {
@@ -138,7 +138,7 @@ export const watchDirectory = (
       rootPath: resolvedRoot,
       cliPatterns: options.exclude,
       honorGitignore: options.honorGitignore ?? true,
-      honorMdcontextignore: options.honorMdcontextignore ?? true,
+      honorMdmignore: options.honorMdmignore ?? true,
     })
 
     // Set up chokidar watcher with dynamic ignore patterns

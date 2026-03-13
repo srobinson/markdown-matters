@@ -183,7 +183,7 @@ export const helpContent: Record<string, CommandHelp> = {
       'After indexing, prompts to enable semantic search (use --no-embed to skip).',
       'Providers: openai (default), ollama (free/local), lm-studio, openrouter, voyage.',
       'Set API keys: OPENAI_API_KEY, OPENROUTER_API_KEY, or use local providers.',
-      'Index is stored in .mdcontext/ directory.',
+      'Index is stored in .mdm/ directory.',
     ],
   },
   search: {

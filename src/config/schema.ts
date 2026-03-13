@@ -68,9 +68,9 @@ export const IndexConfig = Config.all({
 
   /**
    * Directory where index files are stored (relative to project root)
-   * Default: '.mdcontext'
+   * Default: '.mdm'
    */
-  indexDir: Config.string('indexDir').pipe(Config.withDefault('.mdcontext')),
+  indexDir: Config.string('indexDir').pipe(Config.withDefault('.mdm')),
 })
 
 /**
@@ -498,11 +498,9 @@ export const PathsConfig = Config.all({
 
   /**
    * Cache directory for temporary files
-   * Default: '.mdcontext/cache'
+   * Default: '.mdm/cache'
    */
-  cacheDir: Config.string('cacheDir').pipe(
-    Config.withDefault('.mdcontext/cache'),
-  ),
+  cacheDir: Config.string('cacheDir').pipe(Config.withDefault('.mdm/cache')),
 })
 
 /**
@@ -549,7 +547,7 @@ export const defaultConfig: MdContextConfig = {
     excludePatterns: ['node_modules', '.git', 'dist', 'build'],
     fileExtensions: ['.md', '.mdx'],
     followSymlinks: false,
-    indexDir: '.mdcontext',
+    indexDir: '.mdm',
   },
   search: {
     defaultLimit: 10,
@@ -598,6 +596,6 @@ export const defaultConfig: MdContextConfig = {
   paths: {
     root: Option.none(),
     configFile: Option.none(),
-    cacheDir: '.mdcontext/cache',
+    cacheDir: '.mdm/cache',
   },
 }

@@ -141,15 +141,15 @@ describe('Embed + Index Integration Tests', () => {
       expect(result.errors).toHaveLength(0)
     })
 
-    it('creates .mdcontext directory structure', async () => {
+    it('creates .mdm directory structure', async () => {
       createSmallCorpus(tempDir)
 
       await Effect.runPromise(buildIndex(tempDir))
 
-      const mdcontextDir = path.join(tempDir, '.mdcontext')
-      const indexesDir = path.join(mdcontextDir, 'indexes')
-      expect(fileExists(mdcontextDir)).toBe(true)
-      expect(fileExists(path.join(mdcontextDir, 'config.json'))).toBe(true)
+      const mdmDir = path.join(tempDir, '.mdm')
+      const indexesDir = path.join(mdmDir, 'indexes')
+      expect(fileExists(mdmDir)).toBe(true)
+      expect(fileExists(path.join(mdmDir, 'config.json'))).toBe(true)
       expect(fileExists(path.join(indexesDir, 'documents.json'))).toBe(true)
       expect(fileExists(path.join(indexesDir, 'sections.json'))).toBe(true)
       expect(fileExists(path.join(indexesDir, 'links.json'))).toBe(true)
@@ -177,8 +177,8 @@ describe('Embed + Index Integration Tests', () => {
       await Effect.runPromise(vectorStore.save())
 
       // Check that binary format (.bin) is created, not JSON
-      const metaPath = path.join(tempDir, '.mdcontext', 'vectors.meta.bin')
-      const jsonPath = path.join(tempDir, '.mdcontext', 'vectors.meta.json')
+      const metaPath = path.join(tempDir, '.mdm', 'vectors.meta.bin')
+      const jsonPath = path.join(tempDir, '.mdm', 'vectors.meta.json')
 
       expect(fileExists(metaPath)).toBe(true)
       expect(fileExists(jsonPath)).toBe(false)
@@ -252,7 +252,7 @@ describe('Embed + Index Integration Tests', () => {
 
       await Effect.runPromise(buildIndex(tempDir))
 
-      const metaPath = path.join(tempDir, '.mdcontext', 'vectors.meta.bin')
+      const metaPath = path.join(tempDir, '.mdm', 'vectors.meta.bin')
 
       // Create a large vector store with some entries to test MessagePack
       const vectorStore = createVectorStore(tempDir, 512)
@@ -283,23 +283,13 @@ describe('Embed + Index Integration Tests', () => {
       await Effect.runPromise(buildIndex(tempDir))
 
       // Check document index size
-      const docPath = path.join(
-        tempDir,
-        '.mdcontext',
-        'indexes',
-        'documents.json',
-      )
+      const docPath = path.join(tempDir, '.mdm', 'indexes', 'documents.json')
       const docSize = getFileSize(docPath)
       expect(docSize).toBeGreaterThan(0)
       expect(docSize).toBeLessThan(50_000_000) // < 50MB reasonable for 1000+ docs
 
       // Check section index size
-      const sectionPath = path.join(
-        tempDir,
-        '.mdcontext',
-        'indexes',
-        'sections.json',
-      )
+      const sectionPath = path.join(tempDir, '.mdm', 'indexes', 'sections.json')
       const sectionSize = getFileSize(sectionPath)
       expect(sectionSize).toBeGreaterThan(0)
       expect(sectionSize).toBeLessThan(100_000_000) // < 100MB reasonable
@@ -361,8 +351,8 @@ describe('Embed + Index Integration Tests', () => {
       )
       await Effect.runPromise(vectorStore.save())
 
-      const binPath = path.join(tempDir, '.mdcontext', 'vectors.meta.bin')
-      const jsonPath = path.join(tempDir, '.mdcontext', 'vectors.meta.json')
+      const binPath = path.join(tempDir, '.mdm', 'vectors.meta.bin')
+      const jsonPath = path.join(tempDir, '.mdm', 'vectors.meta.json')
 
       expect(fileExists(binPath)).toBe(true)
       expect(fileExists(jsonPath)).toBe(false)
@@ -423,7 +413,7 @@ describe('Embed + Index Integration Tests', () => {
 
         // For very large corpora (>100MB), a warning should appear
         // This test verifies the warning system works
-        const metaPath = path.join(tempDir, '.mdcontext', 'vectors.meta.bin')
+        const metaPath = path.join(tempDir, '.mdm', 'vectors.meta.bin')
         const size = getFileSize(metaPath)
 
         if (size > 100_000_000) {
@@ -638,19 +628,15 @@ describe('Embed + Index Integration Tests', () => {
       expect(result.skipped.excluded).toBeGreaterThan(0)
     })
 
-    it('handles .mdcontextignore patterns correctly', async () => {
+    it('handles .mdmignore patterns correctly', async () => {
       createSmallCorpus(tempDir)
 
-      // Create .mdcontextignore
-      fs.writeFileSync(
-        path.join(tempDir, '.mdcontextignore'),
-        'guides/\n',
-        'utf-8',
-      )
+      // Create .mdmignore
+      fs.writeFileSync(path.join(tempDir, '.mdmignore'), 'guides/\n', 'utf-8')
 
       const result = await Effect.runPromise(buildIndex(tempDir))
 
-      // Should respect .mdcontextignore
+      // Should respect .mdmignore
       expect(result.skipped.excluded).toBeGreaterThan(0)
     })
   })

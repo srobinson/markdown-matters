@@ -104,7 +104,7 @@ export const isRegexPattern = (query: string): boolean => {
 
 /**
  * Check if embeddings exist for a directory.
- * Checks for namespaced embeddings in .mdcontext/embeddings/<namespace>/vectors.bin
+ * Checks for namespaced embeddings in .mdm/embeddings/<namespace>/vectors.bin
  */
 export const hasEmbeddings = async (dir: string): Promise<boolean> => {
   try {
@@ -118,7 +118,7 @@ export const hasEmbeddings = async (dir: string): Promise<boolean> => {
 }
 
 /**
- * Find the nearest parent directory containing an mdcontext index.
+ * Find the nearest parent directory containing an mdm index.
  * Searches from the specified directory up to the filesystem root.
  *
  * @param startDir - Directory to start searching from
@@ -133,7 +133,7 @@ export const findIndexRoot = async (
   while (currentDir !== root) {
     const sectionsPath = path.join(
       currentDir,
-      '.mdcontext',
+      '.mdm',
       'indexes',
       'sections.json',
     )
@@ -149,12 +149,7 @@ export const findIndexRoot = async (
   }
 
   // Also check root
-  const rootSectionsPath = path.join(
-    root,
-    '.mdcontext',
-    'indexes',
-    'sections.json',
-  )
+  const rootSectionsPath = path.join(root, '.mdm', 'indexes', 'sections.json')
   try {
     await fsPromises.access(rootSectionsPath)
     return root
@@ -179,7 +174,7 @@ export interface IndexInfo {
 export const getIndexInfo = async (dir: string): Promise<IndexInfo> => {
   // First try the specified directory
   let indexRoot = dir
-  let sectionsPath = path.join(dir, '.mdcontext', 'indexes', 'sections.json')
+  let sectionsPath = path.join(dir, '.mdm', 'indexes', 'sections.json')
 
   let exists = false
   let lastUpdated: string | undefined
@@ -201,12 +196,7 @@ export const getIndexInfo = async (dir: string): Promise<IndexInfo> => {
     const foundRoot = await findIndexRoot(dir)
     if (foundRoot) {
       indexRoot = foundRoot
-      sectionsPath = path.join(
-        foundRoot,
-        '.mdcontext',
-        'indexes',
-        'sections.json',
-      )
+      sectionsPath = path.join(foundRoot, '.mdm', 'indexes', 'sections.json')
 
       try {
         const stat = await fsPromises.stat(sectionsPath)
