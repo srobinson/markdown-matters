@@ -33,9 +33,11 @@ export const prettyOption = Options.boolean('pretty').pipe(
 )
 
 /**
- * Force full rebuild
+ * Bypass mtime/hash checks and re-process every file.
+ * Does NOT delete the index directory.
  */
 export const forceOption = Options.boolean('force').pipe(
-  Options.withDescription('Force full rebuild, ignoring cache'),
+  Options.withAlias('f'),
+  Options.withDescription('Bypass mtime/hash cache and re-process every file'),
   Options.withDefault(false),
 )

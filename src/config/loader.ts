@@ -437,3 +437,37 @@ export const validateConfig = (config: MdmConfig): MdmConfig => {
 
   return result
 }
+
+// ============================================================================
+// Global Sources
+// ============================================================================
+
+export interface GlobalSource {
+  readonly path: string
+  readonly name?: string | undefined
+}
+
+/**
+ * Read registered sources from the global config file (~/.mdm/.mdm.toml).
+ * Returns an empty array if the file does not exist or has no [[sources]].
+ */
+export const readGlobalSources = (): GlobalSource[] => {
+  const globalPath = path.join(os.homedir(), '.mdm', '.mdm.toml')
+  try {
+    if (!fs.existsSync(globalPath)) return []
+    const content = fs.readFileSync(globalPath, 'utf-8')
+    const parsed = parseToml(content) as Record<string, unknown>
+    const sources = parsed.sources
+    if (!Array.isArray(sources)) return []
+    return sources
+      .filter(
+        (s): s is { path: string; name?: string } =>
+          typeof s === 'object' &&
+          s !== null &&
+          typeof (s as Record<string, unknown>).path === 'string',
+      )
+      .map((s) => ({ path: s.path, name: s.name }))
+  } catch {
+    return []
+  }
+}

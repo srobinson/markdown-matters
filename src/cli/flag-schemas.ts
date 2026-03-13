@@ -55,7 +55,8 @@ const prettyFlag: FlagSpec = {
 const forceFlag: FlagSpec = {
   name: 'force',
   type: 'boolean',
-  description: 'Force full rebuild',
+  alias: 'f',
+  description: 'Bypass mtime/hash cache and re-process every file',
 }
 
 const rootFlag: FlagSpec = {
@@ -125,6 +126,13 @@ export const indexSchema: CommandSchema = {
       type: 'boolean',
       alias: 'w',
       description: 'Watch for changes',
+    },
+    {
+      name: 'all',
+      type: 'boolean',
+      alias: 'a',
+      description:
+        'Index all registered sources from global config (~/.mdm/.mdm.toml)',
     },
     forceFlag,
     jsonFlag,

@@ -5,6 +5,7 @@
  */
 
 export {
+  type GlobalSource,
   type LoadOptions,
   // Loader
   load,
@@ -14,6 +15,7 @@ export {
   type PartialMdmConfig,
   readEnvVars,
   readEnvVarsMap,
+  readGlobalSources,
   validateConfig,
 } from './loader.js'
 export {
