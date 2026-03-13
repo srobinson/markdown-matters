@@ -383,6 +383,33 @@ export const helpContent: Record<string, CommandHelp> = {
       'See docs/CONFIG.md for full configuration reference.',
     ],
   },
+  duplicates: {
+    description: 'Detect duplicate content in markdown files',
+    usage: 'mdcontext duplicates [path] [options]',
+    examples: [
+      'mdcontext duplicates                      # Find duplicates in current directory',
+      'mdcontext duplicates docs/                 # Find duplicates in docs/',
+      'mdcontext duplicates --min-length 100      # Only flag sections over 100 chars',
+      'mdcontext duplicates -p "docs/**" --json   # Filter by path, JSON output',
+    ],
+    options: [
+      {
+        name: '--min-length <n>',
+        description:
+          'Minimum content length (characters) to consider (default: 50)',
+      },
+      {
+        name: '-p, --path <pattern>',
+        description: 'Filter by document path pattern (glob)',
+      },
+      { name: '--json', description: 'Output as JSON' },
+      { name: '--pretty', description: 'Pretty-print JSON output' },
+    ],
+    notes: [
+      'Requires an index. Run "mdcontext index" first.',
+      'Compares sections by content similarity to find duplicates.',
+    ],
+  },
   embeddings: {
     description: 'Manage embedding namespaces',
     usage: 'mdcontext embeddings <command> [options]',
@@ -474,6 +501,7 @@ export const showMainHelp = (): void => {
   context <files>...        Get LLM-ready summary
   tree [path]               Show files or document outline
   config <command>          Configuration management
+  duplicates [path]         Detect duplicate content
   embeddings <command>      Manage embedding namespaces
   links <file>              Show outgoing links
   backlinks <file>          Show incoming links
