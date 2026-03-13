@@ -5,6 +5,7 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { Effect } from 'effect'
+import type { ContextLine } from '../core/types.js'
 
 import {
   CliValidationError,
@@ -110,14 +111,7 @@ export interface ContentMatch {
   readonly contextLines?: readonly ContextLine[]
 }
 
-export interface ContextLine {
-  /** The line number (1-based) */
-  readonly lineNumber: number
-  /** The line text */
-  readonly line: string
-  /** Whether this is the matching line */
-  readonly isMatch: boolean
-}
+// ContextLine is re-exported from src/core/types.ts (canonical definition)
 
 export interface SearchResult {
   readonly section: SectionEntry

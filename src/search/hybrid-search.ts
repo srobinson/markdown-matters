@@ -10,6 +10,7 @@
 
 import * as path from 'node:path'
 import { Effect } from 'effect'
+import type { ContextLine } from '../core/types.js'
 import { listNamespaces } from '../embeddings/embedding-namespace.js'
 import { semanticSearch } from '../embeddings/semantic-search.js'
 import type {
@@ -84,14 +85,7 @@ export interface HybridSearchResult {
   readonly contextLines?: readonly ContextLine[] | undefined
 }
 
-export interface ContextLine {
-  /** The line number (1-based) */
-  readonly lineNumber: number
-  /** The line text */
-  readonly line: string
-  /** Whether this is a matching line (for keyword search) */
-  readonly isMatch: boolean
-}
+// ContextLine is imported from src/core/types.ts (canonical definition)
 
 export interface HybridSearchStats {
   readonly mode: SearchMode

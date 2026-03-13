@@ -2,6 +2,10 @@
  * Embedding types for mdcontext
  */
 
+import type { ContextLine } from '../core/types.js'
+
+export type { ContextLine } from '../core/types.js'
+
 // ============================================================================
 // Embedding Provider
 // ============================================================================
@@ -316,20 +320,7 @@ export interface SemanticSearchResult {
   readonly contextLines?: readonly ContextLine[] | undefined
 }
 
-export interface ContextLine {
-  /** The line number (1-based) */
-  readonly lineNumber: number
-  /** The line text */
-  readonly line: string
-  /**
-   * Whether this line is part of the matched result.
-   *
-   * - For keyword search: true when the line directly matches the query.
-   * - For semantic/hybrid search: true when the line lies within the
-   *   selected/matched section span, even if it is not a direct text match.
-   */
-  readonly isMatch: boolean
-}
+// ContextLine is re-exported from src/core/types.ts (canonical definition)
 
 /**
  * Extended semantic search result including metadata about below-threshold results.
