@@ -22,6 +22,7 @@ import {
   loadSectionIndex,
 } from '../index/storage.js'
 import type { SectionEntry } from '../index/types.js'
+import { matchPath } from '../search/path-matcher.js'
 import {
   type ActiveProvider,
   generateNamespace,
@@ -175,12 +176,9 @@ export const estimateEmbeddingCost = (
 
       // Check exclude patterns
       if (options.excludePatterns?.length) {
-        const excluded = options.excludePatterns.some((pattern) => {
-          const regex = new RegExp(
-            `^${pattern.replace(/\*/g, '.*').replace(/\?/g, '.')}$`,
-          )
-          return regex.test(section.documentPath)
-        })
+        const excluded = options.excludePatterns.some((pattern) =>
+          matchPath(section.documentPath, pattern),
+        )
         if (excluded) continue
       }
 
@@ -381,12 +379,9 @@ export const buildEmbeddings = (
     // Helper to check if a path matches exclude patterns
     const isExcluded = (docPath: string): boolean => {
       if (!options.excludePatterns?.length) return false
-      return options.excludePatterns.some((pattern) => {
-        const regex = new RegExp(
-          `^${pattern.replace(/\*/g, '.*').replace(/\?/g, '.')}$`,
-        )
-        return regex.test(docPath)
-      })
+      return options.excludePatterns.some((pattern) =>
+        matchPath(docPath, pattern),
+      )
     }
 
     // Group sections by document for efficient file reading
@@ -814,11 +809,9 @@ export const semanticSearch = (
     // Apply path filter if specified
     let filteredResults = searchResults
     if (options.pathPattern) {
-      const pattern = options.pathPattern
-        .replace(/\./g, '\\.')
-        .replace(/\*/g, '.*')
-      const regex = new RegExp(`^${pattern}$`, 'i')
-      filteredResults = searchResults.filter((r) => regex.test(r.documentPath))
+      filteredResults = searchResults.filter((r) =>
+        matchPath(r.documentPath, options.pathPattern!),
+      )
     }
 
     // Apply ranking boost (heading + file importance, enabled by default)
@@ -1020,12 +1013,8 @@ export const semanticSearchWithStats = (
     // Apply path filter if specified
     let filteredResults = searchResultWithStats.results
     if (options.pathPattern) {
-      const pattern = options.pathPattern
-        .replace(/\./g, '\\.')
-        .replace(/\*/g, '.*')
-      const regex = new RegExp(`^${pattern}$`, 'i')
       filteredResults = searchResultWithStats.results.filter((r) =>
-        regex.test(r.documentPath),
+        matchPath(r.documentPath, options.pathPattern!),
       )
     }
 
