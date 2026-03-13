@@ -119,7 +119,7 @@ const tools: Tool[] = [
       properties: {
         heading: {
           type: 'string',
-          description: 'Filter by heading pattern (regex)',
+          description: 'Filter by heading pattern (regex, max 200 chars)',
         },
         path_filter: {
           type: 'string',

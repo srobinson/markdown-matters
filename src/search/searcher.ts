@@ -7,6 +7,7 @@ import * as path from 'node:path'
 import { Effect } from 'effect'
 
 import {
+  CliValidationError,
   DocumentNotFoundError,
   type FileReadError,
   type IndexCorruptedError,
@@ -32,6 +33,36 @@ import {
   type ParsedQuery,
   parseQuery,
 } from './query-parser.js'
+
+// ============================================================================
+// Regex Safety
+// ============================================================================
+
+const MAX_REGEX_LENGTH = 200
+
+/**
+ * Build a RegExp from user input with length validation and syntax error handling.
+ * Returns an Effect that fails with CliValidationError on invalid or too-long patterns.
+ */
+const safeRegex = (
+  pattern: string,
+  flags: string,
+): Effect.Effect<RegExp, CliValidationError> => {
+  if (pattern.length > MAX_REGEX_LENGTH) {
+    return Effect.fail(
+      new CliValidationError({
+        message: `Regex pattern too long (${pattern.length} chars, max ${MAX_REGEX_LENGTH})`,
+      }),
+    )
+  }
+  return Effect.try({
+    try: () => new RegExp(pattern, flags),
+    catch: (e) =>
+      new CliValidationError({
+        message: `Invalid regex pattern: ${e instanceof Error ? e.message : String(e)}`,
+      }),
+  })
+}
 
 // ============================================================================
 // Search Options
@@ -115,7 +146,7 @@ export const search = (
   options: SearchOptions = {},
 ): Effect.Effect<
   readonly SearchResult[],
-  FileReadError | IndexCorruptedError
+  FileReadError | IndexCorruptedError | CliValidationError
 > =>
   Effect.gen(function* () {
     const storage = createStorage(rootPath)
@@ -129,7 +160,7 @@ export const search = (
 
     const results: SearchResult[] = []
     const headingRegex = options.heading
-      ? new RegExp(options.heading, 'i')
+      ? yield* safeRegex(options.heading, 'i')
       : null
 
     for (const section of Object.values(sectionIndex.sections)) {
@@ -214,7 +245,7 @@ export const searchContent = (
   options: SearchOptions = {},
 ): Effect.Effect<
   readonly SearchResult[],
-  FileReadError | IndexCorruptedError
+  FileReadError | IndexCorruptedError | CliValidationError
 > =>
   Effect.gen(function* () {
     const storage = createStorage(rootPath)
@@ -254,7 +285,7 @@ export const searchContent = (
       } else {
         // Simple search - use regex for exact match, or fuzzy/stem matching
         if (!useFuzzyOrStem) {
-          contentRegex = new RegExp(options.content, 'gi')
+          contentRegex = yield* safeRegex(options.content, 'gi')
           highlightRegex = contentRegex
         } else {
           // For fuzzy/stem mode, build a highlight pattern
@@ -267,7 +298,7 @@ export const searchContent = (
     }
 
     const headingRegex = options.heading
-      ? new RegExp(options.heading, 'i')
+      ? yield* safeRegex(options.heading, 'i')
       : null
 
     const results: SearchResult[] = []
@@ -506,7 +537,7 @@ export const searchWithContent = (
   options: SearchOptions = {},
 ): Effect.Effect<
   readonly SearchResult[],
-  FileReadError | IndexCorruptedError
+  FileReadError | IndexCorruptedError | CliValidationError
 > =>
   Effect.gen(function* () {
     const storage = createStorage(rootPath)
