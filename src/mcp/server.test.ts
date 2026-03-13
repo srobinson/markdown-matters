@@ -471,38 +471,56 @@ describe('MCP Server', () => {
   // ==========================================================================
 
   describe('missing required args', () => {
-    // When required args are missing, the handler receives undefined and
-    // the underlying Node.js APIs throw, propagating as MCP protocol errors.
+    // Schema validation catches missing required args and returns a
+    // structured MCP error response (isError: true) with a descriptive message.
 
-    it('md_context without path should throw protocol error', async () => {
-      await expect(
-        client.callTool({ name: 'md_context', arguments: {} }),
-      ).rejects.toThrow()
+    it('md_context without path should return validation error', async () => {
+      const result = await client.callTool({
+        name: 'md_context',
+        arguments: {},
+      })
+      expect(result.isError).toBe(true)
+      expect((result.content as Array<{ text: string }>)[0]?.text).toContain(
+        'Invalid arguments',
+      )
     })
 
-    it('md_structure without path should throw protocol error', async () => {
-      await expect(
-        client.callTool({ name: 'md_structure', arguments: {} }),
-      ).rejects.toThrow()
+    it('md_structure without path should return validation error', async () => {
+      const result = await client.callTool({
+        name: 'md_structure',
+        arguments: {},
+      })
+      expect(result.isError).toBe(true)
+      expect((result.content as Array<{ text: string }>)[0]?.text).toContain(
+        'Invalid arguments',
+      )
     })
 
-    it('md_links without path should throw protocol error', async () => {
-      await expect(
-        client.callTool({ name: 'md_links', arguments: {} }),
-      ).rejects.toThrow()
+    it('md_links without path should return validation error', async () => {
+      const result = await client.callTool({ name: 'md_links', arguments: {} })
+      expect(result.isError).toBe(true)
+      expect((result.content as Array<{ text: string }>)[0]?.text).toContain(
+        'Invalid arguments',
+      )
     })
 
-    it('md_backlinks without path should throw protocol error', async () => {
-      await expect(
-        client.callTool({ name: 'md_backlinks', arguments: {} }),
-      ).rejects.toThrow()
+    it('md_backlinks without path should return validation error', async () => {
+      const result = await client.callTool({
+        name: 'md_backlinks',
+        arguments: {},
+      })
+      expect(result.isError).toBe(true)
+      expect((result.content as Array<{ text: string }>)[0]?.text).toContain(
+        'Invalid arguments',
+      )
     })
 
-    it('md_search without query should throw protocol error', async () => {
-      // args.query is undefined, which causes .toLowerCase() to throw
-      await expect(
-        client.callTool({ name: 'md_search', arguments: {} }),
-      ).rejects.toThrow()
+    it('md_search without query should return validation error', async () => {
+      const result = await client.callTool({ name: 'md_search', arguments: {} })
+      expect(result.isError).toBe(true)
+      expect((result.content as Array<{ text: string }>)[0]?.text).toContain(
+        'Invalid arguments',
+      )
     })
   })
 })

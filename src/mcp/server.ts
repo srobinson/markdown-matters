@@ -21,7 +21,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
-import { type ConfigError, Effect, Option } from 'effect'
+import { type ConfigError, Effect, Option, Schema } from 'effect'
 import { createConfigProvider } from '../config/precedence.js'
 import type { MdContextConfig } from '../config/schema.js'
 import {
@@ -232,6 +232,94 @@ export const resolveAndValidatePath = (
 }
 
 // ============================================================================
+// Input Validation Schemas
+// ============================================================================
+
+const MdSearchArgs = Schema.Struct({
+  query: Schema.String,
+  limit: Schema.optional(
+    Schema.Number.pipe(Schema.int(), Schema.between(1, 100)),
+  ),
+  threshold: Schema.optional(Schema.Number.pipe(Schema.between(0, 1))),
+  path_filter: Schema.optional(Schema.String),
+})
+
+const MdContextArgs = Schema.Struct({
+  path: Schema.String,
+  level: Schema.optional(Schema.Literal('brief', 'summary', 'full')),
+  max_tokens: Schema.optional(
+    Schema.Number.pipe(Schema.int(), Schema.positive()),
+  ),
+})
+
+const MdStructureArgs = Schema.Struct({
+  path: Schema.String,
+})
+
+const MdKeywordSearchArgs = Schema.Struct({
+  heading: Schema.optional(Schema.String),
+  path_filter: Schema.optional(Schema.String),
+  has_code: Schema.optional(Schema.Boolean),
+  has_list: Schema.optional(Schema.Boolean),
+  has_table: Schema.optional(Schema.Boolean),
+  limit: Schema.optional(
+    Schema.Number.pipe(Schema.int(), Schema.between(1, 500)),
+  ),
+})
+
+const MdIndexArgs = Schema.Struct({
+  path: Schema.optional(Schema.String),
+  force: Schema.optional(Schema.Boolean),
+})
+
+const MdLinksArgs = Schema.Struct({
+  path: Schema.String,
+})
+
+const MdBacklinksArgs = Schema.Struct({
+  path: Schema.String,
+})
+
+/**
+ * Validate MCP tool arguments against an Effect Schema.
+ * Returns a typed result or an MCP error response with a descriptive message.
+ */
+const validateArgs = async <A, I>(
+  schema: Schema.Schema<A, I>,
+  args: Record<string, unknown>,
+): Promise<A | CallToolResult> => {
+  const result = await Effect.runPromise(
+    Schema.decodeUnknown(schema)(args).pipe(
+      Effect.catchAll((e) =>
+        Effect.succeed({
+          _validationError: true as const,
+          content: [
+            {
+              type: 'text' as const,
+              text: `Invalid arguments: ${String(e)}`,
+            },
+          ],
+          isError: true,
+        }),
+      ),
+    ),
+  )
+
+  if (result && typeof result === 'object' && '_validationError' in result) {
+    const { _validationError: _, ...toolResult } = result
+    return toolResult as CallToolResult
+  }
+
+  return result as A
+}
+
+const isValidationError = (value: unknown): value is CallToolResult =>
+  value !== null &&
+  typeof value === 'object' &&
+  'isError' in value &&
+  'content' in value
+
+// ============================================================================
 // Tool Handlers
 // ============================================================================
 
@@ -240,10 +328,13 @@ const handleMdSearch = async (
   rootPath: string,
   config: MdContextConfig,
 ): Promise<CallToolResult> => {
-  const query = args.query as string
-  const limit = (args.limit as number) ?? 5
-  const pathFilter = args.path_filter as string | undefined
-  const threshold = (args.threshold as number) ?? config.search.minSimilarity
+  const validated = await validateArgs(MdSearchArgs, args)
+  if (isValidationError(validated)) return validated
+
+  const query = validated.query
+  const limit = validated.limit ?? 5
+  const pathFilter = validated.path_filter
+  const threshold = validated.threshold ?? config.search.minSimilarity
 
   // Build provider config from loaded configuration
   const providerConfig = {
@@ -307,9 +398,12 @@ const handleMdContext = async (
   args: Record<string, unknown>,
   rootPath: string,
 ): Promise<CallToolResult> => {
-  const filePath = args.path as string
-  const level = (args.level as 'brief' | 'summary' | 'full') ?? 'summary'
-  const maxTokens = args.max_tokens as number | undefined
+  const validated = await validateArgs(MdContextArgs, args)
+  if (isValidationError(validated)) return validated
+
+  const filePath = validated.path
+  const level = validated.level ?? 'summary'
+  const maxTokens = validated.max_tokens
 
   const resolvedPath = resolveAndValidatePath(rootPath, filePath)
 
@@ -336,7 +430,10 @@ const handleMdStructure = async (
   args: Record<string, unknown>,
   rootPath: string,
 ): Promise<CallToolResult> => {
-  const filePath = args.path as string
+  const validated = await validateArgs(MdStructureArgs, args)
+  if (isValidationError(validated)) return validated
+
+  const filePath = validated.path
   const resolvedPath = resolveAndValidatePath(rootPath, filePath)
 
   // Note: catchAll is intentional - MCP boundary converts errors to JSON format
@@ -387,12 +484,15 @@ const handleMdKeywordSearch = async (
   args: Record<string, unknown>,
   rootPath: string,
 ): Promise<CallToolResult> => {
-  const heading = args.heading as string | undefined
-  const pathFilter = args.path_filter as string | undefined
-  const hasCode = args.has_code as boolean | undefined
-  const hasList = args.has_list as boolean | undefined
-  const hasTable = args.has_table as boolean | undefined
-  const limit = (args.limit as number) ?? 20
+  const validated = await validateArgs(MdKeywordSearchArgs, args)
+  if (isValidationError(validated)) return validated
+
+  const heading = validated.heading
+  const pathFilter = validated.path_filter
+  const hasCode = validated.has_code
+  const hasList = validated.has_list
+  const hasTable = validated.has_table
+  const limit = validated.limit ?? 20
 
   // Note: catchAll is intentional - MCP boundary converts errors to JSON format
   const result = await Effect.runPromise(
@@ -459,8 +559,11 @@ const handleMdIndex = async (
   args: Record<string, unknown>,
   rootPath: string,
 ): Promise<CallToolResult> => {
-  const indexPath = (args.path as string) ?? '.'
-  const force = (args.force as boolean) ?? false
+  const validated = await validateArgs(MdIndexArgs, args)
+  if (isValidationError(validated)) return validated
+
+  const indexPath = validated.path ?? '.'
+  const force = validated.force ?? false
 
   const resolvedPath = resolveAndValidatePath(rootPath, indexPath)
 
@@ -492,7 +595,10 @@ const handleMdLinks = async (
   args: Record<string, unknown>,
   rootPath: string,
 ): Promise<CallToolResult> => {
-  const filePath = args.path as string
+  const validated = await validateArgs(MdLinksArgs, args)
+  if (isValidationError(validated)) return validated
+
+  const filePath = validated.path
   const resolvedPath = resolveAndValidatePath(rootPath, filePath)
 
   // Note: catchAll is intentional - MCP boundary converts errors to JSON format
@@ -529,7 +635,10 @@ const handleMdBacklinks = async (
   args: Record<string, unknown>,
   rootPath: string,
 ): Promise<CallToolResult> => {
-  const filePath = args.path as string
+  const validated = await validateArgs(MdBacklinksArgs, args)
+  if (isValidationError(validated)) return validated
+
+  const filePath = validated.path
   const resolvedPath = resolveAndValidatePath(rootPath, filePath)
 
   // Note: catchAll is intentional - MCP boundary converts errors to JSON format
