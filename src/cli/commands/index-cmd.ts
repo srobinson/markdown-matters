@@ -20,7 +20,6 @@ import {
 } from '../../embeddings/semantic-search.js'
 import { buildIndex } from '../../index/indexer.js'
 import { watchDirectory } from '../../index/watcher.js'
-import { shouldUseColor } from '../help.js'
 import { forceOption, jsonOption, prettyOption } from '../options.js'
 import {
   createCostEstimateErrorHandler,
@@ -185,14 +184,13 @@ export const indexCommand = Command.make(
         yield* Console.log(`Indexing ${resolvedDir}...`)
 
         const isTTY = process.stdout.isTTY
-        const useColor = shouldUseColor()
 
         const result = yield* buildIndex(resolvedDir, {
           force,
           exclude: cliExcludePatterns,
           honorGitignore: !noGitignore,
           onProgress: (progress) => {
-            if (!json && isTTY && useColor) {
+            if (!json && isTTY) {
               const progressMsg = `  [${progress.current}/${progress.total}] ${progress.filePath}`
               process.stdout.write(`\x1b[2K\r${progressMsg}`)
             }
@@ -200,7 +198,7 @@ export const indexCommand = Command.make(
         })
 
         // Clear the progress line after indexing completes
-        if (!json && isTTY && useColor) {
+        if (!json && isTTY) {
           process.stdout.write('\x1b[2K\r')
         }
 
@@ -320,20 +318,20 @@ export const indexCommand = Command.make(
             providerConfig,
             hnswOptions,
             onFileProgress: (progress) => {
-              if (!json && isTTY && useColor) {
+              if (!json && isTTY) {
                 const progressMsg = `  [${progress.fileIndex}/${progress.totalFiles}] ${progress.filePath} (${progress.sectionCount} sections)...`
                 process.stdout.write(`\x1b[2K\r${progressMsg}`)
               }
             },
             onBatchProgress: (progress) => {
-              if (!json && isTTY && useColor) {
+              if (!json && isTTY) {
                 const progressMsg = `  Embedding [${progress.processedSections}/${progress.totalSections}] sections (batch ${progress.batchIndex}/${progress.totalBatches})...`
                 process.stdout.write(`\x1b[2K\r${progressMsg}`)
               }
             },
           })
 
-          if (!json && isTTY && useColor) {
+          if (!json && isTTY) {
             // Clear the progress line completely
             process.stdout.write(
               `\r${' '.repeat(process.stdout.columns ?? 80)}\r`,
