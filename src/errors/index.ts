@@ -390,7 +390,13 @@ export class ConfigError extends Data.TaggedError('ConfigError')<{
  * Error with vector store operations (HNSW index)
  */
 export class VectorStoreError extends Data.TaggedError('VectorStoreError')<{
-  readonly operation: 'init' | 'add' | 'search' | 'save' | 'load'
+  readonly operation:
+    | 'init'
+    | 'add'
+    | 'search'
+    | 'save'
+    | 'load'
+    | 'removeEntries'
   readonly message: string
   readonly cause?: unknown
 }> {

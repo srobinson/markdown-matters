@@ -389,28 +389,12 @@ export const buildEmbeddings = (
       vectorStore.setProvider(providerName, providerModel, undefined)
     }
 
-    // Load existing if not forcing
+    // Load existing vectors for delta computation (skip on --force)
+    let embeddedIds = new Set<string>()
     if (!options.force) {
       const loadResult = yield* vectorStore.load()
       if (loadResult.loaded) {
-        const stats = vectorStore.getStats()
-        // Skip if any embeddings exist
-        if (stats.count > 0) {
-          const duration = Date.now() - startTime
-          // Estimate savings based on existing tokens
-          const estimatedSavings =
-            (stats.totalTokens / 1_000_000) * EMBEDDING_PRICE_PER_MILLION
-          return {
-            sectionsEmbedded: 0,
-            tokensUsed: 0,
-            cost: 0,
-            duration,
-            filesProcessed: 0,
-            cacheHit: true,
-            existingVectors: stats.count,
-            estimatedSavings,
-          }
-        }
+        embeddedIds = vectorStore.getEmbeddedIds()
       }
     }
 
@@ -461,7 +445,36 @@ export const buildEmbeddings = (
       sectionsByDoc.get(docPath)!.push({ section, parentHeading })
     }
 
+    // Collect all eligible section IDs for delta computation
+    const currentSectionIds = new Set<string>()
+    for (const sections of sectionsByDoc.values()) {
+      for (const { section } of sections) {
+        currentSectionIds.add(section.id)
+      }
+    }
+
+    // Remove stale entries: sections that were embedded but no longer exist
+    // in the current index (deleted or restructured files).
+    if (embeddedIds.size > 0) {
+      const staleIds = [...embeddedIds].filter(
+        (id) => !currentSectionIds.has(id),
+      )
+      if (staleIds.length > 0) {
+        yield* vectorStore.removeEntries(staleIds)
+      }
+    }
+
     if (sectionsByDoc.size === 0) {
+      // Still save if we removed stale entries
+      if (embeddedIds.size > 0) {
+        yield* vectorStore.save()
+        const namespace = generateNamespace(
+          providerName,
+          providerModel,
+          dimensions,
+        )
+        invalidateHnswCache(resolvedRoot, namespace)
+      }
       const duration = Date.now() - startTime
       return {
         sectionsEmbedded: 0,
@@ -516,6 +529,9 @@ export const buildEmbeddings = (
       const lines = fileContentResult.content.split('\n')
 
       for (const { section, parentHeading } of sections) {
+        // Delta: skip sections that already have embeddings
+        if (embeddedIds.has(section.id)) continue
+
         // Extract section content from file
         const content = lines
           .slice(section.startLine - 1, section.endLine)
@@ -532,13 +548,32 @@ export const buildEmbeddings = (
     }
 
     if (sectionsToEmbed.length === 0) {
+      // All sections already embedded (or stale ones were cleaned up)
+      if (embeddedIds.size > 0) {
+        yield* vectorStore.save()
+        const namespace = generateNamespace(
+          providerName,
+          providerModel,
+          dimensions,
+        )
+        invalidateHnswCache(resolvedRoot, namespace)
+      }
       const duration = Date.now() - startTime
+      const estimatedSavings =
+        embeddedIds.size > 0
+          ? (vectorStore.getStats().totalTokens / 1_000_000) *
+            EMBEDDING_PRICE_PER_MILLION
+          : 0
       return {
         sectionsEmbedded: 0,
         tokensUsed: 0,
         cost: 0,
         duration,
         filesProcessed,
+        cacheHit: embeddedIds.size > 0,
+        existingVectors:
+          embeddedIds.size > 0 ? vectorStore.getStats().count : undefined,
+        estimatedSavings: estimatedSavings > 0 ? estimatedSavings : undefined,
       }
     }
 

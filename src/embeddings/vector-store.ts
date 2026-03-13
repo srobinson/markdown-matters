@@ -74,6 +74,16 @@ export interface VectorStore {
     VectorStoreError | DimensionMismatchError
   >
   getStats(): VectorStoreStats
+  /**
+   * Return the set of entry IDs currently in the store.
+   * Used for delta embedding to determine which sections already have vectors.
+   */
+  getEmbeddedIds(): Set<string>
+  /**
+   * Soft-delete entries by ID. Marks them as deleted in the HNSW index
+   * so they are excluded from search results without rebuilding the index.
+   */
+  removeEntries(ids: string[]): Effect.Effect<void, VectorStoreError>
 }
 
 export interface VectorSearchResult {
@@ -635,6 +645,31 @@ class HnswVectorStore implements VectorStore {
       totalCost: this.totalCost,
       totalTokens: this.totalTokens,
     }
+  }
+
+  getEmbeddedIds(): Set<string> {
+    return new Set(this.idToIndex.keys())
+  }
+
+  removeEntries(ids: string[]): Effect.Effect<void, VectorStoreError> {
+    return Effect.try({
+      try: () => {
+        for (const id of ids) {
+          const idx = this.idToIndex.get(id)
+          if (idx !== undefined && this.index) {
+            this.index.markDelete(idx)
+            this.entries.delete(idx)
+            this.idToIndex.delete(id)
+          }
+        }
+      },
+      catch: (e) =>
+        new VectorStoreError({
+          operation: 'removeEntries',
+          message: e instanceof Error ? e.message : String(e),
+          cause: e,
+        }),
+    })
   }
 
   setProvider(name: string, model?: string, baseURL?: string): void {
