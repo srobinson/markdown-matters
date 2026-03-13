@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "rootPath": "/Users/alphab/Dev/LLM/DEV/mdcontext/tests/fixtures/cli",
+  "rootPath": "/Users/alphab/Dev/LLM/DEV/markdown-matters/tests/fixtures/cli",
   "include": ["**/*.md", "**/*.mdx"],
   "exclude": ["**/node_modules/**", "**/.*/**"],
   "createdAt": "2026-01-21T16:49:02.823Z",

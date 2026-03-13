@@ -28,7 +28,7 @@ describe('Embed + Index Integration Tests', () => {
   const savedEnv: Record<string, string | undefined> = {}
 
   beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mdcontext-embed-int-'))
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mdm-embed-int-'))
 
     // Save and mock API key for tests
     savedEnv.OPENAI_API_KEY = process.env.OPENAI_API_KEY
@@ -654,7 +654,7 @@ describe('Embed + Index Integration Tests', () => {
 
       // Clean and create larger corpus
       fs.rmSync(tempDir, { recursive: true, force: true })
-      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mdcontext-embed-int-'))
+      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mdm-embed-int-'))
       createLargeCorpus(tempDir)
 
       const largeResult = await Effect.runPromise(buildIndex(tempDir))
