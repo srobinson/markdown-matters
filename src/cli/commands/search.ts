@@ -41,6 +41,7 @@ import {
   getBestAvailableSummarizer,
   type SummarizableResult,
 } from '../../summarization/index.js'
+import { shouldUseColor } from '../help.js'
 import { jsonOption, prettyOption } from '../options.js'
 import {
   createCostEstimateErrorHandler,
@@ -371,7 +372,8 @@ export const searchCommand = Command.make(
           if (
             progress.status === 'loading' &&
             progress.file &&
-            process.stdout.isTTY
+            process.stdout.isTTY &&
+            shouldUseColor()
           ) {
             const pct = progress.progress
               ? ` (${Math.round(progress.progress)}%)`
