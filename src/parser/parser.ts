@@ -157,7 +157,7 @@ const buildSectionHierarchy = (
     const hasTable = raw.contentNodes.some((n) => n.type === 'table')
 
     const section: MdSection = {
-      id: `${docId}-${slugify(raw.heading)}`,
+      id: `${docId}-${slugify(raw.heading)}-L${raw.startLine}`,
       heading: raw.heading,
       level: raw.level,
       content,
@@ -223,7 +223,7 @@ const extractLinks = (tree: Root, docId: string): MdLink[] => {
 
   visit(tree, (node) => {
     if (node.type === 'heading') {
-      currentSectionId = `${docId}-${slugify(extractPlainText(node as Heading))}`
+      currentSectionId = `${docId}-${slugify(extractPlainText(node as Heading))}-L${getNodeStartLine(node)}`
     }
 
     if (node.type === 'link') {
@@ -263,7 +263,7 @@ const extractCodeBlocks = (tree: Root, docId: string): MdCodeBlock[] => {
 
   visit(tree, (node) => {
     if (node.type === 'heading') {
-      currentSectionId = `${docId}-${slugify(extractPlainText(node as Heading))}`
+      currentSectionId = `${docId}-${slugify(extractPlainText(node as Heading))}-L${getNodeStartLine(node)}`
     }
 
     if (node.type === 'code') {

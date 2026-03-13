@@ -239,6 +239,82 @@ plain text
     })
   })
 
+  describe('section IDs', () => {
+    it('includes line number to prevent slug collisions', async () => {
+      const content = `# Document
+
+## Setup: Part 1
+
+First section.
+
+## Setup. Part 1
+
+Second section (different punctuation, same slug).
+`
+
+      const result = await Effect.runPromise(parse(content))
+
+      const root = result.sections[0]!
+      const child1 = root.children[0]!
+      const child2 = root.children[1]!
+
+      // Both headings slugify identically, but IDs differ by line number
+      expect(child1.id).not.toBe(child2.id)
+      expect(child1.id).toMatch(/-L3$/)
+      expect(child2.id).toMatch(/-L7$/)
+    })
+
+    it('appends line number to all section IDs', async () => {
+      const content = `# Title
+
+## Introduction
+
+Some text.
+
+## Conclusion
+
+More text.
+`
+
+      const result = await Effect.runPromise(parse(content))
+
+      const root = result.sections[0]!
+      expect(root.id).toMatch(/-L1$/)
+      expect(root.children[0]!.id).toMatch(/-L3$/)
+      expect(root.children[1]!.id).toMatch(/-L7$/)
+    })
+
+    it('uses line numbers in link sectionId references', async () => {
+      const content = `# Doc
+
+## Links
+
+[example](https://example.com)
+`
+
+      const result = await Effect.runPromise(parse(content))
+
+      const link = result.links[0]!
+      expect(link.sectionId).toMatch(/-L3$/)
+    })
+
+    it('uses line numbers in code block sectionId references', async () => {
+      const content = `# Doc
+
+## Code
+
+\`\`\`js
+console.log('test')
+\`\`\`
+`
+
+      const result = await Effect.runPromise(parse(content))
+
+      const block = result.codeBlocks[0]!
+      expect(block.sectionId).toMatch(/-L3$/)
+    })
+  })
+
   describe('metadata', () => {
     it('counts tokens and words', async () => {
       const content = `# Document
