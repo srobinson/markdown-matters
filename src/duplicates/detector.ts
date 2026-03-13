@@ -11,6 +11,7 @@ import * as path from 'node:path'
 import { Effect, Option } from 'effect'
 import { FileReadError, type IndexCorruptedError } from '../errors/index.js'
 import { createStorage, loadSectionIndex } from '../index/storage.js'
+import { matchPath } from '../search/path-matcher.js'
 
 // ============================================================================
 // Types
@@ -216,9 +217,7 @@ export const detectExactDuplicates = (
 
     // Filter sections by path pattern if specified
     const filteredSections = options.pathPattern
-      ? sections.filter((s) =>
-          matchPathPattern(s.documentPath, options.pathPattern!),
-        )
+      ? sections.filter((s) => matchPath(s.documentPath, options.pathPattern!))
       : sections
 
     // Map: hash -> list of sections with that hash
@@ -314,19 +313,6 @@ export const detectExactDuplicates = (
       sectionsWithDuplicates: sectionsInDuplicates.size,
     }
   })
-
-/**
- * Simple path pattern matching (supports glob-like patterns).
- */
-const matchPathPattern = (filePath: string, pattern: string): boolean => {
-  // Simple glob support: * matches any sequence, ** matches any path segments
-  const regexPattern = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&') // Escape regex special chars
-    .replace(/\*\*/g, '.*') // ** matches anything
-    .replace(/\*/g, '[^/]*') // * matches within a segment
-  const regex = new RegExp(`^${regexPattern}`)
-  return regex.test(filePath)
-}
 
 // ============================================================================
 // Search Result Collapsing
