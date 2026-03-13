@@ -4,6 +4,8 @@
  * Index markdown files for fast searching.
  */
 
+import * as fs from 'node:fs'
+import * as os from 'node:os'
 import * as path from 'node:path'
 import * as readline from 'node:readline'
 import { Args, Command, Options } from '@effect/cli'
@@ -143,6 +145,16 @@ export const indexCommand = Command.make(
   }) =>
     Effect.gen(function* () {
       const resolvedDir = path.resolve(dirPath)
+
+      // Sentinel check: ensure .mdm/ index directory exists.
+      // If neither local nor global .mdm/ exists, auto-create locally.
+      const localMdmDir = path.join(resolvedDir, '.mdm')
+      const globalMdmDir = path.join(os.homedir(), '.mdm')
+      if (!fs.existsSync(localMdmDir) && !fs.existsSync(globalMdmDir)) {
+        fs.mkdirSync(localMdmDir, { recursive: true })
+        yield* Console.log('Created .mdm/ index directory.')
+      }
+
       const colorEnabled = yield* getConfigValue('output', 'color')
 
       // Parse exclude patterns - CLI adds to ignore files
