@@ -200,6 +200,51 @@ export const searchSchema: CommandSchema = {
       description:
         'Additional filter to narrow results (can be used multiple times)',
     },
+    {
+      name: 'rerank',
+      type: 'boolean',
+      alias: 'r',
+      description: 'Re-rank results using cross-encoder',
+    },
+    {
+      name: 'quality',
+      type: 'string',
+      alias: 'q',
+      description: 'Search quality mode (fast|balanced|thorough)',
+    },
+    {
+      name: 'hyde',
+      type: 'boolean',
+      description: 'Enable HyDE query expansion',
+    },
+    {
+      name: 'rerank-init',
+      type: 'boolean',
+      description: 'Initialize re-ranking model',
+    },
+    {
+      name: 'timeout',
+      type: 'string',
+      description: 'Search timeout in milliseconds',
+    },
+    {
+      name: 'summarize',
+      type: 'boolean',
+      alias: 's',
+      description: 'Summarize search results',
+    },
+    {
+      name: 'yes',
+      type: 'boolean',
+      alias: 'y',
+      description: 'Skip confirmation prompts',
+    },
+    { name: 'stream', type: 'boolean', description: 'Stream output' },
+    {
+      name: 'auto-index-threshold',
+      type: 'string',
+      description: 'Auto-index when below this threshold',
+    },
     jsonFlag,
     prettyFlag,
   ],
