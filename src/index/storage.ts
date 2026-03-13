@@ -46,7 +46,7 @@ const SectionEntrySchema = Schema.Struct({
   documentId: Schema.String,
   documentPath: Schema.String,
   heading: Schema.String,
-  level: Schema.Number,
+  level: Schema.Literal(1, 2, 3, 4, 5, 6),
   startLine: Schema.Number,
   endLine: Schema.Number,
   tokenCount: Schema.Number,

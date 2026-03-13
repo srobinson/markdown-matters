@@ -2,6 +2,8 @@
  * Index data types for mdcontext
  */
 
+import type { HeadingLevel } from '../core/types.js'
+
 // ============================================================================
 // Configuration
 // ============================================================================
@@ -51,7 +53,7 @@ export interface SectionEntry {
   readonly documentId: string
   readonly documentPath: string
   readonly heading: string
-  readonly level: number
+  readonly level: HeadingLevel
   readonly startLine: number
   readonly endLine: number
   readonly tokenCount: number
