@@ -179,6 +179,38 @@ const resolveInternalLink = (
   return path.relative(rootPath, resolved)
 }
 
+interface DerivedLinkGraph {
+  readonly backward: Record<string, string[]>
+  readonly broken: string[]
+}
+
+const deriveLinkGraph = (
+  forward: Record<string, string[]>,
+  documents: Record<string, DocumentEntry>,
+): DerivedLinkGraph => {
+  const backward: Record<string, string[]> = Object.create(null)
+  const broken = new Set<string>()
+
+  for (const [fromPath, targets] of Object.entries(forward)) {
+    for (const target of targets) {
+      if (!documents[target]) {
+        broken.add(target)
+        continue
+      }
+
+      if (!backward[target]) {
+        backward[target] = []
+      }
+      backward[target]?.push(fromPath)
+    }
+  }
+
+  return {
+    backward,
+    broken: [...broken],
+  }
+}
+
 // ============================================================================
 // Index Building
 // ============================================================================
@@ -287,13 +319,6 @@ export const buildIndex = (
         Object.entries(linkIndex.forward).map(([k, v]) => [k, [...v]]),
       ),
     )
-    const mutableBackward: Record<string, string[]> = Object.assign(
-      Object.create(null),
-      Object.fromEntries(
-        Object.entries(linkIndex.backward).map(([k, v]) => [k, [...v]]),
-      ),
-    )
-    const brokenLinks: string[] = [...linkIndex.broken]
     const totalFiles = files.length
 
     for (let fileIndex = 0; fileIndex < files.length; fileIndex++) {
@@ -412,15 +437,6 @@ export const buildIndex = (
 
           if (target) {
             outgoingLinks.push(target)
-
-            // Add to backward links
-            if (!mutableBackward[target]) {
-              mutableBackward[target] = []
-            }
-            if (!mutableBackward[target]?.includes(relativePath)) {
-              mutableBackward[target]?.push(relativePath)
-            }
-
             linksIndexed++
           }
         }
@@ -447,14 +463,10 @@ export const buildIndex = (
       yield* processFile
     }
 
-    // Check for broken links
-    for (const [_from, targets] of Object.entries(mutableForward)) {
-      for (const target of targets) {
-        if (!mutableDocuments[target] && !brokenLinks.includes(target)) {
-          brokenLinks.push(target)
-        }
-      }
-    }
+    const { backward: rebuiltBackward, broken: brokenLinks } = deriveLinkGraph(
+      mutableForward,
+      mutableDocuments,
+    )
 
     // Save indexes
     yield* saveDocumentIndex(storage, {
@@ -473,7 +485,7 @@ export const buildIndex = (
     yield* saveLinkIndex(storage, {
       version: linkIndex.version,
       forward: mutableForward,
-      backward: mutableBackward,
+      backward: rebuiltBackward,
       broken: brokenLinks,
     })
 

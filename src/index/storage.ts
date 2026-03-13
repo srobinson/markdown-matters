@@ -94,7 +94,7 @@ const writeJsonFile = <T>(
     const dir = path.dirname(filePath)
     yield* ensureDir(dir)
     yield* Effect.tryPromise({
-      try: () => fs.writeFile(filePath, JSON.stringify(data, null, 2)),
+      try: () => fs.writeFile(filePath, JSON.stringify(data)),
       catch: (e) =>
         new FileWriteError({
           path: filePath,
