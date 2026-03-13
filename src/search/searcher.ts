@@ -4,13 +4,13 @@
 
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
-import { Effect } from 'effect'
+import { Effect, Option } from 'effect'
 import type { ContextLine } from '../core/types.js'
 
 import {
   CliValidationError,
   DocumentNotFoundError,
-  type FileReadError,
+  FileReadError,
   type IndexCorruptedError,
   IndexNotFoundError,
 } from '../errors/index.js'
@@ -328,14 +328,21 @@ export const searchContent = (
       // - useFuzzyOrStem: fuzzy/stem matching
       if (parsedQuery || contentRegex || (useFuzzyOrStem && options.content)) {
         const filePath = path.join(storage.rootPath, docPath)
-        try {
-          fileContent = yield* Effect.promise(() =>
-            fs.readFile(filePath, 'utf-8'),
-          )
-          fileLines = fileContent.split('\n')
-        } catch {
-          continue // Skip files that can't be read
-        }
+        const readResult = yield* Effect.tryPromise({
+          try: () => fs.readFile(filePath, 'utf-8'),
+          catch: (e) =>
+            new FileReadError({
+              path: filePath,
+              message: `Failed to read file: ${filePath}`,
+              cause: e,
+            }),
+        }).pipe(
+          Effect.tapError((e) => Effect.logWarning(`Skipping file: ${e.path}`)),
+          Effect.option,
+        )
+        if (Option.isNone(readResult)) continue
+        fileContent = readResult.value
+        fileLines = fileContent!.split('\n')
       }
 
       for (const section of sections) {

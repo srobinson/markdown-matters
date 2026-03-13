@@ -8,8 +8,8 @@
 import * as crypto from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
-import { Effect } from 'effect'
-import type { FileReadError, IndexCorruptedError } from '../errors/index.js'
+import { Effect, Option } from 'effect'
+import { FileReadError, type IndexCorruptedError } from '../errors/index.js'
 import { createStorage, loadSectionIndex } from '../index/storage.js'
 
 // ============================================================================
@@ -150,14 +150,20 @@ const createFileContentCache = (): FileContentCache => {
         if (cache.has(documentPath)) {
           return cache.get(documentPath)!
         }
-        const content = yield* Effect.promise(async () => {
-          try {
-            const filePath = path.join(rootPath, documentPath)
-            return await fs.readFile(filePath, 'utf-8')
-          } catch {
-            return null
-          }
-        })
+        const filePath = path.join(rootPath, documentPath)
+        const readResult = yield* Effect.tryPromise({
+          try: () => fs.readFile(filePath, 'utf-8'),
+          catch: (e) =>
+            new FileReadError({
+              path: filePath,
+              message: `Failed to read file: ${filePath}`,
+              cause: e,
+            }),
+        }).pipe(
+          Effect.tapError((e) => Effect.logWarning(`Skipping file: ${e.path}`)),
+          Effect.option,
+        )
+        const content = Option.isSome(readResult) ? readResult.value : null
         cache.set(documentPath, content)
         return content
       }),
