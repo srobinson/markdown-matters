@@ -21,7 +21,13 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
-import { Effect } from 'effect'
+import { type ConfigError, Effect, Option } from 'effect'
+import { createConfigProvider } from '../config/precedence.js'
+import type { MdContextConfig } from '../config/schema.js'
+import {
+  defaultConfig,
+  MdContextConfig as MdContextConfigSchema,
+} from '../config/schema.js'
 import type { MdSection } from '../core/types.js'
 import { semanticSearch } from '../embeddings/semantic-search.js'
 import {
@@ -229,11 +235,19 @@ const resolveAndValidatePath = (rootPath: string, filePath: string): string => {
 const handleMdSearch = async (
   args: Record<string, unknown>,
   rootPath: string,
+  config: MdContextConfig,
 ): Promise<CallToolResult> => {
   const query = args.query as string
   const limit = (args.limit as number) ?? 5
   const pathFilter = args.path_filter as string | undefined
-  const threshold = (args.threshold as number) ?? 0.35
+  const threshold = (args.threshold as number) ?? config.search.minSimilarity
+
+  // Build provider config from loaded configuration
+  const providerConfig = {
+    provider: config.embeddings.provider,
+    baseURL: Option.getOrUndefined(config.embeddings.baseURL),
+    model: config.embeddings.model,
+  }
 
   // Note: catchAll is intentional at this MCP boundary layer.
   // MCP protocol requires JSON error responses, so we convert typed errors
@@ -243,6 +257,7 @@ const handleMdSearch = async (
       limit,
       threshold,
       pathPattern: pathFilter,
+      providerConfig,
     }).pipe(
       Effect.catchAll((e) => Effect.succeed([{ error: e.message }] as const)),
     ),
@@ -548,7 +563,7 @@ const handleMdBacklinks = async (
 // MCP Server Setup
 // ============================================================================
 
-const createServer = (rootPath: string) => {
+const createServer = (rootPath: string, config: MdContextConfig) => {
   const server = new Server(
     {
       name: 'mdcontext-mcp',
@@ -572,7 +587,7 @@ const createServer = (rootPath: string) => {
 
     switch (name) {
       case 'md_search':
-        return handleMdSearch(args ?? {}, rootPath)
+        return handleMdSearch(args ?? {}, rootPath, config)
       case 'md_context':
         return handleMdContext(args ?? {}, rootPath)
       case 'md_structure':
@@ -600,11 +615,40 @@ const createServer = (rootPath: string) => {
 // Main Entry
 // ============================================================================
 
+/**
+ * Load configuration using the standard precedence chain:
+ * env vars > config file > defaults.
+ *
+ * MCP has no CLI flags, so cliOverrides is omitted.
+ * Falls back to defaults on any config loading error to keep the
+ * server operational even with a missing or malformed config file.
+ */
+const loadConfig = async (rootPath: string): Promise<MdContextConfig> => {
+  const program = Effect.gen(function* () {
+    const provider = yield* createConfigProvider({
+      workingDir: rootPath,
+    })
+    return yield* (
+      MdContextConfigSchema as Effect.Effect<
+        MdContextConfig,
+        ConfigError.ConfigError
+      >
+    ).pipe(Effect.withConfigProvider(provider))
+  })
+
+  return Effect.runPromise(
+    program.pipe(Effect.catchAll(() => Effect.succeed(defaultConfig))),
+  )
+}
+
 const main = async () => {
   // Use current working directory as root
   const rootPath = process.cwd()
 
-  const server = createServer(rootPath)
+  // Load config: env vars > config file > defaults
+  const config = await loadConfig(rootPath)
+
+  const server = createServer(rootPath, config)
   const transport = new StdioServerTransport()
 
   await server.connect(transport)
