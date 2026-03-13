@@ -198,6 +198,31 @@ const tools: Tool[] = [
 ]
 
 // ============================================================================
+// Path Validation
+// ============================================================================
+
+/**
+ * Resolve a user-supplied path against rootPath and verify it stays within
+ * the root boundary. Returns the resolved absolute path or throws if the
+ * path escapes the root (e.g. via `../` traversal or absolute paths outside root).
+ */
+const resolveAndValidatePath = (rootPath: string, filePath: string): string => {
+  const normalizedRoot = path.resolve(rootPath)
+  const resolved = path.isAbsolute(filePath)
+    ? path.resolve(filePath)
+    : path.resolve(normalizedRoot, filePath)
+
+  if (
+    !resolved.startsWith(normalizedRoot + path.sep) &&
+    resolved !== normalizedRoot
+  ) {
+    throw new Error(`Path outside root: ${filePath}`)
+  }
+
+  return resolved
+}
+
+// ============================================================================
 // Tool Handlers
 // ============================================================================
 
@@ -268,9 +293,7 @@ const handleMdContext = async (
   const level = (args.level as 'brief' | 'summary' | 'full') ?? 'summary'
   const maxTokens = args.max_tokens as number | undefined
 
-  const resolvedPath = path.isAbsolute(filePath)
-    ? filePath
-    : path.join(rootPath, filePath)
+  const resolvedPath = resolveAndValidatePath(rootPath, filePath)
 
   // Note: catchAll is intentional - MCP boundary converts errors to JSON format
   const result = await Effect.runPromise(
@@ -296,9 +319,7 @@ const handleMdStructure = async (
   rootPath: string,
 ): Promise<CallToolResult> => {
   const filePath = args.path as string
-  const resolvedPath = path.isAbsolute(filePath)
-    ? filePath
-    : path.join(rootPath, filePath)
+  const resolvedPath = resolveAndValidatePath(rootPath, filePath)
 
   // Note: catchAll is intentional - MCP boundary converts errors to JSON format
   const result = await Effect.runPromise(
@@ -423,9 +444,7 @@ const handleMdIndex = async (
   const indexPath = (args.path as string) ?? '.'
   const force = (args.force as boolean) ?? false
 
-  const resolvedPath = path.isAbsolute(indexPath)
-    ? indexPath
-    : path.join(rootPath, indexPath)
+  const resolvedPath = resolveAndValidatePath(rootPath, indexPath)
 
   // Note: catchAll is intentional - MCP boundary converts errors to JSON format
   const result = await Effect.runPromise(
@@ -456,9 +475,7 @@ const handleMdLinks = async (
   rootPath: string,
 ): Promise<CallToolResult> => {
   const filePath = args.path as string
-  const resolvedPath = path.isAbsolute(filePath)
-    ? filePath
-    : path.join(rootPath, filePath)
+  const resolvedPath = resolveAndValidatePath(rootPath, filePath)
 
   // Note: catchAll is intentional - MCP boundary converts errors to JSON format
   const result = await Effect.runPromise(
@@ -495,9 +512,7 @@ const handleMdBacklinks = async (
   rootPath: string,
 ): Promise<CallToolResult> => {
   const filePath = args.path as string
-  const resolvedPath = path.isAbsolute(filePath)
-    ? filePath
-    : path.join(rootPath, filePath)
+  const resolvedPath = resolveAndValidatePath(rootPath, filePath)
 
   // Note: catchAll is intentional - MCP boundary converts errors to JSON format
   const result = await Effect.runPromise(
