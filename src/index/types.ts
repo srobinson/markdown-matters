@@ -2,6 +2,8 @@
  * Index data types for mdcontext
  */
 
+import * as path from 'node:path'
+
 import type { HeadingLevel } from '../core/types.js'
 
 // ============================================================================
@@ -139,11 +141,11 @@ export const INDEX_DIR = '.mdcontext'
 export const INDEX_VERSION = 1
 
 export const getIndexPaths = (rootPath: string) => ({
-  root: `${rootPath}/${INDEX_DIR}`,
-  config: `${rootPath}/${INDEX_DIR}/config.json`,
-  documents: `${rootPath}/${INDEX_DIR}/indexes/documents.json`,
-  sections: `${rootPath}/${INDEX_DIR}/indexes/sections.json`,
-  links: `${rootPath}/${INDEX_DIR}/indexes/links.json`,
-  cache: `${rootPath}/${INDEX_DIR}/cache`,
-  parsed: `${rootPath}/${INDEX_DIR}/cache/parsed`,
+  root: path.join(rootPath, INDEX_DIR),
+  config: path.join(rootPath, INDEX_DIR, 'config.json'),
+  documents: path.join(rootPath, INDEX_DIR, 'indexes', 'documents.json'),
+  sections: path.join(rootPath, INDEX_DIR, 'indexes', 'sections.json'),
+  links: path.join(rootPath, INDEX_DIR, 'indexes', 'links.json'),
+  cache: path.join(rootPath, INDEX_DIR, 'cache'),
+  parsed: path.join(rootPath, INDEX_DIR, 'cache', 'parsed'),
 })
