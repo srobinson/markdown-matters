@@ -447,6 +447,29 @@ export const displayError = (
   })
 
 /**
+ * Sensitive field patterns that should be redacted from debug output.
+ * Matches keys containing these substrings (case-insensitive).
+ */
+const SENSITIVE_KEY_PATTERN =
+  /api[_-]?key|authorization|token|secret|password|credential/i
+
+/**
+ * JSON.stringify replacer that redacts sensitive fields from error objects.
+ * Prevents API keys from leaking when the error cause chain contains HTTP
+ * request context (e.g. from the OpenAI SDK).
+ */
+const sensitiveFieldReplacer = (_key: string, value: unknown): unknown => {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const sanitized: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      sanitized[k] = SENSITIVE_KEY_PATTERN.test(k) ? '[REDACTED]' : v
+    }
+    return sanitized
+  }
+  return value
+}
+
+/**
  * Display error with debug information (stack trace, full context)
  */
 export const displayErrorDebug = (
@@ -459,7 +482,9 @@ export const displayErrorDebug = (
     yield* Console.error('--- Debug Info ---')
     yield* Console.error(`Code: ${formatted.code}`)
     yield* Console.error(`Tag: ${error._tag}`)
-    yield* Console.error(`Error: ${JSON.stringify(error, null, 2)}`)
+    yield* Console.error(
+      `Error: ${JSON.stringify(error, sensitiveFieldReplacer, 2)}`,
+    )
 
     // Show cause/stack if available
     if ('cause' in error && error.cause) {
