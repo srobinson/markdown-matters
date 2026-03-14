@@ -1,4 +1,4 @@
-# mdm
+# markdown-matters
 
 **Give LLMs exactly the markdown they need. Nothing more.**
 
