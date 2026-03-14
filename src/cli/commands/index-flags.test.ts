@@ -78,7 +78,7 @@ const writeGlobalConfig = (sources: { path: string; name?: string }[]) => {
   fs.mkdirSync(globalDir, { recursive: true })
   let content = ''
   for (const s of sources) {
-    content += `\n[[sources]]\npath = "${s.path}"\n`
+    content += `\n[[sources]]\npath = "${s.path.replace(/\\/g, '/')}"\n`
     if (s.name) content += `name = "${s.name}"\n`
   }
   fs.writeFileSync(path.join(globalDir, '.mdm.toml'), content, 'utf-8')

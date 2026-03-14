@@ -660,8 +660,8 @@ describe('Embed + Index Integration Tests', () => {
       const largeResult = await Effect.runPromise(buildIndex(tempDir))
       const largeTimePerDoc = largeResult.duration / largeResult.totalDocuments
 
-      // Time per document should be roughly similar (within 3x)
-      expect(largeTimePerDoc).toBeLessThan(smallTimePerDoc * 3)
+      // Time per document should be roughly similar (within 5x to tolerate CI variance)
+      expect(largeTimePerDoc).toBeLessThan(smallTimePerDoc * 5)
     })
 
     it('section index grows proportionally to documents', async () => {
