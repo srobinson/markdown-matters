@@ -4,10 +4,14 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
   pull-requests: write
-  id-token: write  # Required for OIDC trusted publishing
+  id-token: write
 
 jobs:
   quality:
@@ -80,7 +84,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Required for changesets
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
         with:
