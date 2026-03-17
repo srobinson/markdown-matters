@@ -43,7 +43,8 @@ export const formatSummary = (summary: DocumentSummary): string => {
   const renderSection = (section: SectionSummary, depth: number) => {
     const indent = '  '.repeat(depth)
     const prefix = '#'.repeat(section.level)
-    sectionLines.push(`${indent}${prefix} ${section.heading}`)
+    const lineRange = `L${section.startLine}-${section.endLine}`
+    sectionLines.push(`${indent}${prefix} ${section.heading} [${lineRange}]`)
     if (section.summary) {
       sectionLines.push(`${indent}${section.summary}`)
     }

@@ -10,6 +10,26 @@ import { countTokensApprox } from '../utils/tokens.js'
 import { formatSummary } from './formatters.js'
 import type { DocumentSummary, SectionSummary } from './summarizer.js'
 
+/** Helper to create a SectionSummary with defaults for test brevity */
+const sec = (
+  heading: string,
+  level: number,
+  overrides: Partial<SectionSummary> = {},
+): SectionSummary => ({
+  heading,
+  level,
+  startLine: 1,
+  endLine: 10,
+  originalTokens: 100,
+  summaryTokens: 20,
+  summary: '',
+  children: [],
+  hasCode: false,
+  hasList: false,
+  hasTable: false,
+  ...overrides,
+})
+
 describe('summarizer', () => {
   describe('formatSummary token accuracy', () => {
     it('displays token count matching actual output', () => {
@@ -20,17 +40,11 @@ describe('summarizer', () => {
         summaryTokens: 100,
         compressionRatio: 0.9,
         sections: [
-          {
-            heading: 'Section 1',
-            level: 2,
+          sec('Section 1', 2, {
             originalTokens: 500,
             summaryTokens: 50,
             summary: 'This is the summary of section 1.',
-            children: [],
-            hasCode: false,
-            hasList: false,
-            hasTable: false,
-          },
+          }),
         ],
         keyTopics: ['topic1', 'topic2'],
       }
@@ -68,18 +82,6 @@ describe('summarizer', () => {
     })
 
     it('handles nested sections', () => {
-      const childSection: SectionSummary = {
-        heading: 'Child Section',
-        level: 3,
-        originalTokens: 100,
-        summaryTokens: 20,
-        summary: 'Child summary content.',
-        children: [],
-        hasCode: true,
-        hasList: false,
-        hasTable: false,
-      }
-
       const mockSummary: DocumentSummary = {
         path: '/test/nested.md',
         title: 'Nested Document',
@@ -87,17 +89,22 @@ describe('summarizer', () => {
         summaryTokens: 100,
         compressionRatio: 0.8,
         sections: [
-          {
-            heading: 'Parent Section',
-            level: 2,
+          sec('Parent Section', 2, {
             originalTokens: 300,
             summaryTokens: 60,
             summary: 'Parent summary content.',
-            children: [childSection],
-            hasCode: false,
+            children: [
+              sec('Child Section', 3, {
+                startLine: 5,
+                endLine: 10,
+                originalTokens: 100,
+                summaryTokens: 20,
+                summary: 'Child summary content.',
+                hasCode: true,
+              }),
+            ],
             hasList: true,
-            hasTable: false,
-          },
+          }),
         ],
         keyTopics: ['parent', 'child'],
       }
@@ -142,35 +149,24 @@ describe('summarizer', () => {
         summaryTokens: 2000,
         compressionRatio: 0.6,
         sections: [
-          {
-            heading: 'Section 1',
-            level: 2,
+          sec('Section 1', 2, {
             originalTokens: 1000,
             summaryTokens: 500,
             summary: 'Long content '.repeat(50),
-            children: [],
-            hasCode: false,
-            hasList: false,
-            hasTable: false,
-          },
-          {
-            heading: 'Section 2',
-            level: 2,
+          }),
+          sec('Section 2', 2, {
+            startLine: 50,
+            endLine: 100,
             originalTokens: 1000,
             summaryTokens: 500,
             summary: 'More content '.repeat(50),
-            children: [],
-            hasCode: false,
-            hasList: false,
-            hasTable: false,
-          },
+          }),
         ],
         keyTopics: ['test'],
       }
 
       const output = formatSummary(mockSummary)
 
-      // Both sections should be present (no truncation)
       expect(output).toContain('Section 1')
       expect(output).toContain('Section 2')
       expect(output).not.toContain('Truncated')
@@ -184,41 +180,29 @@ describe('summarizer', () => {
         summaryTokens: 100,
         compressionRatio: 0.9,
         sections: [
-          {
-            heading: 'L1',
-            level: 2,
+          sec('L1', 2, {
             originalTokens: 500,
             summaryTokens: 30,
             summary: 'Level 1.',
             children: [
-              {
-                heading: 'L2',
-                level: 3,
+              sec('L2', 3, {
+                startLine: 5,
+                endLine: 30,
                 originalTokens: 300,
                 summaryTokens: 20,
                 summary: 'Level 2.',
                 children: [
-                  {
-                    heading: 'L3',
-                    level: 4,
+                  sec('L3', 4, {
+                    startLine: 10,
+                    endLine: 20,
                     originalTokens: 100,
                     summaryTokens: 10,
                     summary: 'Level 3.',
-                    children: [],
-                    hasCode: false,
-                    hasList: false,
-                    hasTable: false,
-                  },
+                  }),
                 ],
-                hasCode: false,
-                hasList: false,
-                hasTable: false,
-              },
+              }),
             ],
-            hasCode: false,
-            hasList: false,
-            hasTable: false,
-          },
+          }),
         ],
         keyTopics: [],
       }
@@ -228,6 +212,36 @@ describe('summarizer', () => {
       expect(output).toContain('L1')
       expect(output).toContain('L2')
       expect(output).toContain('L3')
+    })
+  })
+
+  describe('formatSummary includes line ranges', () => {
+    it('shows line range for each section', () => {
+      const mockSummary: DocumentSummary = {
+        path: '/test/file.md',
+        title: 'Test',
+        originalTokens: 500,
+        summaryTokens: 50,
+        compressionRatio: 0.9,
+        sections: [
+          sec('Setup', 2, {
+            startLine: 3,
+            endLine: 25,
+            summary: 'Setup instructions.',
+          }),
+          sec('Usage', 2, {
+            startLine: 27,
+            endLine: 80,
+            summary: 'Usage guide.',
+          }),
+        ],
+        keyTopics: [],
+      }
+
+      const output = formatSummary(mockSummary)
+
+      expect(output).toContain('[L3-25]')
+      expect(output).toContain('[L27-80]')
     })
   })
 
@@ -254,19 +268,7 @@ describe('summarizer', () => {
         originalTokens: 100,
         summaryTokens: 10,
         compressionRatio: 0.9,
-        sections: [
-          {
-            heading: 'Empty',
-            level: 2,
-            originalTokens: 10,
-            summaryTokens: 5,
-            summary: '',
-            children: [],
-            hasCode: false,
-            hasList: false,
-            hasTable: false,
-          },
-        ],
+        sections: [sec('Empty', 2, { summaryTokens: 5 })],
         keyTopics: [],
       }
 
@@ -282,17 +284,10 @@ describe('summarizer', () => {
         summaryTokens: 50,
         compressionRatio: 0.75,
         sections: [
-          {
-            heading: 'セクション',
-            level: 2,
-            originalTokens: 50,
+          sec('セクション', 2, {
             summaryTokens: 20,
             summary: 'コンテンツ。',
-            children: [],
-            hasCode: false,
-            hasList: false,
-            hasTable: false,
-          },
+          }),
         ],
         keyTopics: ['日本語'],
       }

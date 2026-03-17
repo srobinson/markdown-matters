@@ -36,6 +36,8 @@ export interface SummarizeOptions {
 export interface SectionSummary {
   readonly heading: string
   readonly level: number
+  readonly startLine: number
+  readonly endLine: number
   readonly originalTokens: number
   readonly summaryTokens: number
   readonly summary: string
@@ -208,6 +210,8 @@ const summarizeSection = (
   return {
     heading: section.heading,
     level: section.level,
+    startLine: section.startLine,
+    endLine: section.endLine,
     originalTokens,
     summaryTokens,
     summary,

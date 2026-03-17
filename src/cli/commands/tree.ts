@@ -62,11 +62,13 @@ export const treeCommand = Command.make(
         ): {
           heading: string
           level: number
+          lines: [number, number]
           tokens: number
           children: unknown[]
         } => ({
           heading: section.heading,
           level: section.level,
+          lines: [section.startLine, section.endLine],
           tokens: section.metadata.tokenCount,
           children: section.children.map(extractStructure),
         })
@@ -91,8 +93,9 @@ export const treeCommand = Command.make(
             Effect.gen(function* () {
               const indent = '  '.repeat(depth)
               const marker = '#'.repeat(section.level)
+              const lineRange = `L${section.startLine}-${section.endLine}`
               yield* Console.log(
-                `${indent}${marker} ${section.heading} [${section.metadata.tokenCount} tokens]`,
+                `${indent}${marker} ${section.heading} [${lineRange}, ${section.metadata.tokenCount} tokens]`,
               )
               for (const child of section.children) {
                 yield* printOutline(child, depth + 1)

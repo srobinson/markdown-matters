@@ -1,15 +1,32 @@
 /**
- * Token estimation accuracy tests
- *
- * Validates that countTokensApprox never under-counts vs tiktoken,
- * and stays within a reasonable range.
+ * Token estimation accuracy tests and formatSummary completeness verification
  */
 
 import { Effect } from 'effect'
 import { describe, expect, it } from 'vitest'
 import { countTokens, countTokensApprox } from '../utils/tokens.js'
 import { formatSummary } from './formatters.js'
-import type { DocumentSummary } from './summarizer.js'
+import type { DocumentSummary, SectionSummary } from './summarizer.js'
+
+/** Helper to create a SectionSummary with defaults */
+const sec = (
+  heading: string,
+  level: number,
+  overrides: Partial<SectionSummary> = {},
+): SectionSummary => ({
+  heading,
+  level,
+  startLine: 1,
+  endLine: 10,
+  originalTokens: 100,
+  summaryTokens: 20,
+  summary: '',
+  children: [],
+  hasCode: false,
+  hasList: false,
+  hasTable: false,
+  ...overrides,
+})
 
 describe('token estimation accuracy', () => {
   it('approximation should never under-count vs tiktoken', async () => {
@@ -26,8 +43,6 @@ describe('token estimation accuracy', () => {
     for (const text of testCases) {
       const approx = countTokensApprox(text)
       const actual = await Effect.runPromise(countTokens(text))
-
-      // Approximation must never be less than actual (under-counting causes budget violations)
       expect(approx).toBeGreaterThanOrEqual(actual)
     }
   })
@@ -42,7 +57,6 @@ describe('token estimation accuracy', () => {
     for (const text of testCases) {
       const approx = countTokensApprox(text)
       const actual = await Effect.runPromise(countTokens(text))
-
       expect(approx).toBeLessThanOrEqual(actual * 2)
     }
   })
@@ -58,28 +72,18 @@ describe('formatSummary produces complete output', () => {
       summaryTokens: 100,
       compressionRatio: 0.95,
       sections: [
-        {
-          heading: 'Section 1',
-          level: 2,
-          originalTokens: 100,
+        sec('Section 1', 2, {
+          startLine: 3,
+          endLine: 40,
           summaryTokens: 20,
           summary: 'Some content.',
-          children: [],
-          hasCode: false,
-          hasList: false,
-          hasTable: false,
-        },
-        {
-          heading: 'Section 2',
-          level: 2,
-          originalTokens: 100,
+        }),
+        sec('Section 2', 2, {
+          startLine: 42,
+          endLine: 80,
           summaryTokens: 20,
           summary: 'More content.',
-          children: [],
-          hasCode: false,
-          hasList: false,
-          hasTable: false,
-        },
+        }),
       ],
       keyTopics: [
         'topic1',
@@ -92,18 +96,49 @@ describe('formatSummary produces complete output', () => {
 
     const output = formatSummary(mockSummary)
 
-    // All sections should be present
     expect(output).toContain('Section 1')
     expect(output).toContain('Section 2')
     expect(output).toContain('Some content.')
     expect(output).toContain('More content.')
-
-    // No truncation warning
     expect(output).not.toContain('Truncated')
     expect(output).not.toContain('⚠️')
-
-    // Topics should be present
     expect(output).toContain('**Topics:**')
+  })
+
+  it('includes line ranges for every section', () => {
+    const mockSummary: DocumentSummary = {
+      path: '/test/file.md',
+      title: 'Line Range Test',
+      originalTokens: 500,
+      summaryTokens: 50,
+      compressionRatio: 0.9,
+      sections: [
+        sec('Introduction', 2, {
+          startLine: 1,
+          endLine: 20,
+          summary: 'Intro.',
+        }),
+        sec('Details', 2, {
+          startLine: 22,
+          endLine: 100,
+          summary: 'Details.',
+          children: [
+            sec('Sub-detail', 3, {
+              startLine: 40,
+              endLine: 65,
+              summary: 'Sub.',
+            }),
+          ],
+        }),
+      ],
+      keyTopics: [],
+    }
+
+    const output = formatSummary(mockSummary)
+
+    expect(output).toContain('[L1-20]')
+    expect(output).toContain('[L22-100]')
+    expect(output).toContain('[L40-65]')
   })
 
   it('includes token count and compression ratio', () => {
