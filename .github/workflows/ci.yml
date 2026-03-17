@@ -24,7 +24,7 @@ jobs:
     steps:
       - id: check
         run: |
-          if [[ "${{ github.event.pull_request.title }}" == "chore: release packages" ]]; then
+          if [[ "${{ github.event.pull_request.title }}" == chore\(main\):\ release* ]]; then
             echo "should_skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "should_skip=false" >> "$GITHUB_OUTPUT"

@@ -12,7 +12,7 @@ on:
 
 jobs:
   claude-review:
-    if: github.event.pull_request.title != 'chore: release packages'
+    if: ${{ !startsWith(github.event.pull_request.title, 'chore(main): release') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
