@@ -4,83 +4,36 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
   pull-requests: write
-  id-token: write  # Required for OIDC trusted publishing
+  id-token: write
 
 jobs:
-  quality:
+  release-please:
     runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
+      - uses: googleapis/release-please-action@v4
+        id: release
         with:
-          version: 10
+          token: ${{ secrets.HELIOY_PAT }}
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'pnpm'
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-      - run: pnpm typecheck
-      - run: pnpm lint
-
-      - name: Validate package exports
-        run: npx publint
-
-      - name: Validate TypeScript types
-        run: npx attw --pack .
-
-  test:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        node: [20, 22]
-
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node }}
-          cache: 'pnpm'
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-      - run: pnpm test
-
-      - name: Test CLI execution
-        run: node dist/cli/main.js --help
-
-  release:
-    needs: [quality, test]
+  publish:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      pull-requests: write
       id-token: write
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # Required for changesets
 
       - uses: pnpm/action-setup@v4
         with:
@@ -101,20 +54,10 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+      - run: pnpm typecheck
+      - run: pnpm test
 
-      - name: Create Release Pull Request or Publish
-        id: changesets
-        uses: changesets/action@v1
-        with:
-          commit: "chore: release packages"
-          title: "chore: release packages"
-          publish: pnpm changeset publish
+      - name: Publish to npm
+        run: npm publish --provenance --access public
         env:
-          GITHUB_TOKEN: ${{ secrets.HELIOY_PAT }}
           NPM_CONFIG_PROVENANCE: true
-
-      - name: Auto-merge release PR
-        if: steps.changesets.outputs.pullRequestNumber
-        env:
-          GH_TOKEN: ${{ secrets.HELIOY_PAT }}
-        run: gh pr merge --auto --squash "${{ steps.changesets.outputs.pullRequestNumber }}" --repo "${{ github.repository }}"

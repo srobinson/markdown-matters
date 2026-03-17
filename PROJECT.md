@@ -1,6 +1,6 @@
 # markdown-matters
 
-**Version:** 0.2.0
+**Version:** 0.3.0
 **License:** MIT
 **Node:** >= 18.0.0
 **Package:** `markdown-matters` on npm
@@ -130,7 +130,7 @@ Search results can be passed through an AI summarizer. Two execution modes:
 | Build | `tsup` (ESM only) |
 | Test | `vitest` |
 | Lint/format | `@biomejs/biome` |
-| Releases | `@changesets/cli` |
+| Releases | `release-please` |
 
 ---
 
