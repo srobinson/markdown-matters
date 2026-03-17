@@ -97,14 +97,13 @@ export const handleMdm = async (
   if (isValidationError(validated)) return validated
 
   const filePath = validated.path
-  const level = validated.level ?? 'summary'
-  const maxTokens = validated.max_tokens
+  const level = validated.level ?? 'brief'
 
   const resolvedPath = await resolveAndValidatePath(rootPath, filePath)
   if (isPathError(resolvedPath)) return resolvedPath
 
   return effectToMcpResult(
-    summarizeFile(resolvedPath, { level, maxTokens }),
+    summarizeFile(resolvedPath, { level }),
     (result) => mcpText(formatSummary(result)),
   )
 }

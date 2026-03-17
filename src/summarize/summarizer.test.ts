@@ -1,7 +1,8 @@
 /**
  * Tests for summarization engine
  *
- * Focuses on token count accuracy - ensuring displayed counts match actual output
+ * Focuses on token count accuracy and the simplified formatting pipeline.
+ * Budget enforcement is tested in assembler tests, not here.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -9,14 +10,14 @@ import { countTokensApprox } from '../utils/tokens.js'
 import { formatSummary } from './formatters.js'
 import type { DocumentSummary, SectionSummary } from './summarizer.js'
 
-describe('summarizer token counting', () => {
+describe('summarizer', () => {
   describe('formatSummary token accuracy', () => {
     it('displays token count matching actual output', () => {
       const mockSummary: DocumentSummary = {
         path: '/test/file.md',
         title: 'Test Document',
         originalTokens: 1000,
-        summaryTokens: 100, // This is the pre-format count
+        summaryTokens: 100,
         compressionRatio: 0.9,
         sections: [
           {
@@ -36,16 +37,11 @@ describe('summarizer token counting', () => {
 
       const output = formatSummary(mockSummary)
 
-      // Extract the displayed token count
       const tokenMatch = output.match(/Tokens: (\d+)/)
       expect(tokenMatch).toBeTruthy()
       const displayedTokens = parseInt(tokenMatch![1]!, 10)
-
-      // Count actual tokens in the output
       const actualTokens = countTokensApprox(output)
 
-      // The displayed count should be close to actual (within 10%)
-      // Note: The token line itself adds tokens, so we allow some margin
       const tolerance = Math.max(actualTokens * 0.1, 5)
       expect(Math.abs(displayedTokens - actualTokens)).toBeLessThan(tolerance)
     })
@@ -62,16 +58,12 @@ describe('summarizer token counting', () => {
       }
 
       const output = formatSummary(mockSummary)
-
-      // Should not contain Topics line
       expect(output).not.toContain('**Topics:**')
 
-      // Token count should still be accurate
       const tokenMatch = output.match(/Tokens: (\d+)/)
       expect(tokenMatch).toBeTruthy()
       const displayedTokens = parseInt(tokenMatch![1]!, 10)
       const actualTokens = countTokensApprox(output)
-
       expect(Math.abs(displayedTokens - actualTokens)).toBeLessThan(5)
     })
 
@@ -112,17 +104,13 @@ describe('summarizer token counting', () => {
 
       const output = formatSummary(mockSummary)
 
-      // Verify structure is present
       expect(output).toContain('## Parent Section')
       expect(output).toContain('### Child Section')
 
-      // Token count should still be accurate
       const tokenMatch = output.match(/Tokens: (\d+)/)
       expect(tokenMatch).toBeTruthy()
       const displayedTokens = parseInt(tokenMatch![1]!, 10)
       const actualTokens = countTokensApprox(output)
-
-      // Allow slightly more tolerance for nested content
       const tolerance = Math.max(actualTokens * 0.15, 5)
       expect(Math.abs(displayedTokens - actualTokens)).toBeLessThan(tolerance)
     })
@@ -133,33 +121,33 @@ describe('summarizer token counting', () => {
         title: 'Test',
         originalTokens: 1000,
         summaryTokens: 200,
-        compressionRatio: 0.8, // 80% reduction
+        compressionRatio: 0.8,
         sections: [],
         keyTopics: [],
       }
 
       const output = formatSummary(mockSummary)
 
-      // Should show 80% reduction
       expect(output).toContain('80% reduction')
       expect(output).toContain('from 1000')
     })
+  })
 
-    it('respects maxTokens budget', () => {
+  describe('formatSummary includes all sections (no truncation)', () => {
+    it('includes all sections regardless of size', () => {
       const mockSummary: DocumentSummary = {
         path: '/test/file.md',
         title: 'Test Document',
-        originalTokens: 1000,
-        summaryTokens: 500,
-        compressionRatio: 0.5,
+        originalTokens: 5000,
+        summaryTokens: 2000,
+        compressionRatio: 0.6,
         sections: [
           {
             heading: 'Section 1',
             level: 2,
-            originalTokens: 200,
-            summaryTokens: 100,
-            summary:
-              'This is a longer summary that contains many words to test token budget enforcement.',
+            originalTokens: 1000,
+            summaryTokens: 500,
+            summary: 'Long content '.repeat(50),
             children: [],
             hasCode: false,
             hasList: false,
@@ -168,40 +156,65 @@ describe('summarizer token counting', () => {
           {
             heading: 'Section 2',
             level: 2,
-            originalTokens: 200,
-            summaryTokens: 100,
-            summary: 'Another section with substantial content for testing.',
+            originalTokens: 1000,
+            summaryTokens: 500,
+            summary: 'More content '.repeat(50),
             children: [],
             hasCode: false,
             hasList: false,
             hasTable: false,
           },
         ],
-        keyTopics: ['test', 'budget'],
+        keyTopics: ['test'],
       }
 
-      const output = formatSummary(mockSummary, { maxTokens: 100 })
-      const actualTokens = countTokensApprox(output)
+      const output = formatSummary(mockSummary)
 
-      // Output should stay within budget
-      expect(actualTokens).toBeLessThanOrEqual(100)
+      // Both sections should be present (no truncation)
+      expect(output).toContain('Section 1')
+      expect(output).toContain('Section 2')
+      expect(output).not.toContain('Truncated')
     })
 
-    it('shows truncation warning when sections are omitted', () => {
+    it('renders deeply nested children', () => {
       const mockSummary: DocumentSummary = {
         path: '/test/file.md',
-        title: 'Test',
+        title: 'Deep',
         originalTokens: 1000,
-        summaryTokens: 500,
-        compressionRatio: 0.5,
+        summaryTokens: 100,
+        compressionRatio: 0.9,
         sections: [
           {
-            heading: 'Section 1',
+            heading: 'L1',
             level: 2,
-            originalTokens: 200,
-            summaryTokens: 100,
-            summary: 'Long content '.repeat(50),
-            children: [],
+            originalTokens: 500,
+            summaryTokens: 30,
+            summary: 'Level 1.',
+            children: [
+              {
+                heading: 'L2',
+                level: 3,
+                originalTokens: 300,
+                summaryTokens: 20,
+                summary: 'Level 2.',
+                children: [
+                  {
+                    heading: 'L3',
+                    level: 4,
+                    originalTokens: 100,
+                    summaryTokens: 10,
+                    summary: 'Level 3.',
+                    children: [],
+                    hasCode: false,
+                    hasList: false,
+                    hasTable: false,
+                  },
+                ],
+                hasCode: false,
+                hasList: false,
+                hasTable: false,
+              },
+            ],
             hasCode: false,
             hasList: false,
             hasTable: false,
@@ -210,29 +223,44 @@ describe('summarizer token counting', () => {
         keyTopics: [],
       }
 
-      // Increased budget to account for enhanced truncation warning with section lists
-      const output = formatSummary(mockSummary, { maxTokens: 150 })
+      const output = formatSummary(mockSummary)
 
-      // Should show truncation warning (lowercase in new format)
-      expect(output).toContain('Truncated')
+      expect(output).toContain('L1')
+      expect(output).toContain('L2')
+      expect(output).toContain('L3')
     })
   })
 
-  describe('token budget edge cases', () => {
-    it('handles very tight budget gracefully', () => {
+  describe('edge cases', () => {
+    it('handles empty sections array', () => {
+      const mockSummary: DocumentSummary = {
+        path: '/test/file.md',
+        title: 'Empty',
+        originalTokens: 100,
+        summaryTokens: 0,
+        compressionRatio: 1.0,
+        sections: [],
+        keyTopics: [],
+      }
+
+      const output = formatSummary(mockSummary)
+      expect(output).toContain('# Empty')
+    })
+
+    it('handles section with empty summary', () => {
       const mockSummary: DocumentSummary = {
         path: '/test/file.md',
         title: 'Test',
         originalTokens: 100,
-        summaryTokens: 50,
-        compressionRatio: 0.5,
+        summaryTokens: 10,
+        compressionRatio: 0.9,
         sections: [
           {
-            heading: 'Section',
+            heading: 'Empty',
             level: 2,
-            originalTokens: 50,
-            summaryTokens: 25,
-            summary: 'Content',
+            originalTokens: 10,
+            summaryTokens: 5,
+            summary: '',
             children: [],
             hasCode: false,
             hasList: false,
@@ -242,12 +270,39 @@ describe('summarizer token counting', () => {
         keyTopics: [],
       }
 
-      // Should not throw with very tight budget
-      const output = formatSummary(mockSummary, { maxTokens: 30 })
-      expect(output).toBeTruthy()
+      const output = formatSummary(mockSummary)
+      expect(output).toContain('## Empty')
     })
 
-    it('handles long file paths in overhead calculation', () => {
+    it('handles unicode characters in path and title', () => {
+      const mockSummary: DocumentSummary = {
+        path: '/docs/日本語/ファイル.md',
+        title: '日本語のドキュメント',
+        originalTokens: 200,
+        summaryTokens: 50,
+        compressionRatio: 0.75,
+        sections: [
+          {
+            heading: 'セクション',
+            level: 2,
+            originalTokens: 50,
+            summaryTokens: 20,
+            summary: 'コンテンツ。',
+            children: [],
+            hasCode: false,
+            hasList: false,
+            hasTable: false,
+          },
+        ],
+        keyTopics: ['日本語'],
+      }
+
+      const output = formatSummary(mockSummary)
+      expect(output).toContain('日本語のドキュメント')
+      expect(output).toContain('セクション')
+    })
+
+    it('handles long file paths', () => {
       const mockSummary: DocumentSummary = {
         path: '/very/long/path/to/some/deeply/nested/directory/structure/file.md',
         title: 'A Very Long Document Title That Takes Up Many Tokens',
@@ -265,11 +320,9 @@ describe('summarizer token counting', () => {
         ],
       }
 
-      const output = formatSummary(mockSummary, { maxTokens: 200 })
-      const actualTokens = countTokensApprox(output)
-
-      // Should stay within budget even with long paths/titles
-      expect(actualTokens).toBeLessThanOrEqual(200)
+      const output = formatSummary(mockSummary)
+      expect(output).toContain('A Very Long Document Title')
+      expect(output).toContain('**Topics:**')
     })
   })
 })

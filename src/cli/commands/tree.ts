@@ -104,24 +104,49 @@ export const treeCommand = Command.make(
           }
         }
       } else {
-        // Show file list
+        // Show file list with line counts
         const files = yield* walkDirEffect(resolvedPath)
 
-        const tree = [...files].sort().map((f) => ({
-          path: f,
-          relativePath: path.relative(resolvedPath, f),
-        }))
+        const tree = [...files].map((f) => {
+          let lines = 0
+          try {
+            const content = fs.readFileSync(f, 'utf-8')
+            lines = content.split('\n').length
+          } catch {
+            // If file can't be read, default to 0 lines
+          }
+          return {
+            path: f,
+            relativePath: path.relative(resolvedPath, f),
+            lines,
+          }
+        })
+
+        // Sort by line count descending
+        tree.sort((a, b) => b.lines - a.lines)
+
+        const totalLines = tree.reduce((sum, f) => sum + f.lines, 0)
 
         if (json) {
           yield* Console.log(formatJson(tree, pretty))
         } else {
           yield* Console.log(`Markdown files in ${resolvedPath}:`)
           yield* Console.log('')
+
+          // Right-align line counts
+          const maxPathLen = Math.max(
+            ...tree.map((f) => f.relativePath.length),
+          )
           for (const file of tree) {
-            yield* Console.log(`  ${file.relativePath}`)
+            const padding = ' '.repeat(maxPathLen - file.relativePath.length + 2)
+            yield* Console.log(
+              `  ${file.relativePath}${padding}${String(file.lines).padStart(6)} lines`,
+            )
           }
           yield* Console.log('')
-          yield* Console.log(`Total: ${tree.length} files`)
+          yield* Console.log(
+            `Total: ${tree.length} files, ${totalLines} lines`,
+          )
         }
       }
     }),

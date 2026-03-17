@@ -38,15 +38,23 @@ export const contextCommand = Command.make(
     ),
     tokens: Options.integer('tokens').pipe(
       Options.withAlias('t'),
-      Options.withDescription('Token budget'),
+      Options.withDescription(
+        'Token budget for multi-file assembly (default 2000)',
+      ),
       Options.withDefault(2000),
     ),
     brief: Options.boolean('brief').pipe(
-      Options.withDescription('Minimal output'),
+      Options.withDescription(
+        'Structural skeleton: headings + content markers (default)',
+      ),
+      Options.withDefault(false),
+    ),
+    summary: Options.boolean('summary').pipe(
+      Options.withDescription('Key points extracted from each section'),
       Options.withDefault(false),
     ),
     full: Options.boolean('full').pipe(
-      Options.withDescription('Include full content'),
+      Options.withDescription('Complete document content'),
       Options.withDefault(false),
     ),
     section: Options.text('section').pipe(
@@ -78,6 +86,7 @@ export const contextCommand = Command.make(
     files,
     tokens,
     brief,
+    summary,
     full,
     section,
     sections,
@@ -254,35 +263,39 @@ export const contextCommand = Command.make(
         return
       }
 
-      // Determine level
-      const level = full ? 'full' : brief ? 'brief' : 'summary'
+      // Mutual exclusivity check for level flags
+      const levelFlags = [brief, summary, full].filter(Boolean)
+      if (levelFlags.length > 1) {
+        yield* Effect.fail(
+          new CliValidationError({
+            message: '--brief, --summary, and --full are mutually exclusive',
+            argument: '--brief/--summary/--full',
+          }),
+        )
+      }
 
-      // When --full is specified, disable token truncation
-      const effectiveMaxTokens = full ? undefined : tokens
+      // Level determination: brief is the default
+      const level = full ? 'full' : summary ? 'summary' : 'brief'
 
       const firstFile = fileList[0]
       if (fileList.length === 1 && firstFile) {
-        // Single file: use summarizeFile
+        // Single file: level controls density, no budget
         const filePath = path.resolve(firstFile)
-        const summary = yield* summarizeFile(filePath, {
+        const result = yield* summarizeFile(filePath, {
           level: level as 'brief' | 'summary' | 'full',
-          maxTokens: effectiveMaxTokens,
           exclude: excludePatterns.length > 0 ? excludePatterns : undefined,
         })
 
         if (json) {
-          yield* Console.log(formatJson(summary, pretty))
+          yield* Console.log(formatJson(result, pretty))
         } else {
-          yield* Console.log(
-            formatSummary(summary, { maxTokens: effectiveMaxTokens }),
-          )
+          yield* Console.log(formatSummary(result))
         }
       } else {
-        // Multiple files: use assembleContext
-        // Note: assembleContext always requires a budget; use large number for --full
+        // Multiple files: budget controls total space, level controls per-file density
         const root = process.cwd()
         const assembled = yield* assembleContext(root, fileList, {
-          budget: full ? Number.MAX_SAFE_INTEGER : tokens,
+          budget: tokens,
           level: level as 'brief' | 'summary' | 'full',
           exclude: excludePatterns.length > 0 ? excludePatterns : undefined,
         })

@@ -267,9 +267,27 @@ export const searchSchema: CommandSchema = {
 export const contextSchema: CommandSchema = {
   name: 'context',
   flags: [
-    { name: 'tokens', type: 'string', alias: 't', description: 'Token budget' },
-    { name: 'brief', type: 'boolean', description: 'Minimal output' },
-    { name: 'full', type: 'boolean', description: 'Include full content' },
+    {
+      name: 'tokens',
+      type: 'string',
+      alias: 't',
+      description: 'Token budget for multi-file assembly (default 2000)',
+    },
+    {
+      name: 'brief',
+      type: 'boolean',
+      description: 'Structural skeleton: headings + content markers (default)',
+    },
+    {
+      name: 'summary',
+      type: 'boolean',
+      description: 'Key points extracted from each section',
+    },
+    {
+      name: 'full',
+      type: 'boolean',
+      description: 'Complete document content',
+    },
     {
       name: 'section',
       type: 'string',

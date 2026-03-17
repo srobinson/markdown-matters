@@ -305,12 +305,12 @@ export const helpContent: Record<string, CommandHelp> = {
     description: 'Get LLM-ready summary of markdown files',
     usage: 'mdm context [options] <files>...',
     examples: [
-      'mdm context README.md        # Summarize single file',
-      'mdm context *.md             # Summarize all markdown files',
-      'mdm context -t 1000 *.md     # Fit within 1000 token budget',
-      'mdm context --brief *.md     # Minimal output (headings only)',
-      'mdm context --full doc.md    # Include full content',
-      'mdm context *.md | pbcopy    # Copy to clipboard (macOS)',
+      'mdm context README.md          # Brief skeleton (default)',
+      'mdm context --summary doc.md   # Key points per section',
+      'mdm context --full doc.md      # Complete content',
+      'mdm context *.md               # Multi-file with 2000 token budget',
+      'mdm context -t 5000 *.md       # Multi-file with larger budget',
+      'mdm context *.md | pbcopy      # Copy to clipboard (macOS)',
       '',
       '# Section filtering:',
       'mdm context doc.md --sections                # List available sections',
@@ -326,15 +326,21 @@ export const helpContent: Record<string, CommandHelp> = {
     options: [
       {
         name: '-t, --tokens <n>',
-        description: 'Token budget for output (default: 2000)',
+        description:
+          'Token budget for multi-file assembly (default: 2000)',
       },
       {
         name: '--brief',
-        description: 'Minimal output (headings and key points only)',
+        description:
+          'Structural skeleton: headings + content markers (default)',
+      },
+      {
+        name: '--summary',
+        description: 'Key points extracted from each section',
       },
       {
         name: '--full',
-        description: 'Include full content (no summarization)',
+        description: 'Complete document content',
       },
       {
         name: '--section <name>',

@@ -29,8 +29,6 @@ export type CompressionLevel = 'brief' | 'summary' | 'full'
 export interface SummarizeOptions {
   /** Compression level */
   readonly level?: CompressionLevel | undefined
-  /** Maximum tokens for output */
-  readonly maxTokens?: number | undefined
   /** Section patterns to exclude from output */
   readonly exclude?: readonly string[] | undefined
 }
@@ -55,10 +53,6 @@ export interface DocumentSummary {
   readonly compressionRatio: number
   readonly sections: readonly SectionSummary[]
   readonly keyTopics: readonly string[]
-  /** True if content was truncated to fit budget */
-  readonly truncated?: boolean
-  /** Number of sections that were omitted due to budget constraints */
-  readonly truncatedCount?: number
 }
 
 export interface AssembleContextOptions {
@@ -88,8 +82,8 @@ export interface SourceContext {
 // Constants
 // ============================================================================
 
-/** Token budgets per compression level */
-const TOKEN_BUDGETS: Record<CompressionLevel, number> = {
+/** Per-section density caps by compression level (controls summarizeSection output) */
+const SECTION_DENSITY_CAPS: Record<CompressionLevel, number> = {
   brief: 100,
   summary: 500,
   full: Infinity,
@@ -126,9 +120,6 @@ const MAX_TOPIC_LENGTH = 50
 
 /** Maximum topics to extract from a document */
 const MAX_TOPICS = 10
-
-/** Minimum remaining budget to include partial content */
-const MIN_PARTIAL_BUDGET = 50
 
 // ============================================================================
 // Section Summarization
@@ -175,7 +166,7 @@ const summarizeSection = (
 
   // Calculate target tokens based on level
   const targetTokens = Math.min(
-    TOKEN_BUDGETS[level],
+    SECTION_DENSITY_CAPS[level],
     Math.max(originalTokens * SUMMARY_COMPRESSION_RATIO, MIN_SECTION_TOKENS),
   )
 
@@ -274,99 +265,31 @@ export const summarizeDocument = (
   document: MdDocument,
   options: SummarizeOptions = {},
 ): DocumentSummary => {
-  const level = options.level ?? 'summary'
-  const maxTokens = options.maxTokens ?? TOKEN_BUDGETS[level]
+  const level = options.level ?? 'brief'
 
-  // Summarize all sections
-  const allSections = document.sections.map((s) => summarizeSection(s, level))
+  // Summarize all sections at the chosen density level (no budget, no truncation)
+  const sections = document.sections.map((s) => summarizeSection(s, level))
 
-  // Calculate totals and collect all flattened sections with their tokens
+  // Calculate totals
   const originalTokens = document.metadata.tokenCount
-  let totalSummaryTokens = 0
-  const flatSections: SectionSummary[] = []
+  let summaryTokens = 0
 
-  const flattenWithTokens = (section: SectionSummary) => {
-    flatSections.push(section)
-    totalSummaryTokens += section.summaryTokens
+  const countTokensRecursive = (section: SectionSummary) => {
+    summaryTokens += section.summaryTokens
     for (const child of section.children) {
-      flattenWithTokens(child)
+      countTokensRecursive(child)
     }
   }
 
-  for (const section of allSections) {
-    flattenWithTokens(section)
+  for (const section of sections) {
+    countTokensRecursive(section)
   }
 
-  // Calculate formatting overhead dynamically based on actual content
-  // Header includes: "# {title}\nPath: {path}\nTokens: X (Y% reduction from Z)\n"
-  // Plus topics line if present, plus possible truncation warning
   const topics = extractTopics(document)
-  const headerTemplate = `# ${document.title}\nPath: ${document.path}\nTokens: 9999 (99% reduction from ${document.metadata.tokenCount})\n`
-  const topicsLine =
-    topics.length > 0 ? `\n**Topics:** ${topics.join(', ')}\n` : ''
-  const truncationWarning =
-    '\n⚠️ TRUNCATED: 999 sections omitted to fit token budget'
-  // Add all possible overhead plus a generous safety margin (20% of overhead + 20 base)
-  // This accounts for variance in token estimation
-  const baseOverhead = countTokensApprox(
-    headerTemplate + topicsLine + truncationWarning,
-  )
-  const formattingOverhead = Math.ceil(baseOverhead * 1.2) + 20
-  const contentBudget = maxTokens - formattingOverhead
-
-  // If over budget, truncate sections to fit
-  let truncated = false
-  let truncatedCount = 0
-  let sections: SectionSummary[]
-  let summaryTokens: number
-
-  if (totalSummaryTokens > contentBudget && contentBudget > 0) {
-    // Need to truncate - use greedy tree traversal that can include children
-    // even when parent doesn't fit (orphan rescue)
-    let tokensUsed = 0
-
-    // Process tree with orphan rescue: if parent doesn't fit, still try children
-    const truncateSections = (
-      sectionList: readonly SectionSummary[],
-    ): SectionSummary[] => {
-      const result: SectionSummary[] = []
-
-      for (const section of sectionList) {
-        const sectionOwnTokens = section.summaryTokens
-        const fitsInBudget = tokensUsed + sectionOwnTokens <= contentBudget
-
-        if (fitsInBudget) {
-          // Section fits - include it and recursively process children
-          tokensUsed += sectionOwnTokens
-          const truncatedChildren = truncateSections(section.children)
-          result.push({
-            ...section,
-            children: truncatedChildren,
-          })
-        } else {
-          // Section doesn't fit - but still try to rescue children (orphan rescue)
-          truncatedCount++
-          const rescuedChildren = truncateSections(section.children)
-          // Add rescued children as top-level items in result
-          result.push(...rescuedChildren)
-        }
-      }
-
-      return result
-    }
-
-    sections = truncateSections(allSections)
-    summaryTokens = tokensUsed
-    truncated = truncatedCount > 0
-  } else {
-    sections = allSections
-    summaryTokens = totalSummaryTokens
-  }
-
   const compressionRatio =
     originalTokens > 0 ? 1 - summaryTokens / originalTokens : 0
 
-  const result: DocumentSummary = {
+  return {
     path: document.path,
     title: document.title,
     originalTokens,
@@ -375,16 +298,6 @@ export const summarizeDocument = (
     sections,
     keyTopics: topics,
   }
-
-  if (truncated) {
-    return {
-      ...result,
-      truncated: true,
-      truncatedCount,
-    }
-  }
-
-  return result
 }
 
 /**
@@ -416,7 +329,7 @@ export const summarizeFile = (
 // Format Summary for Output (re-exported from formatters.ts)
 // ============================================================================
 
-export { type FormatSummaryOptions, formatSummary } from './formatters.js'
+export { formatSummary } from './formatters.js'
 
 // ============================================================================
 // Multi-Document Context Assembly
@@ -424,6 +337,10 @@ export { type FormatSummaryOptions, formatSummary } from './formatters.js'
 
 /**
  * Assemble context from multiple markdown files within a token budget
+ *
+ * Strategy: summarize all files at chosen level, then pack in input order.
+ * When a file doesn't fit at the chosen level, retry at brief level.
+ * If it still doesn't fit, add to overflow.
  *
  * @throws ParseError - File content cannot be parsed
  * @throws FileReadError - File cannot be read from filesystem
@@ -435,106 +352,96 @@ export const assembleContext = (
 ): Effect.Effect<AssembledContext, ParseFileError> =>
   Effect.gen(function* () {
     const budget = options.budget
-    const level = options.level ?? 'summary'
+    const level = options.level ?? 'brief'
     const excludePatterns = options.exclude ?? []
 
-    const sources: SourceContext[] = []
-    const overflow: string[] = []
-    let totalTokens = 0
-
-    // Calculate per-source budget (even distribution)
-    const perSourceBudget = Math.floor(budget / sourcePaths.length)
+    // Phase 1: Summarize all files at chosen level (no budget constraint)
+    type SummaryEntry = {
+      path: string
+      summary: DocumentSummary
+      formatted: string
+      tokens: number
+    }
+    const summaries: SummaryEntry[] = []
+    const errors: string[] = []
 
     for (const sourcePath of sourcePaths) {
       const resolvedPath = path.isAbsolute(sourcePath)
         ? sourcePath
         : path.join(rootPath, sourcePath)
 
-      // Use catchAll for graceful degradation - individual file failures
-      // shouldn't stop the entire context assembly operation
-      const summaryResult = yield* summarizeFile(resolvedPath, {
+      const result = yield* summarizeFile(resolvedPath, {
         level,
-        maxTokens: perSourceBudget,
         exclude: excludePatterns,
       }).pipe(
-        Effect.map((s): DocumentSummary | null => s),
-        // Log error for observability before gracefully degrading
+        Effect.map((s) => {
+          const formatted = formatSummaryImpl(s)
+          return {
+            path: path.relative(rootPath, resolvedPath),
+            summary: s,
+            formatted,
+            tokens: countTokensApprox(formatted),
+          }
+        }),
         Effect.tapError((error) =>
           Effect.logError(`Failed to summarize ${sourcePath}`, error),
         ),
-        // Note: catchAll intentional for batch processing - individual file
-        // failures add to overflow instead of stopping assembly
-        Effect.catchAll(() => Effect.succeed(null as DocumentSummary | null)),
+        Effect.catchAll(() => {
+          errors.push(sourcePath)
+          return Effect.succeed(null as SummaryEntry | null)
+        }),
       )
+      if (result) summaries.push(result)
+    }
 
-      if (!summaryResult) {
-        overflow.push(sourcePath)
-        continue
-      }
+    // Phase 2: Pack in input order (respect user's file ordering)
+    const sources: SourceContext[] = []
+    const overflow: string[] = [...errors]
+    let totalTokens = 0
 
-      const summary = summaryResult
-      const content = formatSummaryImpl(summary)
-      // Count actual formatted output tokens, not pre-format summary tokens
-      const tokens = countTokensApprox(content)
-
-      if (totalTokens + tokens <= budget) {
+    for (const item of summaries) {
+      if (totalTokens + item.tokens <= budget) {
         sources.push({
-          path: path.relative(rootPath, resolvedPath),
-          title: summary.title,
-          tokens,
-          content,
+          path: item.path,
+          title: item.summary.title,
+          tokens: item.tokens,
+          content: item.formatted,
         })
-        totalTokens += tokens
-      } else {
-        // Over budget
-        const remaining = budget - totalTokens
-        if (remaining > MIN_PARTIAL_BUDGET) {
-          // Include partial if we have some room
-          const briefSummary = yield* summarizeFile(resolvedPath, {
-            level: 'brief',
-            maxTokens: remaining,
-            exclude: excludePatterns,
-          }).pipe(
-            Effect.map((s): DocumentSummary | null => s),
-            // Log error for observability before gracefully degrading
-            Effect.tapError((error) =>
-              Effect.logError(
-                `Failed to create brief summary for ${sourcePath}`,
-                error,
-              ),
-            ),
-            Effect.catchAll(() =>
-              Effect.succeed(null as DocumentSummary | null),
-            ),
-          )
+        totalTokens += item.tokens
+      } else if (level !== 'brief') {
+        // Retry at brief level for a tighter fit
+        const resolvedPath = path.isAbsolute(item.path)
+          ? item.path
+          : path.join(rootPath, item.path)
 
-          if (briefSummary) {
-            const briefContent = formatSummaryImpl(briefSummary)
-            // Count actual formatted output tokens, not pre-format summary tokens
-            const briefTokens = countTokensApprox(briefContent)
+        const briefResult = yield* summarizeFile(resolvedPath, {
+          level: 'brief',
+          exclude: excludePatterns,
+        }).pipe(
+          Effect.map((s) => {
+            const f = formatSummaryImpl(s)
+            return { formatted: f, tokens: countTokensApprox(f), summary: s }
+          }),
+          Effect.catchAll(() => Effect.succeed(null)),
+        )
 
-            sources.push({
-              path: path.relative(rootPath, resolvedPath),
-              title: briefSummary.title,
-              tokens: briefTokens,
-              content: briefContent,
-            })
-            totalTokens += briefTokens
-          } else {
-            overflow.push(path.relative(rootPath, resolvedPath))
-          }
+        if (briefResult && totalTokens + briefResult.tokens <= budget) {
+          sources.push({
+            path: item.path,
+            title: briefResult.summary.title,
+            tokens: briefResult.tokens,
+            content: briefResult.formatted,
+          })
+          totalTokens += briefResult.tokens
         } else {
-          overflow.push(path.relative(rootPath, resolvedPath))
+          overflow.push(item.path)
         }
+      } else {
+        overflow.push(item.path)
       }
     }
 
-    return {
-      sources,
-      totalTokens,
-      budget,
-      overflow,
-    }
+    return { sources, totalTokens, budget, overflow }
   })
 
 // ============================================================================
