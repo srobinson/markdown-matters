@@ -1,5 +1,12 @@
 # markdown-matters
 
+## [0.3.2](https://github.com/srobinson/markdown-matters/compare/v0.3.1...v0.3.2) (2026-03-26)
+
+
+### Bug Fixes
+
+* correct md_context MCP tool definition and update docs ([24e7261](https://github.com/srobinson/markdown-matters/commit/24e726159d0a152e69fc402b5cf6339869e8d575))
+
 ## [0.3.1](https://github.com/srobinson/markdown-matters/compare/v0.3.0...v0.3.1) (2026-03-17)
 
 
