@@ -55,7 +55,7 @@ importers:
         version: 11.0.0
       smol-toml:
         specifier: ^1.6.0
-        version: 1.6.0
+        version: 1.6.1
       stemmer:
         specifier: ^2.0.1
         version: 2.0.1
@@ -1275,6 +1275,9 @@ packages:
   msgpackr@1.11.8:
     resolution: {integrity: sha512-bC4UGzHhVvgDNS7kn9tV8fAucIYUBuGojcaLiz7v+P63Lmtm0Xeji8B/8tYKddALXxJLpwIeBmUN3u64C4YkRA==}
 
+  msgpackr@1.11.9:
+    resolution: {integrity: sha512-FkoAAyyA6HM8wL882EcEyFZ9s7hVADSwG9xrVx3dxxNQAtgADTrJoEWivID82Iv1zWDsv/OtbrrcZAzGzOMdNw==}
+
   multipasta@0.2.7:
     resolution: {integrity: sha512-KPA58d68KgGil15oDqXjkUBEBYc00XvbPj5/X+dyzeo/lWm9Nc25pQRlf1D+gv4OpK7NM0J1odrbu9JNNGvynA==}
 
@@ -1489,8 +1492,8 @@ packages:
   sisteransi@1.0.5:
     resolution: {integrity: sha512-bLGGlR1QxBcynn2d5YmDX4MGjlZvy2MRBDRNHLJ8VI6l6+9FUiyTFNJ0IveOSP0bcXgVDPRcfGqA0pjaqUpfVg==}
 
-  smol-toml@1.6.0:
-    resolution: {integrity: sha512-4zemZi0HvTnYwLfrpk/CF9LOd9Lt87kAt50GnqhMpyF9U3poDAP2+iukq2bZsO/ufegbYehBkqINbsWxj4l4cw==}
+  smol-toml@1.6.1:
+    resolution: {integrity: sha512-dWUG8F5sIIARXih1DTaQAX4SsiTXhInKf1buxdY9DIg4ZYPZK5nGM1VRIYmEbDbsHt7USo99xSLFu5Q1IqTmsg==}
     engines: {node: '>= 18'}
 
   source-map-js@1.2.1:
@@ -1910,7 +1913,7 @@ snapshots:
     dependencies:
       '@effect/platform': 0.94.2(effect@3.19.15)
       effect: 3.19.15
-      msgpackr: 1.11.8
+      msgpackr: 1.11.9
 
   '@effect/sql@0.49.0(@effect/experimental@0.58.0(@effect/platform@0.94.2(effect@3.19.15))(effect@3.19.15))(@effect/platform@0.94.2(effect@3.19.15))(effect@3.19.15)':
     dependencies:
@@ -2989,6 +2992,10 @@ snapshots:
     optionalDependencies:
       msgpackr-extract: 3.0.3
 
+  msgpackr@1.11.9:
+    optionalDependencies:
+      msgpackr-extract: 3.0.3
+
   multipasta@0.2.7: {}
 
   mz@2.7.0:
@@ -3240,7 +3247,7 @@ snapshots:
 
   sisteransi@1.0.5: {}
 
-  smol-toml@1.6.0: {}
+  smol-toml@1.6.1: {}
 
   source-map-js@1.2.1: {}
 
