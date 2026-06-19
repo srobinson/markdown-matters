@@ -32,6 +32,11 @@ provider = "${defaultConfig.embeddings.provider}"
 model = "${defaultConfig.embeddings.model}"
 dimensions = ${defaultConfig.embeddings.dimensions}
 batchSize = ${defaultConfig.embeddings.batchSize}
+maxRetries = ${defaultConfig.embeddings.maxRetries}
+retryDelayMs = ${defaultConfig.embeddings.retryDelayMs}
+timeoutMs = ${defaultConfig.embeddings.timeoutMs}
+hnswM = ${defaultConfig.embeddings.hnswM}
+hnswEfConstruction = ${defaultConfig.embeddings.hnswEfConstruction}
 # baseURL = "https://custom-endpoint.example.com"
 # apiKey = "sk-..."
 
@@ -57,4 +62,9 @@ color = ${defaultConfig.output.color}
 prettyJson = ${defaultConfig.output.prettyJson}
 verbose = ${defaultConfig.output.verbose}
 debug = ${defaultConfig.output.debug}
+
+[paths]
+cacheDir = "${defaultConfig.paths.cacheDir}"
+# root = "/path/to/project"
+# configFile = "/path/to/.mdm.toml"
 `

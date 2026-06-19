@@ -5,17 +5,24 @@
  */
 
 export {
+  type ConfigFileLoadResult,
+  type ConfigParseError,
   type GlobalSource,
   type LoadOptions,
+  type LoadResult,
   // Loader
   load,
   loadConfigFile,
+  loadConfigFileWithStatus,
+  loadDetailed,
   loadTomlFile,
+  loadTomlFileWithStatus,
   mergeWithDefaults,
   type PartialMdmConfig,
   readEnvVars,
   readEnvVarsMap,
   readGlobalSources,
+  type TomlFileLoadResult,
   validateConfig,
 } from './loader.js'
 export {
@@ -59,3 +66,10 @@ export {
   TestConfigLayer,
   withTestConfig,
 } from './testing.js'
+export {
+  CONFIG_ENUM_VALUES,
+  type ConfigIssue,
+  coerceConfig,
+  collectConfigIssues,
+  formatConfigIssue,
+} from './validation.js'

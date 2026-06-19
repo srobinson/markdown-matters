@@ -18,7 +18,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   load,
   loadConfigFile,
+  loadConfigFileWithStatus,
+  loadDetailed,
   loadTomlFile,
+  loadTomlFileWithStatus,
   mergeWithDefaults,
   type PartialMdmConfig,
   readEnvVars,
@@ -26,6 +29,7 @@ import {
   validateConfig,
 } from './loader.js'
 import { defaultConfig } from './schema.js'
+import { collectConfigIssues } from './validation.js'
 
 // ============================================================================
 // Helpers
@@ -105,6 +109,19 @@ model = "nomic-embed-text"
     expect(result).toBeNull()
     expect(warnSpy).toHaveBeenCalled()
     warnSpy.mockRestore()
+  })
+
+  it('distinguishes malformed TOML from a missing file', () => {
+    const missing = loadTomlFileWithStatus(path.join(tempDir, '.mdm.toml'))
+    expect(missing.status).toBe('missing')
+
+    writeToml(tempDir, '{ invalid toml <<<')
+    const malformed = loadTomlFileWithStatus(path.join(tempDir, '.mdm.toml'))
+    expect(malformed.status).toBe('error')
+    if (malformed.status === 'error') {
+      expect(malformed.error.path).toBe(path.join(tempDir, '.mdm.toml'))
+      expect(malformed.error.message).toContain('Invalid TOML')
+    }
   })
 
   it('handles empty TOML file', () => {
@@ -406,6 +423,25 @@ describe('two-tier resolution (loadConfigFile)', () => {
     expect(warnSpy).toHaveBeenCalled()
     warnSpy.mockRestore()
   })
+
+  it('reports a local parse error without falling through to global config', () => {
+    const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'mdm-home-'))
+    const originalHome = process.env.HOME
+    process.env.HOME = fakeHome
+    const globalDir = path.join(fakeHome, '.mdm')
+    fs.mkdirSync(globalDir, { recursive: true })
+    writeTomlConfig(globalDir, { search: { defaultLimit: 42 } })
+    writeToml(tempDir, '{ invalid <<<')
+
+    const result = loadConfigFileWithStatus(tempDir)
+
+    expect(result.status).toBe('error')
+    if (result.status === 'error') {
+      expect(result.error.path).toBe(path.join(tempDir, '.mdm.toml'))
+    }
+    process.env.HOME = originalHome
+    fs.rmSync(fakeHome, { recursive: true, force: true })
+  })
 })
 
 describe('load() with two-tier', () => {
@@ -475,6 +511,45 @@ describe('validateConfig', () => {
     }
     const result = validateConfig(config)
     expect(result.aiSummarization.mode).toBe(defaultConfig.aiSummarization.mode)
+    warnSpy.mockRestore()
+  })
+
+  it('collects wrong numeric and boolean types', () => {
+    const config = {
+      ...defaultConfig,
+      search: {
+        ...defaultConfig.search,
+        defaultLimit: 'ten',
+        includeSnippets: 'true',
+      },
+    } as any
+
+    const issues = collectConfigIssues(config)
+
+    expect(issues.map((issue) => issue.path)).toEqual(
+      expect.arrayContaining(['search.defaultLimit', 'search.includeSnippets']),
+    )
+  })
+
+  it('coerces out-of-range numeric values to defaults', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const config = {
+      ...defaultConfig,
+      search: {
+        ...defaultConfig.search,
+        minSimilarity: 2,
+        maxLimit: 5,
+        defaultLimit: 10,
+      },
+      embeddings: { ...defaultConfig.embeddings, batchSize: 0 },
+    }
+
+    const result = validateConfig(config)
+
+    expect(result.search.minSimilarity).toBe(defaultConfig.search.minSimilarity)
+    expect(result.search.maxLimit).toBe(defaultConfig.search.maxLimit)
+    expect(result.embeddings.batchSize).toBe(defaultConfig.embeddings.batchSize)
+    expect(warnSpy).toHaveBeenCalled()
     warnSpy.mockRestore()
   })
 })
@@ -548,6 +623,24 @@ describe('load() with fileConfig', () => {
     expect(result.index.maxDepth).toBe(2)
     expect(result.index.followSymlinks).toBe(defaultConfig.index.followSymlinks)
   })
+
+  it('loadDetailed returns issues and coerced effective config', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const result = loadDetailed({
+      fileConfig: { embeddings: { provider: 'bogus' as any } },
+      skipConfigFile: true,
+      skipEnv: true,
+    })
+
+    expect(result.unvalidatedConfig.embeddings.provider).toBe('bogus')
+    expect(result.config.embeddings.provider).toBe(
+      defaultConfig.embeddings.provider,
+    )
+    expect(result.validationIssues.map((issue) => issue.path)).toContain(
+      'embeddings.provider',
+    )
+    warnSpy.mockRestore()
+  })
 })
 
 // ============================================================================
@@ -581,11 +674,25 @@ describe('generateDefaultToml round-trip', () => {
     expect(result.embeddings.dimensions).toBe(
       defaultConfig.embeddings.dimensions,
     )
+    expect(result.embeddings.batchSize).toBe(defaultConfig.embeddings.batchSize)
+    expect(result.embeddings.maxRetries).toBe(
+      defaultConfig.embeddings.maxRetries,
+    )
+    expect(result.embeddings.retryDelayMs).toBe(
+      defaultConfig.embeddings.retryDelayMs,
+    )
+    expect(result.embeddings.timeoutMs).toBe(defaultConfig.embeddings.timeoutMs)
+    expect(result.embeddings.hnswM).toBe(defaultConfig.embeddings.hnswM)
+    expect(result.embeddings.hnswEfConstruction).toBe(
+      defaultConfig.embeddings.hnswEfConstruction,
+    )
     expect(result.output.format).toBe(defaultConfig.output.format)
     expect(result.output.color).toBe(defaultConfig.output.color)
     expect(result.aiSummarization.mode).toBe(defaultConfig.aiSummarization.mode)
     expect(result.aiSummarization.provider).toBe(
       defaultConfig.aiSummarization.provider,
     )
+    expect(result.paths.cacheDir).toBe(defaultConfig.paths.cacheDir)
+    expect(toml).toContain('[paths]')
   })
 })
