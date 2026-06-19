@@ -25,7 +25,6 @@ import {
   mergeWithDefaults,
   type PartialMdmConfig,
   readEnvVars,
-  readEnvVarsMap,
   validateConfig,
 } from './loader.js'
 import { defaultConfig } from './schema.js'
@@ -319,20 +318,6 @@ describe('readEnvVars', () => {
   })
 })
 
-describe('readEnvVarsMap', () => {
-  afterEach(() => {
-    for (const key of Object.keys(process.env)) {
-      if (key.startsWith('MDM_')) delete process.env[key]
-    }
-  })
-
-  it('returns section.key format for detected env vars', () => {
-    process.env.MDM_INDEX_MAXDEPTH = '20'
-    const result = readEnvVarsMap()
-    expect(result.get('index.maxDepth')).toBe('20')
-  })
-})
-
 describe('env var precedence in load()', () => {
   afterEach(() => {
     for (const key of Object.keys(process.env)) {
@@ -424,7 +409,7 @@ describe('two-tier resolution (loadConfigFile)', () => {
     warnSpy.mockRestore()
   })
 
-  it('reports a local parse error without falling through to global config', () => {
+  it('falls through from broken local TOML to valid global config', () => {
     const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'mdm-home-'))
     const originalHome = process.env.HOME
     process.env.HOME = fakeHome
@@ -435,10 +420,13 @@ describe('two-tier resolution (loadConfigFile)', () => {
 
     const result = loadConfigFileWithStatus(tempDir)
 
-    expect(result.status).toBe('error')
-    if (result.status === 'error') {
-      expect(result.error.path).toBe(path.join(tempDir, '.mdm.toml'))
+    expect(result.status).toBe('loaded')
+    if (result.status === 'loaded') {
+      expect(result.path).toBe(path.join(fakeHome, '.mdm', '.mdm.toml'))
+      expect(result.parseErrors[0]?.path).toBe(path.join(tempDir, '.mdm.toml'))
     }
+    const loaded = load({ workingDir: tempDir, skipEnv: true })
+    expect(loaded.search.defaultLimit).toBe(42)
     process.env.HOME = originalHome
     fs.rmSync(fakeHome, { recursive: true, force: true })
   })
@@ -547,7 +535,8 @@ describe('validateConfig', () => {
     const result = validateConfig(config)
 
     expect(result.search.minSimilarity).toBe(defaultConfig.search.minSimilarity)
-    expect(result.search.maxLimit).toBe(defaultConfig.search.maxLimit)
+    expect(result.search.maxLimit).toBe(5)
+    expect(result.search.defaultLimit).toBe(5)
     expect(result.embeddings.batchSize).toBe(defaultConfig.embeddings.batchSize)
     expect(warnSpy).toHaveBeenCalled()
     warnSpy.mockRestore()

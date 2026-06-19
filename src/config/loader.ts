@@ -62,8 +62,17 @@ export type TomlFileLoadResult =
 
 export type ConfigFileLoadResult =
   | { status: 'missing' }
-  | { status: 'loaded'; path: string; config: PartialMdmConfig }
-  | { status: 'error'; error: ConfigParseError }
+  | {
+      status: 'loaded'
+      path: string
+      config: PartialMdmConfig
+      parseErrors: ConfigParseError[]
+    }
+  | {
+      status: 'error'
+      error: ConfigParseError
+      parseErrors: ConfigParseError[]
+    }
 
 const formatConfigParseError = (error: ConfigParseError): string =>
   `Failed to parse config file ${error.path}: ${error.message}`
@@ -122,22 +131,44 @@ export const loadConfigFileWithStatus = (
   workingDir?: string,
 ): ConfigFileLoadResult => {
   const cwd = workingDir ?? process.cwd()
+  const parseErrors: ConfigParseError[] = []
 
   // Tier 1: project-local
   const localPath = path.join(cwd, '.mdm.toml')
   const localResult = loadTomlFileWithStatus(localPath)
   if (localResult.status === 'loaded') {
-    return { status: 'loaded', config: localResult.config, path: localPath }
+    return {
+      status: 'loaded',
+      config: localResult.config,
+      path: localPath,
+      parseErrors,
+    }
   }
-  if (localResult.status === 'error') return localResult
+  if (localResult.status === 'error') parseErrors.push(localResult.error)
 
   // Tier 2: global
   const globalPath = path.join(os.homedir(), '.mdm', '.mdm.toml')
   const globalResult = loadTomlFileWithStatus(globalPath)
   if (globalResult.status === 'loaded') {
-    return { status: 'loaded', config: globalResult.config, path: globalPath }
+    return {
+      status: 'loaded',
+      config: globalResult.config,
+      path: globalPath,
+      parseErrors,
+    }
   }
-  if (globalResult.status === 'error') return globalResult
+  if (globalResult.status === 'error') {
+    parseErrors.push(globalResult.error)
+    return { status: 'error', error: globalResult.error, parseErrors }
+  }
+
+  if (parseErrors.length > 0) {
+    return {
+      status: 'error',
+      error: parseErrors[0]!,
+      parseErrors,
+    }
+  }
 
   return { status: 'missing' }
 }
@@ -154,9 +185,16 @@ export const loadConfigFile = (
 ): { config: PartialMdmConfig; path: string } | null => {
   const result = loadConfigFileWithStatus(workingDir)
   if (result.status === 'loaded') {
+    for (const error of result.parseErrors) {
+      warnConfigParseError(error)
+    }
     return { config: result.config, path: result.path }
   }
-  if (result.status === 'error') warnConfigParseError(result.error)
+  if (result.status === 'error') {
+    for (const error of result.parseErrors) {
+      warnConfigParseError(error)
+    }
+  }
   return null
 }
 
@@ -212,27 +250,6 @@ export const readEnvVars = (prefix = 'MDM'): PartialMdmConfig => {
 }
 
 /**
- * Read MDM_* environment variables and return a Map of "section.key" -> raw string value.
- * Used by the config check command to detect which values come from environment.
- */
-export const readEnvVarsMap = (prefix = 'MDM'): Map<string, string> => {
-  const result = new Map<string, string>()
-  const prefixUnderscore = `${prefix}_`
-
-  for (const [envKey, envValue] of Object.entries(process.env)) {
-    if (!envKey.startsWith(prefixUnderscore) || envValue === undefined) continue
-
-    const suffix = envKey.slice(prefixUnderscore.length).toLowerCase()
-    const mapping = ENV_KEY_MAP[suffix]
-    if (!mapping) continue
-
-    result.set(`${mapping.section}.${mapping.key}`, envValue)
-  }
-
-  return result
-}
-
-/**
  * Parse an environment variable string into the appropriate config type.
  */
 const parseEnvValue = (
@@ -264,8 +281,9 @@ const parseEnvValue = (
 
   // Number fields
   if (typeof defaultValue === 'number') {
-    const num = Number(value)
-    return Number.isFinite(num) ? num : value
+    if (!/^-?\d+(?:\.\d+)?$/.test(value)) return value
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : value
   }
 
   // String fields (including literal unions)
@@ -394,6 +412,7 @@ export interface LoadResult {
   envConfig: PartialMdmConfig
   sourceFile: string | null
   parseError?: ConfigParseError | undefined
+  parseErrors: ConfigParseError[]
 }
 
 /**
@@ -420,6 +439,7 @@ export const loadDetailed = (options: LoadOptions = {}): LoadResult => {
   let envConfig: PartialMdmConfig = {}
   let sourceFile: string | null = null
   let parseError: ConfigParseError | undefined
+  let parseErrors: ConfigParseError[] = []
 
   // Layer 1: Config file (lowest priority source)
   // fileConfig always takes effect when provided (used for testing).
@@ -433,9 +453,21 @@ export const loadDetailed = (options: LoadOptions = {}): LoadResult => {
       sourceFile = result.path
       fileConfig = result.config
       merged = result.config
+      parseErrors = result.parseErrors
+      parseError = parseErrors[0]
+      if (!suppressWarnings) {
+        for (const error of parseErrors) {
+          warnConfigParseError(error)
+        }
+      }
     } else if (result.status === 'error') {
       parseError = result.error
-      if (!suppressWarnings) warnConfigParseError(result.error)
+      parseErrors = result.parseErrors
+      if (!suppressWarnings) {
+        for (const error of parseErrors) {
+          warnConfigParseError(error)
+        }
+      }
     }
   }
 
@@ -463,6 +495,7 @@ export const loadDetailed = (options: LoadOptions = {}): LoadResult => {
     envConfig,
     sourceFile,
     parseError,
+    parseErrors,
   }
 }
 

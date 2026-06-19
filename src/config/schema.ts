@@ -52,12 +52,15 @@ export interface SearchConfig {
 // Embeddings Configuration
 // ============================================================================
 
-export type EmbeddingProviderName =
-  | 'openai'
-  | 'ollama'
-  | 'lm-studio'
-  | 'openrouter'
-  | 'voyage'
+export const EMBEDDING_PROVIDER_NAMES = [
+  'openai',
+  'ollama',
+  'lm-studio',
+  'openrouter',
+  'voyage',
+] as const
+
+export type EmbeddingProviderName = (typeof EMBEDDING_PROVIDER_NAMES)[number]
 
 export type OpenAIEmbeddingModel =
   | 'text-embedding-3-small'
@@ -93,7 +96,9 @@ export interface EmbeddingsConfig {
 // Output Configuration
 // ============================================================================
 
-export type OutputFormat = 'text' | 'json'
+export const OUTPUT_FORMATS = ['text', 'json'] as const
+
+export type OutputFormat = (typeof OUTPUT_FORMATS)[number]
 
 export interface OutputConfig {
   /** Default output format. */
@@ -131,24 +136,38 @@ export interface SummarizationConfig {
 // AI Summarization Configuration
 // ============================================================================
 
-export type AISummarizationMode = 'cli' | 'api'
+export const AI_SUMMARIZATION_MODES = ['cli', 'api'] as const
 
-export type CLIProviderName =
-  | 'claude'
-  | 'copilot'
-  | 'cline'
-  | 'aider'
-  | 'opencode'
-  | 'amp'
+export type AISummarizationMode = (typeof AI_SUMMARIZATION_MODES)[number]
 
-export type APIProviderName =
-  | 'deepseek'
-  | 'anthropic'
-  | 'openai'
-  | 'gemini'
-  | 'qwen'
+export const CLI_PROVIDER_NAMES = [
+  'claude',
+  'copilot',
+  'cline',
+  'aider',
+  'opencode',
+  'amp',
+] as const
 
-export type SummarizationProviderName = CLIProviderName | APIProviderName
+export type CLIProviderName = (typeof CLI_PROVIDER_NAMES)[number]
+
+export const API_PROVIDER_NAMES = [
+  'deepseek',
+  'anthropic',
+  'openai',
+  'gemini',
+  'qwen',
+] as const
+
+export type APIProviderName = (typeof API_PROVIDER_NAMES)[number]
+
+export const SUMMARIZATION_PROVIDER_NAMES = [
+  ...CLI_PROVIDER_NAMES,
+  ...API_PROVIDER_NAMES,
+] as const
+
+export type SummarizationProviderName =
+  (typeof SUMMARIZATION_PROVIDER_NAMES)[number]
 
 export interface AISummarizationConfig {
   /** Summarization mode: 'cli' (free) or 'api' (pay-per-use). */

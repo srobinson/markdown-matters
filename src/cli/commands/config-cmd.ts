@@ -17,6 +17,7 @@ import {
   type MdmConfig,
   type PartialMdmConfig,
 } from '../../config/index.js'
+import { ConfigError } from '../../errors/index.js'
 import { jsonOption, prettyOption } from '../options.js'
 import { formatJson } from '../utils.js'
 
@@ -249,6 +250,11 @@ const buildIssuesByPath = (issues: ConfigIssue[]): Map<string, string[]> => {
   return result
 }
 
+const parseErrorMessages = (loadResult: ReturnType<typeof loadDetailed>) =>
+  loadResult.parseErrors.map(
+    (error) => `Failed to parse config file ${error.path}: ${error.message}`,
+  )
+
 /**
  * Format a value for text display.
  */
@@ -337,12 +343,9 @@ const checkCommand = Command.make(
         suppressWarnings: true,
       })
       const issuesByPath = buildIssuesByPath(loadResult.validationIssues)
-      const parseError = loadResult.parseError
-        ? `Failed to parse config file ${loadResult.parseError.path}: ${loadResult.parseError.message}`
-        : undefined
       const errors = [
-        ...(parseError ? [parseError] : []),
-        ...loadResult.validationIssues.map(formatConfigIssue),
+        ...parseErrorMessages(loadResult),
+        ...Array.from(issuesByPath.values()).flat(),
       ]
       const sourceFile =
         loadResult.sourceFile ?? loadResult.parseError?.path ?? null
@@ -457,7 +460,12 @@ const checkCommand = Command.make(
       }
 
       if (!isValid) {
-        process.exit(1)
+        return yield* Effect.fail(
+          new ConfigError({
+            message: 'Configuration check failed',
+            ...(sourceFile ? { sourceFile } : {}),
+          }),
+        )
       }
     }),
 ).pipe(Command.withDescription('Validate and display effective configuration'))

@@ -1,30 +1,18 @@
 import { Option } from 'effect'
 import type { MdmConfig } from './schema.js'
-import { defaultConfig } from './schema.js'
+import {
+  AI_SUMMARIZATION_MODES,
+  defaultConfig,
+  EMBEDDING_PROVIDER_NAMES,
+  OUTPUT_FORMATS,
+  SUMMARIZATION_PROVIDER_NAMES,
+} from './schema.js'
 
 export const CONFIG_ENUM_VALUES = {
-  'embeddings.provider': [
-    'openai',
-    'ollama',
-    'lm-studio',
-    'openrouter',
-    'voyage',
-  ],
-  'output.format': ['text', 'json'],
-  'aiSummarization.mode': ['cli', 'api'],
-  'aiSummarization.provider': [
-    'claude',
-    'copilot',
-    'cline',
-    'aider',
-    'opencode',
-    'amp',
-    'deepseek',
-    'anthropic',
-    'openai',
-    'gemini',
-    'qwen',
-  ],
+  'embeddings.provider': EMBEDDING_PROVIDER_NAMES,
+  'output.format': OUTPUT_FORMATS,
+  'aiSummarization.mode': AI_SUMMARIZATION_MODES,
+  'aiSummarization.provider': SUMMARIZATION_PROVIDER_NAMES,
 } as const satisfies Record<string, readonly string[]>
 
 export interface ConfigIssue {
@@ -37,7 +25,7 @@ export interface ConfigIssue {
 interface ConfigRule {
   path: string
   expected: string
-  defaultValue: unknown
+  defaultValue: unknown | ((config: MdmConfig) => unknown)
   isValid: (value: unknown, config: MdmConfig) => boolean
 }
 
@@ -55,6 +43,9 @@ const isNonNegativeInteger = (value: unknown): value is number =>
 
 const isStringArray = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((item) => typeof item === 'string')
+
+const isNonEmptyStringArray = (value: unknown): value is string[] =>
+  isStringArray(value) && value.length > 0
 
 const optionStringIsValid = (value: unknown): boolean =>
   Option.isOption(value) &&
@@ -91,11 +82,15 @@ const stringRule = (path: string, defaultValue: string): ConfigRule => ({
 const stringArrayRule = (
   path: string,
   defaultValue: readonly string[],
+  options: { allowEmpty?: boolean } = {},
 ): ConfigRule => ({
   path,
-  expected: 'an array of strings',
+  expected:
+    options.allowEmpty === false
+      ? 'a non-empty array of strings'
+      : 'an array of strings',
   defaultValue,
-  isValid: isStringArray,
+  isValid: options.allowEmpty === false ? isNonEmptyStringArray : isStringArray,
 })
 
 const optionStringRule = (
@@ -111,7 +106,7 @@ const optionStringRule = (
 const numberRule = (
   path: string,
   expected: string,
-  defaultValue: number,
+  defaultValue: ConfigRule['defaultValue'],
   isValid: (value: unknown, config: MdmConfig) => boolean,
 ): ConfigRule => ({
   path,
@@ -129,18 +124,21 @@ const numberRules: ConfigRule[] = [
   ),
   numberRule(
     'search.defaultLimit',
-    'an integer greater than or equal to 1',
-    defaultConfig.search.defaultLimit,
-    isPositiveInteger,
+    'an integer greater than or equal to 1 and less than or equal to search.maxLimit',
+    (config: MdmConfig) =>
+      isPositiveInteger(config.search.maxLimit)
+        ? Math.min(defaultConfig.search.defaultLimit, config.search.maxLimit)
+        : defaultConfig.search.defaultLimit,
+    (value, config) =>
+      isPositiveInteger(value) &&
+      (!isPositiveInteger(config.search.maxLimit) ||
+        value <= config.search.maxLimit),
   ),
   numberRule(
     'search.maxLimit',
-    'an integer greater than or equal to search.defaultLimit',
+    'an integer greater than or equal to 1',
     defaultConfig.search.maxLimit,
-    (value, config) =>
-      isPositiveInteger(value) &&
-      (!isPositiveInteger(config.search.defaultLimit) ||
-        value >= config.search.defaultLimit),
+    isPositiveInteger,
   ),
   numberRule(
     'search.minSimilarity',
@@ -254,7 +252,9 @@ const CONFIG_RULES: ConfigRule[] = [
   booleanRule('output.debug', defaultConfig.output.debug),
   stringRule('index.indexDir', defaultConfig.index.indexDir),
   stringArrayRule('index.excludePatterns', defaultConfig.index.excludePatterns),
-  stringArrayRule('index.fileExtensions', defaultConfig.index.fileExtensions),
+  stringArrayRule('index.fileExtensions', defaultConfig.index.fileExtensions, {
+    allowEmpty: false,
+  }),
   stringRule('embeddings.model', defaultConfig.embeddings.model),
   stringRule('paths.cacheDir', defaultConfig.paths.cacheDir),
   optionStringRule('embeddings.baseURL', defaultConfig.embeddings.baseURL),
@@ -276,10 +276,18 @@ const CONFIG_RULES: ConfigRule[] = [
   ...numberRules,
 ]
 
+export const CONFIG_VALIDATION_PATHS = CONFIG_RULES.map((rule) => rule.path)
+
 const readConfigPath = (config: MdmConfig, path: string): unknown => {
   const [section, key] = path.split('.') as [keyof MdmConfig, string]
   return (config[section] as unknown as Record<string, unknown>)[key]
 }
+
+const resolveDefaultValue = (
+  config: MdmConfig,
+  defaultValue: ConfigRule['defaultValue'],
+): unknown =>
+  typeof defaultValue === 'function' ? defaultValue(config) : defaultValue
 
 const writeConfigPath = (
   config: MdmConfig,
@@ -319,7 +327,7 @@ export const collectConfigIssues = (config: MdmConfig): ConfigIssue[] =>
             path: rule.path,
             expected: rule.expected,
             received,
-            defaultValue: rule.defaultValue,
+            defaultValue: resolveDefaultValue(config, rule.defaultValue),
           },
         ]
   })

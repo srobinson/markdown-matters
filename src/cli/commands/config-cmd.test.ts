@@ -4,6 +4,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { defaultConfig } from '../../config/schema.js'
+import { CONFIG_VALIDATION_PATHS } from '../../config/validation.js'
 import { generateDefaultToml } from './init-toml.js'
 
 const bin = path.resolve(import.meta.dirname, '../../../dist/cli/main.js')
@@ -14,6 +15,19 @@ let fakeHome: string
 const writeToml = (content: string): void => {
   fs.writeFileSync(path.join(tempDir, '.mdm.toml'), content, 'utf-8')
 }
+
+const writeGlobalToml = (content: string): void => {
+  const globalConfigDir = path.join(fakeHome, '.mdm')
+  fs.mkdirSync(globalConfigDir, { recursive: true })
+  fs.writeFileSync(path.join(globalConfigDir, '.mdm.toml'), content, 'utf-8')
+}
+
+const collectConfigOutputPaths = (config: Record<string, unknown>): string[] =>
+  Object.entries(config).flatMap(([sectionName, section]) =>
+    Object.keys(section as Record<string, unknown>).map(
+      (key) => `${sectionName}.${key}`,
+    ),
+  )
 
 const runConfigCheck = (
   args: string[] = [],
@@ -68,7 +82,7 @@ describe('mdm config check', () => {
       source: 'file',
       valid: false,
     })
-    expect(result.stderr).toContain('embeddings.provider')
+    expect(result.stderr).toContain('Configuration check failed')
   })
 
   it('reports wrong types and out-of-range numbers', () => {
@@ -110,6 +124,7 @@ color = "yes"
   })
 
   it('reports malformed TOML as distinct from missing config', () => {
+    writeGlobalToml('[search]\ndefaultLimit = 42\n')
     writeToml('{ invalid toml <<<')
 
     const result = runConfigCheck(['--json'])
@@ -117,20 +132,15 @@ color = "yes"
 
     expect(result.code).toBe(1)
     expect(parsed.valid).toBe(false)
-    expect(parsed.sourceFile).toBe(
-      fs.realpathSync(path.join(tempDir, '.mdm.toml')),
-    )
+    expect(parsed.sourceFile).toBe(path.join(fakeHome, '.mdm', '.mdm.toml'))
     expect(parsed.errors).toEqual([
       expect.stringContaining('Failed to parse config file'),
     ])
-    expect(parsed.config.search.defaultLimit.value).toBe(
-      defaultConfig.search.defaultLimit,
+    expect(parsed.config.search.defaultLimit.value).toBe(42)
+    expect(parsed.errors[0]).toContain(
+      fs.realpathSync(path.join(tempDir, '.mdm.toml')),
     )
-    expect(
-      result.stderr
-        .split('\n')
-        .filter((line) => line.includes('Failed to parse config file')),
-    ).toHaveLength(1)
+    expect(result.stderr).toContain('Configuration check failed')
   })
 
   it('includes aiSummarization in JSON and text output', () => {
@@ -160,5 +170,15 @@ color = "yes"
     expect(parsed.config.embeddings.hnswM.source).toBe('file')
     expect(parsed.config.embeddings.hnswEfConstruction.source).toBe('file')
     expect(parsed.config.paths.cacheDir.source).toBe('file')
+  })
+
+  it('shows every validated config field', () => {
+    const result = runConfigCheck(['--json'])
+    const parsed = JSON.parse(result.stdout)
+
+    expect(result.code).toBe(0)
+    expect(collectConfigOutputPaths(parsed.config).sort()).toEqual(
+      [...CONFIG_VALIDATION_PATHS].sort(),
+    )
   })
 })
