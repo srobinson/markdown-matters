@@ -29,6 +29,11 @@ const collectConfigOutputPaths = (config: Record<string, unknown>): string[] =>
     ),
   )
 
+const countParseWarnings = (stderr: string): number =>
+  stderr
+    .split('\n')
+    .filter((line) => line.includes('[mdm] Failed to parse config file')).length
+
 const runConfigCheck = (
   args: string[] = [],
 ): { stdout: string; stderr: string; code: number } => {
@@ -140,6 +145,7 @@ color = "yes"
     expect(parsed.errors[0]).toContain(
       fs.realpathSync(path.join(tempDir, '.mdm.toml')),
     )
+    expect(countParseWarnings(result.stderr)).toBe(1)
     expect(result.stderr).toContain('Configuration check failed')
   })
 
