@@ -411,24 +411,33 @@ describe('two-tier resolution (loadConfigFile)', () => {
 
   it('falls through from broken local TOML to valid global config', () => {
     const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'mdm-home-'))
-    const originalHome = process.env.HOME
-    process.env.HOME = fakeHome
-    const globalDir = path.join(fakeHome, '.mdm')
-    fs.mkdirSync(globalDir, { recursive: true })
-    writeTomlConfig(globalDir, { search: { defaultLimit: 42 } })
-    writeToml(tempDir, '{ invalid <<<')
 
-    const result = loadConfigFileWithStatus(tempDir)
+    try {
+      vi.stubEnv('HOME', fakeHome)
+      vi.stubEnv('USERPROFILE', fakeHome)
+      vi.stubEnv('HOMEDRIVE', '')
+      vi.stubEnv('HOMEPATH', fakeHome)
 
-    expect(result.status).toBe('loaded')
-    if (result.status === 'loaded') {
-      expect(result.path).toBe(path.join(fakeHome, '.mdm', '.mdm.toml'))
-      expect(result.parseErrors[0]?.path).toBe(path.join(tempDir, '.mdm.toml'))
+      const globalDir = path.join(fakeHome, '.mdm')
+      fs.mkdirSync(globalDir, { recursive: true })
+      writeTomlConfig(globalDir, { search: { defaultLimit: 42 } })
+      writeToml(tempDir, '{ invalid <<<')
+
+      const result = loadConfigFileWithStatus(tempDir)
+
+      expect(result.status).toBe('loaded')
+      if (result.status === 'loaded') {
+        expect(result.path).toBe(path.join(fakeHome, '.mdm', '.mdm.toml'))
+        expect(result.parseErrors[0]?.path).toBe(
+          path.join(tempDir, '.mdm.toml'),
+        )
+      }
+      const loaded = load({ workingDir: tempDir, skipEnv: true })
+      expect(loaded.search.defaultLimit).toBe(42)
+    } finally {
+      vi.unstubAllEnvs()
+      fs.rmSync(fakeHome, { recursive: true, force: true })
     }
-    const loaded = load({ workingDir: tempDir, skipEnv: true })
-    expect(loaded.search.defaultLimit).toBe(42)
-    process.env.HOME = originalHome
-    fs.rmSync(fakeHome, { recursive: true, force: true })
   })
 })
 
