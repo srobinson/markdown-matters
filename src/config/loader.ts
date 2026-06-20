@@ -19,6 +19,12 @@ import { Option } from 'effect'
 import { parse as parseToml } from 'smol-toml'
 import type { MdmConfig } from './schema.js'
 import { defaultConfig } from './schema.js'
+import {
+  type ConfigIssue,
+  coerceConfig,
+  collectConfigIssues,
+  formatConfigIssue,
+} from './validation.js'
 
 // ============================================================================
 // Partial Config Type (wire format)
@@ -44,27 +50,128 @@ type PartialSection<T> = {
 // TOML File Loading
 // ============================================================================
 
+export interface ConfigParseError {
+  path: string
+  message: string
+}
+
+export type TomlFileLoadResult =
+  | { status: 'missing'; path: string }
+  | { status: 'loaded'; path: string; config: PartialMdmConfig }
+  | { status: 'error'; error: ConfigParseError }
+
+export type ConfigFileLoadResult =
+  | { status: 'missing' }
+  | {
+      status: 'loaded'
+      path: string
+      config: PartialMdmConfig
+      parseErrors: ConfigParseError[]
+    }
+  | {
+      status: 'error'
+      error: ConfigParseError
+      parseErrors: ConfigParseError[]
+    }
+
+const formatConfigParseError = (error: ConfigParseError): string =>
+  `Failed to parse config file ${error.path}: ${error.message}`
+
+const warnConfigParseError = (error: ConfigParseError): void => {
+  console.warn(`[mdm] ${formatConfigParseError(error)}`)
+}
+
+/**
+ * Attempt to load and parse a TOML config file with explicit status.
+ */
+export const loadTomlFileWithStatus = (
+  filePath: string,
+): TomlFileLoadResult => {
+  try {
+    if (!fs.existsSync(filePath)) return { status: 'missing', path: filePath }
+    const content = fs.readFileSync(filePath, 'utf-8')
+    const parsed = parseToml(content)
+    return {
+      status: 'loaded',
+      path: filePath,
+      config: parsed as unknown as PartialMdmConfig,
+    }
+  } catch (error) {
+    return {
+      status: 'error',
+      error: {
+        path: filePath,
+        message: error instanceof Error ? error.message : String(error),
+      },
+    }
+  }
+}
+
 /**
  * Attempt to load and parse a TOML config file.
  * Returns null if the file does not exist or cannot be parsed.
  */
 export const loadTomlFile = (filePath: string): PartialMdmConfig | null => {
-  try {
-    if (!fs.existsSync(filePath)) return null
-    const content = fs.readFileSync(filePath, 'utf-8')
-    const parsed = parseToml(content)
-    return parsed as unknown as PartialMdmConfig
-  } catch (error) {
-    console.warn(
-      `[mdm] Failed to parse config file ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
-    )
-    return null
-  }
+  const result = loadTomlFileWithStatus(filePath)
+  if (result.status === 'loaded') return result.config
+  if (result.status === 'error') warnConfigParseError(result.error)
+  return null
 }
 
 // ============================================================================
 // Two-Tier Config File Resolution
 // ============================================================================
+
+/**
+ * Find and load the config file using two-tier resolution with explicit status:
+ *   1. PWD/.mdm.toml (project-local)
+ *   2. ~/.mdm/.mdm.toml (global)
+ */
+export const loadConfigFileWithStatus = (
+  workingDir?: string,
+): ConfigFileLoadResult => {
+  const cwd = workingDir ?? process.cwd()
+  const parseErrors: ConfigParseError[] = []
+
+  // Tier 1: project-local
+  const localPath = path.join(cwd, '.mdm.toml')
+  const localResult = loadTomlFileWithStatus(localPath)
+  if (localResult.status === 'loaded') {
+    return {
+      status: 'loaded',
+      config: localResult.config,
+      path: localPath,
+      parseErrors,
+    }
+  }
+  if (localResult.status === 'error') parseErrors.push(localResult.error)
+
+  // Tier 2: global
+  const globalPath = path.join(os.homedir(), '.mdm', '.mdm.toml')
+  const globalResult = loadTomlFileWithStatus(globalPath)
+  if (globalResult.status === 'loaded') {
+    return {
+      status: 'loaded',
+      config: globalResult.config,
+      path: globalPath,
+      parseErrors,
+    }
+  }
+  if (globalResult.status === 'error') {
+    parseErrors.push(globalResult.error)
+    return { status: 'error', error: globalResult.error, parseErrors }
+  }
+
+  if (parseErrors.length > 0) {
+    return {
+      status: 'error',
+      error: parseErrors[0]!,
+      parseErrors,
+    }
+  }
+
+  return { status: 'missing' }
+}
 
 /**
  * Find and load the config file using two-tier resolution:
@@ -76,18 +183,18 @@ export const loadTomlFile = (filePath: string): PartialMdmConfig | null => {
 export const loadConfigFile = (
   workingDir?: string,
 ): { config: PartialMdmConfig; path: string } | null => {
-  const cwd = workingDir ?? process.cwd()
-
-  // Tier 1: project-local
-  const localPath = path.join(cwd, '.mdm.toml')
-  const localConfig = loadTomlFile(localPath)
-  if (localConfig) return { config: localConfig, path: localPath }
-
-  // Tier 2: global
-  const globalPath = path.join(os.homedir(), '.mdm', '.mdm.toml')
-  const globalConfig = loadTomlFile(globalPath)
-  if (globalConfig) return { config: globalConfig, path: globalPath }
-
+  const result = loadConfigFileWithStatus(workingDir)
+  if (result.status === 'loaded') {
+    for (const error of result.parseErrors) {
+      warnConfigParseError(error)
+    }
+    return { config: result.config, path: result.path }
+  }
+  if (result.status === 'error') {
+    for (const error of result.parseErrors) {
+      warnConfigParseError(error)
+    }
+  }
   return null
 }
 
@@ -143,27 +250,6 @@ export const readEnvVars = (prefix = 'MDM'): PartialMdmConfig => {
 }
 
 /**
- * Read MDM_* environment variables and return a Map of "section.key" -> raw string value.
- * Used by the config check command to detect which values come from environment.
- */
-export const readEnvVarsMap = (prefix = 'MDM'): Map<string, string> => {
-  const result = new Map<string, string>()
-  const prefixUnderscore = `${prefix}_`
-
-  for (const [envKey, envValue] of Object.entries(process.env)) {
-    if (!envKey.startsWith(prefixUnderscore) || envValue === undefined) continue
-
-    const suffix = envKey.slice(prefixUnderscore.length).toLowerCase()
-    const mapping = ENV_KEY_MAP[suffix]
-    if (!mapping) continue
-
-    result.set(`${mapping.section}.${mapping.key}`, envValue)
-  }
-
-  return result
-}
-
-/**
  * Parse an environment variable string into the appropriate config type.
  */
 const parseEnvValue = (
@@ -188,13 +274,16 @@ const parseEnvValue = (
 
   // Boolean fields
   if (typeof defaultValue === 'boolean') {
-    return value === 'true' || value === '1'
+    if (value === 'true' || value === '1') return true
+    if (value === 'false' || value === '0') return false
+    return value
   }
 
   // Number fields
   if (typeof defaultValue === 'number') {
-    const num = Number(value)
-    return Number.isNaN(num) ? undefined : num
+    if (!/^-?\d+(?:\.\d+)?$/.test(value)) return value
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : value
   }
 
   // String fields (including literal unions)
@@ -311,6 +400,19 @@ export interface LoadOptions {
   skipEnv?: boolean | undefined
   /** Pre-loaded file config (for testing). */
   fileConfig?: PartialMdmConfig | undefined
+  /** Suppress validation and parse warnings. */
+  suppressWarnings?: boolean | undefined
+}
+
+export interface LoadResult {
+  config: MdmConfig
+  unvalidatedConfig: MdmConfig
+  validationIssues: ConfigIssue[]
+  fileConfig: PartialMdmConfig
+  envConfig: PartialMdmConfig
+  sourceFile: string | null
+  parseError?: ConfigParseError | undefined
+  parseErrors: ConfigParseError[]
 }
 
 /**
@@ -322,33 +424,56 @@ export interface LoadOptions {
  *   3. Config file (PWD/.mdm.toml -> ~/.mdm/.mdm.toml)
  *   4. Compiled defaults
  */
-export const load = (options: LoadOptions = {}): MdmConfig => {
+export const loadDetailed = (options: LoadOptions = {}): LoadResult => {
   const {
     cliOverrides,
     workingDir,
     envPrefix = 'MDM',
     skipConfigFile = false,
     skipEnv = false,
-    fileConfig,
+    suppressWarnings = false,
   } = options
 
   let merged: PartialMdmConfig = {}
+  let fileConfig: PartialMdmConfig = {}
+  let envConfig: PartialMdmConfig = {}
+  let sourceFile: string | null = null
+  let parseError: ConfigParseError | undefined
+  let parseErrors: ConfigParseError[] = []
 
   // Layer 1: Config file (lowest priority source)
   // fileConfig always takes effect when provided (used for testing).
   // skipConfigFile only prevents reading from disk.
-  if (fileConfig) {
+  if (options.fileConfig) {
+    fileConfig = options.fileConfig
     merged = fileConfig
   } else if (!skipConfigFile) {
-    const result = loadConfigFile(workingDir)
-    if (result) {
+    const result = loadConfigFileWithStatus(workingDir)
+    if (result.status === 'loaded') {
+      sourceFile = result.path
+      fileConfig = result.config
       merged = result.config
+      parseErrors = result.parseErrors
+      parseError = parseErrors[0]
+      if (!suppressWarnings) {
+        for (const error of parseErrors) {
+          warnConfigParseError(error)
+        }
+      }
+    } else if (result.status === 'error') {
+      parseError = result.error
+      parseErrors = result.parseErrors
+      if (!suppressWarnings) {
+        for (const error of parseErrors) {
+          warnConfigParseError(error)
+        }
+      }
     }
   }
 
   // Layer 2: Environment variables
   if (!skipEnv) {
-    const envConfig = readEnvVars(envPrefix)
+    envConfig = readEnvVars(envPrefix)
     merged = mergePartials(merged, envConfig)
   }
 
@@ -357,85 +482,47 @@ export const load = (options: LoadOptions = {}): MdmConfig => {
     merged = mergePartials(merged, cliOverrides)
   }
 
-  return validateConfig(mergeWithDefaults(merged))
+  const unvalidatedConfig = mergeWithDefaults(merged)
+  const validationIssues = collectConfigIssues(unvalidatedConfig)
+
+  return {
+    config: validateConfig(unvalidatedConfig, validationIssues, {
+      warn: !suppressWarnings,
+    }),
+    unvalidatedConfig,
+    validationIssues,
+    fileConfig,
+    envConfig,
+    sourceFile,
+    parseError,
+    parseErrors,
+  }
 }
 
-// ============================================================================
-// Validation Helpers (for literal union fields)
-// ============================================================================
+export const load = (options: LoadOptions = {}): MdmConfig =>
+  loadDetailed(options).config
 
-const EMBEDDING_PROVIDERS = new Set([
-  'openai',
-  'ollama',
-  'lm-studio',
-  'openrouter',
-  'voyage',
-])
-const OUTPUT_FORMATS = new Set(['text', 'json'])
-const AI_MODES = new Set(['cli', 'api'])
-const SUMMARIZATION_PROVIDERS = new Set([
-  'claude',
-  'copilot',
-  'cline',
-  'aider',
-  'opencode',
-  'amp',
-  'deepseek',
-  'anthropic',
-  'openai',
-  'gemini',
-  'qwen',
-])
+// ============================================================================
+// Validation Helpers
+// ============================================================================
 
 /**
- * Validate that literal union fields contain valid values.
+ * Validate that config fields contain valid values.
  * Called internally by load(). Invalid values are logged and replaced
  * with defaults.
  */
-export const validateConfig = (config: MdmConfig): MdmConfig => {
-  const result = { ...config }
-
-  if (!EMBEDDING_PROVIDERS.has(result.embeddings.provider)) {
-    console.warn(
-      `[mdm] Invalid embeddings.provider "${result.embeddings.provider}", using default "${defaultConfig.embeddings.provider}"`,
-    )
-    result.embeddings = {
-      ...result.embeddings,
-      provider: defaultConfig.embeddings.provider,
+export const validateConfig = (
+  config: MdmConfig,
+  issues: ConfigIssue[] = collectConfigIssues(config),
+  options: { warn?: boolean } = {},
+): MdmConfig => {
+  if (options.warn !== false) {
+    for (const issue of issues) {
+      console.warn(`[mdm] ${formatConfigIssue(issue)}`)
     }
   }
 
-  if (!OUTPUT_FORMATS.has(result.output.format)) {
-    console.warn(
-      `[mdm] Invalid output.format "${result.output.format}", using default "${defaultConfig.output.format}"`,
-    )
-    result.output = {
-      ...result.output,
-      format: defaultConfig.output.format,
-    }
-  }
-
-  if (!AI_MODES.has(result.aiSummarization.mode)) {
-    console.warn(
-      `[mdm] Invalid aiSummarization.mode "${result.aiSummarization.mode}", using default "${defaultConfig.aiSummarization.mode}"`,
-    )
-    result.aiSummarization = {
-      ...result.aiSummarization,
-      mode: defaultConfig.aiSummarization.mode,
-    }
-  }
-
-  if (!SUMMARIZATION_PROVIDERS.has(result.aiSummarization.provider)) {
-    console.warn(
-      `[mdm] Invalid aiSummarization.provider "${result.aiSummarization.provider}", using default "${defaultConfig.aiSummarization.provider}"`,
-    )
-    result.aiSummarization = {
-      ...result.aiSummarization,
-      provider: defaultConfig.aiSummarization.provider,
-    }
-  }
-
-  return result
+  return coerceConfig(config, issues)
 }
 
 // ============================================================================

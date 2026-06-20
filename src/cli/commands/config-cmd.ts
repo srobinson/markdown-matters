@@ -10,11 +10,14 @@ import * as path from 'node:path'
 import { Command, Options } from '@effect/cli'
 import { Console, Effect, Option } from 'effect'
 import {
-  defaultConfig,
+  type ConfigIssue,
+  formatConfigIssue,
   loadConfigFile,
+  loadDetailed,
+  type MdmConfig,
   type PartialMdmConfig,
-  readEnvVarsMap,
 } from '../../config/index.js'
+import { ConfigError } from '../../errors/index.js'
 import { jsonOption, prettyOption } from '../options.js'
 import { formatJson } from '../utils.js'
 
@@ -165,6 +168,8 @@ type ConfigSource = 'default' | 'file' | 'env'
 interface ConfigValueWithSource<T> {
   value: T
   source: ConfigSource
+  valid: boolean
+  errors?: string[]
 }
 
 type ConfigSectionWithSources<T> = {
@@ -172,12 +177,13 @@ type ConfigSectionWithSources<T> = {
 }
 
 interface ConfigWithSources {
-  index: ConfigSectionWithSources<typeof defaultConfig.index>
-  search: ConfigSectionWithSources<typeof defaultConfig.search>
-  embeddings: ConfigSectionWithSources<typeof defaultConfig.embeddings>
-  summarization: ConfigSectionWithSources<typeof defaultConfig.summarization>
-  output: ConfigSectionWithSources<typeof defaultConfig.output>
-  paths: ConfigSectionWithSources<typeof defaultConfig.paths>
+  index: ConfigSectionWithSources<MdmConfig['index']>
+  search: ConfigSectionWithSources<MdmConfig['search']>
+  embeddings: ConfigSectionWithSources<MdmConfig['embeddings']>
+  summarization: ConfigSectionWithSources<MdmConfig['summarization']>
+  aiSummarization: ConfigSectionWithSources<MdmConfig['aiSummarization']>
+  output: ConfigSectionWithSources<MdmConfig['output']>
+  paths: ConfigSectionWithSources<MdmConfig['paths']>
 }
 
 interface CheckResultJson {
@@ -191,78 +197,63 @@ interface CheckResultJson {
 // Config Check Helpers
 // ============================================================================
 
-/**
- * Determine the source of a config value by checking env, file, and defaults.
- */
 const getValueSource = <T>(
-  key: string,
-  envConfig: Map<string, string>,
-  fileValue: T | undefined,
-  _defaultValue: T,
+  key: keyof T & string,
+  fileSection: Partial<T> | undefined,
+  envSection: Partial<T> | undefined,
 ): ConfigSource => {
-  if (envConfig.has(key)) {
-    return 'env'
-  }
-  if (fileValue !== undefined) {
-    return 'file'
-  }
+  if (envSection?.[key] !== undefined) return 'env'
+  if (fileSection?.[key] !== undefined) return 'file'
   return 'default'
 }
 
-/**
- * Get effective value from the precedence chain.
- */
-const getEffectiveValue = <T>(
-  key: string,
-  envConfig: Map<string, string>,
-  fileValue: T | undefined,
-  defaultValue: T,
-): T => {
-  const envValue = envConfig.get(key)
-  if (envValue !== undefined) {
-    // Parse env value based on type of default
-    if (typeof defaultValue === 'boolean') {
-      return (envValue === 'true') as unknown as T
-    }
-    if (typeof defaultValue === 'number') {
-      return Number(envValue) as unknown as T
-    }
-    if (Array.isArray(defaultValue)) {
-      return envValue.split(',') as unknown as T
-    }
-    return envValue as unknown as T
-  }
-  if (fileValue !== undefined) {
-    return fileValue
-  }
-  return defaultValue
-}
+const getPartialSection = <T extends object>(
+  config: PartialMdmConfig,
+  sectionName: keyof PartialMdmConfig,
+): Partial<T> | undefined => config[sectionName] as Partial<T> | undefined
 
 /**
- * Build config section with source annotations.
+ * Build config section with effective values, sources, and validation state.
  */
 const buildSectionWithSources = <T extends object>(
-  sectionName: string,
-  defaultSection: T,
+  sectionName: keyof PartialMdmConfig,
+  effectiveSection: T,
   fileSection: Partial<T> | undefined,
-  envConfig: Map<string, string>,
+  envConfig: PartialMdmConfig,
+  issuesByPath: Map<string, string[]>,
 ): ConfigSectionWithSources<T> => {
   const result: Record<string, ConfigValueWithSource<unknown>> = {}
-  const defaults = defaultSection as unknown as Record<string, unknown>
-  const file = fileSection as unknown as Record<string, unknown> | undefined
+  const effective = effectiveSection as unknown as Record<string, unknown>
+  const envSection = getPartialSection<T>(envConfig, sectionName)
 
-  for (const [key, defaultValue] of Object.entries(defaults)) {
-    const envKey = `${sectionName}.${key}`
-    const fileValue = file?.[key]
+  for (const [key, value] of Object.entries(effective)) {
+    const issueMessages = issuesByPath.get(`${sectionName}.${key}`)
 
     result[key] = {
-      value: getEffectiveValue(envKey, envConfig, fileValue, defaultValue),
-      source: getValueSource(envKey, envConfig, fileValue, defaultValue),
+      value,
+      source: getValueSource(key as keyof T & string, fileSection, envSection),
+      valid: issueMessages === undefined,
+      ...(issueMessages ? { errors: issueMessages } : {}),
     }
   }
 
   return result as ConfigSectionWithSources<T>
 }
+
+const buildIssuesByPath = (issues: ConfigIssue[]): Map<string, string[]> => {
+  const result = new Map<string, string[]>()
+  for (const issue of issues) {
+    const messages = result.get(issue.path) ?? []
+    messages.push(formatConfigIssue(issue))
+    result.set(issue.path, messages)
+  }
+  return result
+}
+
+const parseErrorMessages = (loadResult: ReturnType<typeof loadDetailed>) =>
+  loadResult.parseErrors.map(
+    (error) => `Failed to parse config file ${error.path}: ${error.message}`,
+  )
 
 /**
  * Format a value for text display.
@@ -294,6 +285,10 @@ const formatSourceAnnotation = (source: ConfigSource): string => {
   }
 }
 
+const formatValidationAnnotation = (
+  entry: ConfigValueWithSource<unknown>,
+): string => (entry.valid ? '' : ` (invalid: ${entry.errors?.join('; ')})`)
+
 /**
  * Convert config with sources to JSON format.
  * Handles Option values by converting them to their underlying value or null.
@@ -310,7 +305,12 @@ const configToJsonFormat = (config: ConfigWithSources): ConfigWithSources => {
       if (Option.isOption(value)) {
         value = Option.isSome(value) ? value.value : null
       }
-      result[key] = { value, source: entry.source }
+      result[key] = {
+        value,
+        source: entry.source,
+        valid: entry.valid,
+        ...(entry.errors ? { errors: entry.errors } : {}),
+      }
     }
     return result as T
   }
@@ -320,6 +320,7 @@ const configToJsonFormat = (config: ConfigWithSources): ConfigWithSources => {
     search: convertSection(config.search),
     embeddings: convertSection(config.embeddings),
     summarization: convertSection(config.summarization),
+    aiSummarization: convertSection(config.aiSummarization),
     output: convertSection(config.output),
     paths: convertSection(config.paths),
   }
@@ -337,58 +338,73 @@ const checkCommand = Command.make(
   ({ json, pretty }) =>
     Effect.gen(function* () {
       const cwd = process.cwd()
-      const errors: string[] = []
-
-      // Load config file if present
-      const configFileResult = loadConfigFile(cwd)
-
-      const sourceFile = configFileResult ? configFileResult.path : null
-      const fileConfig: PartialMdmConfig = configFileResult
-        ? configFileResult.config
-        : {}
-
-      // Read environment variables
-      const envConfig = readEnvVarsMap('MDM')
+      const loadResult = loadDetailed({
+        workingDir: cwd,
+        suppressWarnings: true,
+      })
+      const issuesByPath = buildIssuesByPath(loadResult.validationIssues)
+      const errors = [
+        ...parseErrorMessages(loadResult),
+        ...Array.from(issuesByPath.values()).flat(),
+      ]
+      const sourceFile =
+        loadResult.sourceFile ?? loadResult.parseError?.path ?? null
+      const fileConfig = loadResult.fileConfig
+      const envConfig = loadResult.envConfig
+      const config = loadResult.config
 
       // Build config with source annotations
       const configWithSources: ConfigWithSources = {
         index: buildSectionWithSources(
           'index',
-          defaultConfig.index,
+          config.index,
           fileConfig.index,
           envConfig,
+          issuesByPath,
         ),
         search: buildSectionWithSources(
           'search',
-          defaultConfig.search,
+          config.search,
           fileConfig.search,
           envConfig,
+          issuesByPath,
         ),
         embeddings: buildSectionWithSources(
           'embeddings',
-          defaultConfig.embeddings,
-          fileConfig.embeddings as
-            | Partial<typeof defaultConfig.embeddings>
-            | undefined,
+          config.embeddings,
+          fileConfig.embeddings as Partial<MdmConfig['embeddings']> | undefined,
           envConfig,
+          issuesByPath,
         ),
         summarization: buildSectionWithSources(
           'summarization',
-          defaultConfig.summarization,
+          config.summarization,
           fileConfig.summarization,
           envConfig,
+          issuesByPath,
+        ),
+        aiSummarization: buildSectionWithSources(
+          'aiSummarization',
+          config.aiSummarization,
+          fileConfig.aiSummarization as
+            | Partial<MdmConfig['aiSummarization']>
+            | undefined,
+          envConfig,
+          issuesByPath,
         ),
         output: buildSectionWithSources(
           'output',
-          defaultConfig.output,
+          config.output,
           fileConfig.output,
           envConfig,
+          issuesByPath,
         ),
         paths: buildSectionWithSources(
           'paths',
-          defaultConfig.paths,
-          fileConfig.paths as Partial<typeof defaultConfig.paths> | undefined,
+          config.paths,
+          fileConfig.paths as Partial<MdmConfig['paths']> | undefined,
           envConfig,
+          issuesByPath,
         ),
       }
 
@@ -435,9 +451,21 @@ const checkCommand = Command.make(
           )) {
             const valueStr = formatValue(entry.value)
             const sourceStr = formatSourceAnnotation(entry.source)
-            yield* Console.log(`    ${key}: ${valueStr} ${sourceStr}`)
+            const validationStr = formatValidationAnnotation(entry)
+            yield* Console.log(
+              `    ${key}: ${valueStr} ${sourceStr}${validationStr}`,
+            )
           }
         }
+      }
+
+      if (!isValid) {
+        return yield* Effect.fail(
+          new ConfigError({
+            message: 'Configuration check failed',
+            ...(sourceFile ? { sourceFile } : {}),
+          }),
+        )
       }
     }),
 ).pipe(Command.withDescription('Validate and display effective configuration'))
