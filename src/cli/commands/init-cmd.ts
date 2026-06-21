@@ -119,16 +119,23 @@ export const initCommand = Command.make(
     Effect.gen(function* () {
       const cwd = process.cwd()
       const localMdmDir = path.join(cwd, '.mdm')
+      const localConfigPath = path.join(cwd, '.mdm.toml')
       const globalMdmDir = path.join(os.homedir(), '.mdm')
       const globalConfigPath = path.join(globalMdmDir, '.mdm.toml')
 
       // Check existing state
       const hasLocalDir = fs.existsSync(localMdmDir)
+      const hasLocalConfig = fs.existsSync(localConfigPath)
       const hasGlobalDir = fs.existsSync(globalMdmDir)
-      const existingConfig = loadConfigFile(cwd)
 
       // Case 1: Already initialized locally
       if (hasLocalDir && !useGlobal) {
+        if (!hasLocalConfig) {
+          yield* initLocal(cwd, localMdmDir, yes)
+          return
+        }
+
+        const existingConfig = loadConfigFile(cwd)
         yield* Console.log('Already initialized locally.')
         if (existingConfig) {
           yield* Console.log(`Config: ${existingConfig.path}`)
@@ -195,8 +202,11 @@ const initLocal = (
 ): Effect.Effect<void> =>
   Effect.gen(function* () {
     // Create .mdm/ directory
+    const hasMdmDir = fs.existsSync(mdmDir)
     fs.mkdirSync(mdmDir, { recursive: true })
-    yield* Console.log(`Created ${path.relative(cwd, mdmDir)}/`)
+    if (!hasMdmDir) {
+      yield* Console.log(`Created ${path.relative(cwd, mdmDir)}/`)
+    }
 
     // Write default config
     const configPath = path.join(cwd, '.mdm.toml')

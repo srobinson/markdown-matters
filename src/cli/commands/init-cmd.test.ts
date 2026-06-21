@@ -110,8 +110,31 @@ describe('mdm init --local', () => {
 
   it('warns when already initialized locally', async () => {
     fs.mkdirSync(path.join(tempDir, '.mdm'))
+    fs.writeFileSync(
+      path.join(tempDir, '.mdm.toml'),
+      '[index]\nmaxDepth = 99\n',
+    )
     const result = await runInit('--local --yes', tempDir)
     expect(result.stdout).toContain('Already initialized locally')
+  })
+
+  it('creates .mdm.toml when .mdm/ exists without config', async () => {
+    fs.mkdirSync(path.join(tempDir, '.mdm'))
+    const result = await runInit('--local --yes', tempDir)
+    const configPath = path.join(tempDir, '.mdm.toml')
+    expect(result.stdout).toContain('Created .mdm.toml')
+    expect(fs.existsSync(configPath)).toBe(true)
+    expect(loadTomlFile(configPath)).not.toBeNull()
+  })
+
+  it('no-ops when .mdm/ and .mdm.toml both exist', async () => {
+    fs.mkdirSync(path.join(tempDir, '.mdm'))
+    const configPath = path.join(tempDir, '.mdm.toml')
+    fs.writeFileSync(configPath, '[index]\nmaxDepth = 99\n')
+    const result = await runInit('--local --yes', tempDir)
+    expect(result.stdout).toContain('Already initialized locally')
+    expect(result.stdout).not.toContain('Created .mdm.toml')
+    expect(fs.readFileSync(configPath, 'utf-8')).toContain('maxDepth = 99')
   })
 
   it('does not overwrite existing .mdm.toml', async () => {
