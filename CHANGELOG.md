@@ -16,6 +16,14 @@
 
 * `providerConfig.baseURL` is now honored on the embedding path for the four OpenAI-compatible providers (openai, openrouter, ollama, lm-studio). Previously the field was documented as "carried for HyDE inheritance only" and the embed path silently routed to the transport default. Private ollama hosts, self-hosted lm-studio instances, and openrouter proxies now receive embedding traffic on the configured URL during both index build and query. Vector-store metadata also records the endpoint the runtime actually dialled rather than the caller-supplied override, so on-disk observability matches the requests that were sent.
 
+## [0.3.5](https://github.com/srobinson/markdown-matters/compare/v0.3.4...v0.3.5) (2026-06-21)
+
+
+### Bug Fixes
+
+* create local config when index dir exists ([#43](https://github.com/srobinson/markdown-matters/issues/43)) ([a1682d6](https://github.com/srobinson/markdown-matters/commit/a1682d64c8b80056c687f3217dcbd8710cc5eab7))
+* validate config check ([#41](https://github.com/srobinson/markdown-matters/issues/41)) ([769ae53](https://github.com/srobinson/markdown-matters/commit/769ae53ac7fc2ab4d3c654d0c1f7338cfb17b995))
+
 ## [0.3.4](https://github.com/srobinson/markdown-matters/compare/v0.3.3...v0.3.4) (2026-04-29)
 
 
