@@ -1,8 +1,10 @@
 import * as path from 'node:path'
 import { Effect } from 'effect'
 import {
+  type CanonicalSource,
   canonicalizeSourceFile,
   type DeclaredPath,
+  type DocumentKey,
   expandDeclaredPath,
   isPathWithin,
 } from '../db/canonical.js'
@@ -10,21 +12,56 @@ import type { FileReadError, IndexCorruptedError } from '../errors/index.js'
 import { dbIndexDir, resolveMdmHome } from '../home.js'
 import { createStorage, loadLinkIndex } from './storage.js'
 
+export type InternalLinkResolution =
+  | { readonly kind: 'resolved'; readonly path: DocumentKey }
+  | { readonly kind: 'broken'; readonly path: DeclaredPath }
+
+export interface InternalLinkResolutionOptions {
+  readonly canonicalize?: (
+    value: string,
+  ) => ReturnType<typeof canonicalizeSourceFile>
+  readonly selectDocumentKey?: (source: CanonicalSource) => DocumentKey
+}
+
 export const resolveInternalLink = (
   href: string,
   fromPath: string,
   rootPath: string,
   caseSensitive = true,
-): DeclaredPath | null => {
-  if (href.startsWith('#')) return expandDeclaredPath(fromPath)
-  if (href.startsWith('http://') || href.startsWith('https://')) return null
+  options: InternalLinkResolutionOptions = {},
+): Effect.Effect<InternalLinkResolution | null> => {
+  const canonicalize = options.canonicalize ?? canonicalizeSourceFile
+  const selectDocumentKey =
+    options.selectDocumentKey ?? ((source: CanonicalSource) => source.key)
+  const classify = (declaredPath: DeclaredPath) =>
+    canonicalize(declaredPath).pipe(
+      Effect.map(
+        (target): InternalLinkResolution => ({
+          kind: 'resolved',
+          path: selectDocumentKey(target),
+        }),
+      ),
+      Effect.catchAll(() =>
+        Effect.succeed<InternalLinkResolution>({
+          kind: 'broken',
+          path: declaredPath,
+        }),
+      ),
+    )
+
+  if (href.startsWith('#')) return classify(expandDeclaredPath(fromPath))
+  if (href.startsWith('http://') || href.startsWith('https://')) {
+    return Effect.succeed(null)
+  }
 
   const linkPath = href.split('#')[0] ?? ''
-  if (!linkPath) return null
+  if (!linkPath) return Effect.succeed(null)
 
   const resolved = path.resolve(path.dirname(fromPath), linkPath)
-  if (!isPathWithin(resolved, rootPath, caseSensitive)) return null
-  return expandDeclaredPath(resolved)
+  if (!isPathWithin(resolved, rootPath, caseSensitive)) {
+    return Effect.succeed(null)
+  }
+  return classify(expandDeclaredPath(resolved))
 }
 
 const loadLinksFor = (

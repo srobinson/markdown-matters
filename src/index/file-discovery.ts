@@ -2,8 +2,17 @@ import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { Effect } from 'effect'
 import type { Ignore } from 'ignore'
-import { isPathWithin } from '../db/canonical.js'
-import { DirectoryWalkError } from '../errors/index.js'
+import {
+  type CanonicalSource,
+  type CanonicalSourceSelection,
+  type CaseSensitivityProbe,
+  canonicalizeSourceFile,
+  fileIdentityKey,
+  isPathWithin,
+  probeCaseSensitivity,
+  selectCanonicalSource,
+} from '../db/canonical.js'
+import { DirectoryWalkError, type FileReadError } from '../errors/index.js'
 import { shouldIgnore } from './ignore-patterns.js'
 
 interface WalkResult {
@@ -21,6 +30,62 @@ export interface FileDiscoveryOptions extends WalkOptions {
 
 export interface FileDiscoveryResult extends WalkResult {
   readonly deletedPaths: string[]
+}
+
+export interface CanonicalizedDiscovery {
+  readonly selections: readonly CanonicalSourceSelection[]
+  readonly canonicalize: (
+    value: string,
+  ) => Effect.Effect<CanonicalSource, FileReadError>
+}
+
+const groupCanonicalSources = (
+  sources: readonly CanonicalSource[],
+): CanonicalSourceSelection[] => {
+  const groups = new Map<string, CanonicalSource[]>()
+  for (const source of sources) {
+    const key = fileIdentityKey(source.identity)
+    const group = groups.get(key) ?? []
+    group.push(source)
+    groups.set(key, group)
+  }
+  return [...groups.values()].map(selectCanonicalSource).sort((left, right) => {
+    if (left.key < right.key) return -1
+    if (left.key > right.key) return 1
+    return 0
+  })
+}
+
+export const canonicalizeDiscoveredFiles = (
+  files: readonly string[],
+  probe: CaseSensitivityProbe = probeCaseSensitivity,
+): Effect.Effect<CanonicalizedDiscovery, FileReadError> => {
+  const caseSensitivityByDevice = new Map<string, boolean>()
+  const pendingByDevice = new Map<string, Promise<boolean>>()
+  const cachedProbe: CaseSensitivityProbe = async (key, device, inode) => {
+    const deviceKey = String(device)
+    if (caseSensitivityByDevice.has(deviceKey)) {
+      return caseSensitivityByDevice.get(deviceKey)!
+    }
+    const pending =
+      pendingByDevice.get(deviceKey) ??
+      probe(key, device, inode).then((caseSensitive) => {
+        caseSensitivityByDevice.set(deviceKey, caseSensitive)
+        pendingByDevice.delete(deviceKey)
+        return caseSensitive
+      })
+    pendingByDevice.set(deviceKey, pending)
+    return pending
+  }
+  const canonicalize = (value: string) =>
+    canonicalizeSourceFile(value, cachedProbe)
+
+  return Effect.all(files.map(canonicalize), { concurrency: 50 }).pipe(
+    Effect.map((sources) => ({
+      selections: groupCanonicalSources(sources),
+      canonicalize,
+    })),
+  )
 }
 
 export const isMarkdownFile = (filename: string): boolean =>

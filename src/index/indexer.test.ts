@@ -141,6 +141,41 @@ describe('buildIndex', () => {
       expect(links?.broken.every(path.isAbsolute)).toBe(true)
     })
 
+    it('indexes hardlinks once with the least path and every alias', async () => {
+      const dir = await createFixture({
+        'z.md': '# Shared\n\n[Self](./a.md)\n[Missing](./missing.md)\n',
+      })
+      const z = path.join(dir, 'z.md')
+      const a = path.join(dir, 'a.md')
+      const missing = path.join(dir, 'missing.md')
+      await fs.link(z, a)
+
+      await runBuildIndex(dir)
+
+      const storage = createStorage(dir, dir)
+      const [documents, sections, links] = await Promise.all([
+        Effect.runPromise(loadDocumentIndex(storage)),
+        Effect.runPromise(loadSectionIndex(storage)),
+        Effect.runPromise(loadLinkIndex(storage)),
+      ])
+      const key = (await fs.realpath(a)) as DocumentKey
+      expect(Object.keys(documents?.documents ?? {})).toEqual([key])
+      expect(documents?.documents[key]?.paths).toEqual([
+        await fs.realpath(a),
+        await fs.realpath(z),
+      ])
+      expect(documents?.documents[key]?.declaredPaths).toEqual([a, z])
+      expect(
+        new Set(
+          Object.values(sections?.sections ?? {}).map(
+            (section) => section.documentPath,
+          ),
+        ),
+      ).toEqual(new Set([key]))
+      expect(links?.forward[key]).toEqual([key])
+      expect(links?.broken).toEqual([missing])
+    })
+
     it('should index a directory of markdown files correctly', async () => {
       const dir = await createFixture({
         'README.md': '# Hello\n\nWorld\n',

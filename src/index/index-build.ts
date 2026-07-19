@@ -3,11 +3,11 @@ import * as path from 'node:path'
 import { Effect } from 'effect'
 import type { MdDocument } from '../core/types.js'
 import {
-  type CanonicalSource,
-  canonicalizeSourceFile,
+  type CanonicalSourceSelection,
   type DeclaredPath,
   type DocumentKey,
   expandDeclaredPath,
+  fileIdentityKey,
 } from '../db/canonical.js'
 import {
   type DirectoryCreateError,
@@ -18,12 +18,18 @@ import {
   ParseError,
 } from '../errors/index.js'
 import { parse } from '../parser/parser.js'
-import { discoverFiles } from './file-discovery.js'
+import {
+  type CanonicalizedDiscovery,
+  canonicalizeDiscoveredFiles,
+  discoverFiles,
+} from './file-discovery.js'
 import { createIgnoreFilter } from './ignore-patterns.js'
 import {
   applyDocument,
   createMutableIndexState,
   deleteIndexedDocument,
+  deleteIndexedDocumentByKey,
+  findIndexedDocumentByDeclaredPath,
   type MutableIndexState,
   saveIndexState,
 } from './index-state.js'
@@ -64,7 +70,7 @@ interface ParsedFile {
   readonly mtime: number
   readonly hash: string
   readonly document: MdDocument
-  readonly source: CanonicalSource
+  readonly source: CanonicalSourceSelection
   readonly resolvedLinks: readonly DocumentKey[]
   readonly brokenLinks: readonly DeclaredPath[]
 }
@@ -75,37 +81,28 @@ interface UnchangedFile {
 
 type ParsedFileResult = ParsedFile | UnchangedFile | null
 
-type LinkTarget =
-  | { readonly kind: 'resolved'; readonly path: DocumentKey }
-  | { readonly kind: 'broken'; readonly path: DeclaredPath }
-
 const resolveDocumentLinks = (
   document: MdDocument,
-  filePath: string,
-  source: CanonicalSource,
+  source: CanonicalSourceSelection,
   rootPath: string,
+  discovery: CanonicalizedDiscovery,
+  documentKeysByIdentity: ReadonlyMap<string, DocumentKey>,
 ) =>
   Effect.all(
     document.links
       .filter((link) => link.type === 'internal')
       .map((link) => {
-        const declaredPath = resolveInternalLink(
+        return resolveInternalLink(
           link.href,
-          filePath,
+          source.declaredPaths[0] ?? source.key,
           rootPath,
           source.caseSensitive,
-        )
-        if (!declaredPath) return Effect.succeed(null)
-        return canonicalizeSourceFile(declaredPath).pipe(
-          Effect.map(
-            (target): LinkTarget => ({ kind: 'resolved', path: target.key }),
-          ),
-          Effect.catchAll(() =>
-            Effect.succeed<LinkTarget>({
-              kind: 'broken',
-              path: declaredPath,
-            }),
-          ),
+          {
+            canonicalize: discovery.canonicalize,
+            selectDocumentKey: (target) =>
+              documentKeysByIdentity.get(fileIdentityKey(target.identity)) ??
+              target.key,
+          },
         )
       }),
     { concurrency: 50 },
@@ -143,27 +140,53 @@ const loadMutableState = (
     )
   })
 
+const sameValues = <T>(left: readonly T[], right: readonly T[]): boolean =>
+  left.length === right.length &&
+  left.every((value, index) => value === right[index])
+
+const sourceMatchesEntry = (
+  source: CanonicalSourceSelection,
+  entry: MutableIndexState['documents'][DocumentKey],
+): boolean =>
+  sameValues(source.paths, entry.paths) &&
+  sameValues(source.declaredPaths, entry.declaredPaths) &&
+  source.comparisonKey === entry.comparisonKey &&
+  fileIdentityKey(source.identity) === fileIdentityKey(entry.identity)
+
 const parseFiles = (
   storage: IndexStorage,
-  files: readonly string[],
+  discovery: CanonicalizedDiscovery,
   state: MutableIndexState,
   options: IndexOptions,
   errors: FileProcessingError[],
-) =>
-  Effect.all(
-    files.map((filePath) => {
-      const relativePath = path.relative(storage.sourceRoot, filePath)
+) => {
+  const documentKeysByIdentity = new Map<string, DocumentKey>(
+    Object.values(state.documents).map((entry) => [
+      fileIdentityKey(entry.identity),
+      entry.path,
+    ]),
+  )
+  for (const source of discovery.selections) {
+    documentKeysByIdentity.set(fileIdentityKey(source.identity), source.key)
+  }
+
+  return Effect.all(
+    discovery.selections.map((source) => {
+      const relativePath = path.relative(
+        storage.sourceRoot,
+        source.declaredPaths[0] ?? source.key,
+      )
       return Effect.gen(function* () {
-        const source = yield* canonicalizeSourceFile(filePath)
         const [content, stats] = yield* Effect.promise(() =>
-          Promise.all([fs.readFile(filePath, 'utf-8'), fs.stat(filePath)]),
+          Promise.all([fs.readFile(source.key, 'utf-8'), fs.stat(source.key)]),
         )
         const hash = computeHash(content)
         const existing = state.documents[source.key]
         if (
           !options.force &&
           existing?.hash === hash &&
-          existing.mtime === stats.mtime.getTime()
+          existing.mtime === stats.mtime.getTime() &&
+          sourceMatchesEntry(source, existing)
         ) {
           return { kind: 'unchanged' } satisfies UnchangedFile
         }
@@ -183,9 +206,10 @@ const parseFiles = (
         )
         const links = yield* resolveDocumentLinks(
           document,
-          filePath,
           source,
           storage.sourceRoot,
+          discovery,
+          documentKeysByIdentity,
         )
         return {
           kind: 'parsed',
@@ -208,6 +232,7 @@ const parseFiles = (
     }),
     { concurrency: 50 },
   )
+}
 
 interface MergeResult {
   readonly documentsIndexed: number
@@ -217,7 +242,7 @@ interface MergeResult {
 }
 
 const mergeParsedFiles = (
-  files: readonly string[],
+  sources: readonly CanonicalSourceSelection[],
   parsedFiles: readonly ParsedFileResult[],
   storage: IndexStorage,
   state: MutableIndexState,
@@ -230,10 +255,14 @@ const mergeParsedFiles = (
 
   for (let index = 0; index < parsedFiles.length; index++) {
     const parsed = parsedFiles[index]!
-    const relativePath = path.relative(storage.sourceRoot, files[index]!)
+    const source = sources[index]!
+    const relativePath = path.relative(
+      storage.sourceRoot,
+      source.declaredPaths[0] ?? source.key,
+    )
     options.onProgress?.({
       current: index + 1,
-      total: files.length,
+      total: sources.length,
       filePath: relativePath,
     })
     if (!parsed) {
@@ -256,6 +285,126 @@ const mergeParsedFiles = (
     linksIndexed += applied.linksIndexed
   }
   return { documentsIndexed, sectionsIndexed, linksIndexed, unchanged }
+}
+
+const reconcileCanonicalSources = (
+  state: MutableIndexState,
+  selections: readonly CanonicalSourceSelection[],
+  sourceRoot: string,
+  errors: FileProcessingError[],
+): void => {
+  for (const selection of selections) {
+    const selectionIdentity = fileIdentityKey(selection.identity)
+    for (const entry of Object.values(state.documents)) {
+      const sameIdentity = fileIdentityKey(entry.identity) === selectionIdentity
+      const driftedAlias = selection.declaredPaths.find((declaredPath) =>
+        entry.declaredPaths.includes(declaredPath),
+      )
+      if (driftedAlias && !sameIdentity) {
+        deleteIndexedDocumentByKey(state, entry.path)
+        errors.push({
+          path: path.relative(sourceRoot, driftedAlias),
+          message: 'canonical target changed (moved?); reindexed',
+        })
+      } else if (sameIdentity && entry.path !== selection.key) {
+        deleteIndexedDocumentByKey(state, entry.path)
+      }
+    }
+  }
+}
+
+const collectDependentAliases = (
+  state: MutableIndexState,
+  selections: readonly CanonicalSourceSelection[],
+  includeIdentityAliases: boolean,
+): DeclaredPath[] => {
+  const aliases = new Set<DeclaredPath>()
+  for (const selection of selections) {
+    const selectionIdentity = fileIdentityKey(selection.identity)
+    for (const entry of Object.values(state.documents)) {
+      const sameIdentity = fileIdentityKey(entry.identity) === selectionIdentity
+      if (sameIdentity && includeIdentityAliases) {
+        for (const declaredPath of entry.declaredPaths) {
+          aliases.add(declaredPath)
+        }
+        continue
+      }
+      const drifted =
+        !sameIdentity &&
+        selection.declaredPaths.some((declaredPath) =>
+          entry.declaredPaths.includes(declaredPath),
+        )
+      if (!drifted) continue
+      for (const declaredPath of entry.declaredPaths) {
+        if (!selection.declaredPaths.includes(declaredPath)) {
+          aliases.add(declaredPath)
+        }
+      }
+      for (const sourceKey of state.backward[entry.path] ?? []) {
+        for (const declaredPath of state.documents[sourceKey]?.declaredPaths ??
+          []) {
+          aliases.add(declaredPath)
+        }
+      }
+    }
+  }
+  return [...aliases]
+}
+
+const collectDeletedReplacements = (
+  state: MutableIndexState,
+  deletedPaths: readonly string[],
+): DeclaredPath[] => {
+  const deleted = new Set(deletedPaths.map(expandDeclaredPath))
+  const replacements = new Set<DeclaredPath>()
+  for (const declaredPath of deleted) {
+    const entry = findIndexedDocumentByDeclaredPath(state, declaredPath)
+    if (!entry) continue
+    for (const alias of entry.declaredPaths) {
+      if (!deleted.has(alias)) replacements.add(alias)
+    }
+    for (const sourceKey of state.backward[entry.path] ?? []) {
+      const source = state.documents[sourceKey]
+      for (const alias of source?.declaredPaths ?? []) {
+        if (!deleted.has(alias)) replacements.add(alias)
+      }
+    }
+    deleteIndexedDocument(state, declaredPath)
+  }
+  return [...replacements]
+}
+
+const keepExistingAliases = async (
+  aliases: readonly DeclaredPath[],
+  sourceRoot: string,
+  errors: FileProcessingError[],
+): Promise<DeclaredPath[]> => {
+  const existing: DeclaredPath[] = []
+  for (const alias of [...new Set(aliases)]) {
+    const found = await fs
+      .stat(alias)
+      .then(() => true)
+      .catch(() => false)
+    if (found) existing.push(alias)
+    else {
+      errors.push({
+        path: path.relative(sourceRoot, alias),
+        message: 'not found (moved/deleted?); relink required',
+      })
+    }
+  }
+  return existing
+}
+
+const reportMissingStoredAliases = async (
+  state: MutableIndexState,
+  sourceRoot: string,
+  errors: FileProcessingError[],
+): Promise<void> => {
+  const aliases = Object.values(state.documents).flatMap(
+    (entry) => entry.declaredPaths,
+  )
+  await keepExistingAliases(aliases, sourceRoot, errors)
 }
 
 export const buildIndex = (
@@ -285,24 +434,48 @@ export const buildIndex = (
       changedPaths: options.changedPaths,
       followSymlinks: options.followSymlinks,
     })
-    for (const deletedPath of discovery.deletedPaths) {
-      deleteIndexedDocument(state, expandDeclaredPath(deletedPath))
+    const incremental = (options.changedPaths?.length ?? 0) > 0
+    if (!incremental) {
+      yield* Effect.promise(() =>
+        reportMissingStoredAliases(state, storage.sourceRoot, errors),
+      )
     }
+    const replacementAliases = collectDeletedReplacements(
+      state,
+      discovery.deletedPaths,
+    )
+    const existingReplacements = yield* Effect.promise(() =>
+      keepExistingAliases(replacementAliases, storage.sourceRoot, errors),
+    )
+    const discoveredFiles = [
+      ...new Set([...discovery.files, ...existingReplacements]),
+    ]
+    let canonicalized = yield* canonicalizeDiscoveredFiles(discoveredFiles)
+    const dependentAliases = collectDependentAliases(
+      state,
+      canonicalized.selections,
+      incremental,
+    )
+    if (dependentAliases.length > 0) {
+      const existingDependentAliases = yield* Effect.promise(() =>
+        keepExistingAliases(dependentAliases, storage.sourceRoot, errors),
+      )
+      canonicalized = yield* canonicalizeDiscoveredFiles([
+        ...new Set([...discoveredFiles, ...existingDependentAliases]),
+      ])
+    }
+    const selections = canonicalized.selections
+    const canonicalDiscovery = { ...canonicalized, selections }
+    reconcileCanonicalSources(state, selections, storage.sourceRoot, errors)
 
     const parsed = yield* parseFiles(
       storage,
-      discovery.files,
+      canonicalDiscovery,
       state,
       options,
       errors,
     )
-    const counts = mergeParsedFiles(
-      discovery.files,
-      parsed,
-      storage,
-      state,
-      options,
-    )
+    const counts = mergeParsedFiles(selections, parsed, storage, state, options)
     yield* saveIndexState(storage, state)
 
     const totalLinks = Object.values(state.forward).reduce(

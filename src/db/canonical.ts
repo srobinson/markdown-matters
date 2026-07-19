@@ -58,6 +58,18 @@ export interface CanonicalSourceSelection
   readonly declaredPaths: readonly DeclaredPath[]
 }
 
+export interface CanonicalSourceAliases {
+  readonly paths: readonly DocumentKey[]
+  readonly declaredPaths: readonly DeclaredPath[]
+  readonly caseSensitive?: boolean
+}
+
+export type CaseSensitivityProbe = (
+  key: string,
+  device: bigint,
+  inode: bigint,
+) => Promise<boolean>
+
 export const expandDeclaredPath = (value: string): DeclaredPath => {
   const expanded = value.replace(/^~(?=$|[\\/])/, os.homedir())
   return path.resolve(path.normalize(expanded)) as DeclaredPath
@@ -93,7 +105,7 @@ const asciiCaseVariant = (value: string): string | undefined => {
   )
 }
 
-const detectCaseSensitivity = async (
+export const probeCaseSensitivity: CaseSensitivityProbe = async (
   key: string,
   device: bigint,
   inode: bigint,
@@ -111,13 +123,14 @@ const detectCaseSensitivity = async (
 
 export const canonicalizeSourceFile = (
   value: string,
+  caseSensitivityProbe: CaseSensitivityProbe = probeCaseSensitivity,
 ): Effect.Effect<CanonicalSource, FileReadError> =>
   Effect.tryPromise({
     try: async () => {
       const declaredPath = expandDeclaredPath(value)
       const key = (await resolveCanonicalPath(declaredPath)) as DocumentKey
       const stat = await fs.stat(key, { bigint: true })
-      const caseSensitive = await detectCaseSensitivity(key, stat.dev, stat.ino)
+      const caseSensitive = await caseSensitivityProbe(key, stat.dev, stat.ino)
 
       return {
         key,
@@ -151,7 +164,7 @@ const compareCanonicalSources = (
   compareText(left.key, right.key) ||
   compareText(left.declaredPath, right.declaredPath)
 
-const identityKey = ({ device, inode }: FileIdentity): string =>
+export const fileIdentityKey = ({ device, inode }: FileIdentity): string =>
   `${device}:${inode}`
 
 export const selectCanonicalSource = (
@@ -163,9 +176,11 @@ export const selectCanonicalSource = (
     throw new TypeError('Cannot select a canonical source from an empty group')
   }
 
-  const expectedIdentity = identityKey(primary.identity)
+  const expectedIdentity = fileIdentityKey(primary.identity)
   if (
-    sorted.some((source) => identityKey(source.identity) !== expectedIdentity)
+    sorted.some(
+      (source) => fileIdentityKey(source.identity) !== expectedIdentity,
+    )
   ) {
     throw new TypeError(
       'Canonical source group contains multiple file identities',
@@ -203,11 +218,17 @@ export const isPathWithin = (
 export const sourceBelongsToPrefix = (
   source: CanonicalSourceSelection,
   prefix: string,
+): boolean => belongsToAnyPrefix(source, [prefix])
+
+const belongsToPrefix = (
+  source: CanonicalSourceAliases,
+  prefix: string,
 ): boolean => {
+  const caseSensitive = source.caseSensitive ?? true
   const declaredPrefix = expandDeclaredPath(prefix)
   if (
     source.declaredPaths.some((declaredPath) =>
-      isPathWithin(declaredPath, declaredPrefix, source.caseSensitive),
+      isPathWithin(declaredPath, declaredPrefix, caseSensitive),
     )
   ) {
     return true
@@ -219,9 +240,14 @@ export const sourceBelongsToPrefix = (
     canonicalPrefix = declaredPrefix
   }
   return source.paths.some((key) =>
-    isPathWithin(key, canonicalPrefix, source.caseSensitive),
+    isPathWithin(key, canonicalPrefix, caseSensitive),
   )
 }
+
+export const belongsToAnyPrefix = (
+  source: CanonicalSourceAliases,
+  prefixes: readonly string[],
+): boolean => prefixes.some((prefix) => belongsToPrefix(source, prefix))
 
 export const resolveSourceFile = (key: DocumentKey): string => {
   if (!path.isAbsolute(key)) {
