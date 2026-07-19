@@ -7,6 +7,7 @@
  */
 
 import { EventEmitter } from 'node:events'
+import * as path from 'node:path'
 import { Effect } from 'effect'
 import {
   afterEach,
@@ -312,7 +313,7 @@ describe('initial index', () => {
     // buildIndex should have been called once for initial build
     expect(mockBuildIndex).toHaveBeenCalledTimes(1)
     expect(mockBuildIndex).toHaveBeenCalledWith(
-      '/test/root',
+      path.resolve('/test/root'),
       expect.objectContaining({ indexRoot: '/test/index' }),
     )
     expect(onIndex).toHaveBeenCalledWith({
