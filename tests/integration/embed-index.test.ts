@@ -3,6 +3,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { Effect } from 'effect'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import type { DocumentKey } from '../../src/db/canonical.js'
 import { createVectorStore } from '../../src/embeddings/vector-store.js'
 import { buildIndex as buildIndexEffect } from '../../src/index/indexer.js'
 import {
@@ -167,7 +168,7 @@ describe('Embed + Index Integration Tests', () => {
           {
             id: 'test-1',
             sectionId: 'sec-1',
-            documentPath: 'test.md',
+            documentPath: path.join(tempDir, 'test.md') as DocumentKey,
             heading: 'Test',
             embedding: Array(512).fill(0.1),
           },
@@ -260,7 +261,7 @@ describe('Embed + Index Integration Tests', () => {
           {
             id: 'test-1',
             sectionId: 'sec-1',
-            documentPath: 'test.md',
+            documentPath: path.join(tempDir, 'test.md') as DocumentKey,
             heading: 'Test',
             embedding: Array(512).fill(0.1),
           },
@@ -342,7 +343,7 @@ describe('Embed + Index Integration Tests', () => {
           {
             id: 'test-1',
             sectionId: 'sec-1',
-            documentPath: 'test.md',
+            documentPath: path.join(tempDir, 'test.md') as DocumentKey,
             heading: 'Test',
             embedding: Array(512).fill(0.1),
           },
@@ -369,7 +370,7 @@ describe('Embed + Index Integration Tests', () => {
           {
             id: 'test-1',
             sectionId: 'sec-1',
-            documentPath: 'test.md',
+            documentPath: path.join(tempDir, 'test.md') as DocumentKey,
             heading: 'Test',
             embedding: Array(512).fill(0.1),
           },
@@ -395,7 +396,7 @@ describe('Embed + Index Integration Tests', () => {
           {
             id: 'test-1',
             sectionId: 'sec-1',
-            documentPath: 'test.md',
+            documentPath: path.join(tempDir, 'test.md') as DocumentKey,
             heading: 'Test',
             embedding: Array(512).fill(0.1),
           },
@@ -440,7 +441,7 @@ describe('Embed + Index Integration Tests', () => {
           {
             id: 'test-1',
             sectionId: 'sec-1',
-            documentPath: 'test.md',
+            documentPath: path.join(tempDir, 'test.md') as DocumentKey,
             heading: 'Test',
             embedding: Array(512).fill(0.1),
           },
@@ -466,7 +467,7 @@ describe('Embed + Index Integration Tests', () => {
           {
             id: 'test-1',
             sectionId: 'sec-1',
-            documentPath: 'test.md',
+            documentPath: path.join(tempDir, 'test.md') as DocumentKey,
             heading: 'Test',
             embedding: Array(512).fill(0.1),
           },
@@ -502,7 +503,7 @@ describe('Embed + Index Integration Tests', () => {
           {
             id: 'test-1',
             sectionId: 'sec-1',
-            documentPath: 'test.md',
+            documentPath: path.join(tempDir, 'test.md') as DocumentKey,
             heading: 'Test',
             embedding: Array(512).fill(0.1),
           },
@@ -535,7 +536,7 @@ describe('Embed + Index Integration Tests', () => {
           {
             id: 'test-1',
             sectionId: 'sec-1',
-            documentPath: 'test.md',
+            documentPath: path.join(tempDir, 'test.md') as DocumentKey,
             heading: 'Test',
             embedding: Array(512).fill(0.1),
           },

@@ -3,6 +3,13 @@ import * as path from 'node:path'
 import { Effect } from 'effect'
 import type { MdDocument } from '../core/types.js'
 import {
+  type CanonicalSource,
+  canonicalizeSourceFile,
+  type DeclaredPath,
+  type DocumentKey,
+  expandDeclaredPath,
+} from '../db/canonical.js'
+import {
   type DirectoryCreateError,
   type DirectoryWalkError,
   type FileReadError,
@@ -18,9 +25,9 @@ import {
   createMutableIndexState,
   deleteIndexedDocument,
   type MutableIndexState,
-  markBrokenLinks,
   saveIndexState,
 } from './index-state.js'
+import { resolveInternalLink } from './link-index.js'
 import {
   computeHash,
   createEmptyDocumentIndex,
@@ -53,13 +60,65 @@ export interface IndexOptions {
 }
 
 interface ParsedFile {
-  readonly filePath: string
-  readonly relativePath: string
-  readonly content: string
-  readonly stats: { mtime: Date; mtimeMs: number }
+  readonly kind: 'parsed'
+  readonly mtime: number
   readonly hash: string
   readonly document: MdDocument
+  readonly source: CanonicalSource
+  readonly resolvedLinks: readonly DocumentKey[]
+  readonly brokenLinks: readonly DeclaredPath[]
 }
+
+interface UnchangedFile {
+  readonly kind: 'unchanged'
+}
+
+type ParsedFileResult = ParsedFile | UnchangedFile | null
+
+type LinkTarget =
+  | { readonly kind: 'resolved'; readonly path: DocumentKey }
+  | { readonly kind: 'broken'; readonly path: DeclaredPath }
+
+const resolveDocumentLinks = (
+  document: MdDocument,
+  filePath: string,
+  source: CanonicalSource,
+  rootPath: string,
+) =>
+  Effect.all(
+    document.links
+      .filter((link) => link.type === 'internal')
+      .map((link) => {
+        const declaredPath = resolveInternalLink(
+          link.href,
+          filePath,
+          rootPath,
+          source.caseSensitive,
+        )
+        if (!declaredPath) return Effect.succeed(null)
+        return canonicalizeSourceFile(declaredPath).pipe(
+          Effect.map(
+            (target): LinkTarget => ({ kind: 'resolved', path: target.key }),
+          ),
+          Effect.catchAll(() =>
+            Effect.succeed<LinkTarget>({
+              kind: 'broken',
+              path: declaredPath,
+            }),
+          ),
+        )
+      }),
+    { concurrency: 50 },
+  ).pipe(
+    Effect.map((targets) => ({
+      resolvedLinks: targets.flatMap((target) =>
+        target?.kind === 'resolved' ? [target.path] : [],
+      ),
+      brokenLinks: targets.flatMap((target) =>
+        target?.kind === 'broken' ? [target.path] : [],
+      ),
+    })),
+  )
 
 const loadMutableState = (
   storage: IndexStorage,
@@ -95,20 +154,21 @@ const parseFiles = (
     files.map((filePath) => {
       const relativePath = path.relative(storage.sourceRoot, filePath)
       return Effect.gen(function* () {
+        const source = yield* canonicalizeSourceFile(filePath)
         const [content, stats] = yield* Effect.promise(() =>
           Promise.all([fs.readFile(filePath, 'utf-8'), fs.stat(filePath)]),
         )
         const hash = computeHash(content)
-        const existing = state.documents[relativePath]
+        const existing = state.documents[source.key]
         if (
           !options.force &&
           existing?.hash === hash &&
           existing.mtime === stats.mtime.getTime()
         ) {
-          return null
+          return { kind: 'unchanged' } satisfies UnchangedFile
         }
         const document = yield* parse(content, {
-          path: relativePath,
+          path: source.key,
           lastModified: stats.mtime,
         }).pipe(
           Effect.mapError(
@@ -121,13 +181,19 @@ const parseFiles = (
               }),
           ),
         )
-        return {
+        const links = yield* resolveDocumentLinks(
+          document,
           filePath,
-          relativePath,
-          content,
-          stats: { mtime: stats.mtime, mtimeMs: stats.mtime.getTime() },
+          source,
+          storage.sourceRoot,
+        )
+        return {
+          kind: 'parsed',
+          mtime: stats.mtime.getTime(),
           hash,
           document,
+          source,
+          ...links,
         } satisfies ParsedFile
       }).pipe(
         Effect.catchAll((error) => {
@@ -152,11 +218,10 @@ interface MergeResult {
 
 const mergeParsedFiles = (
   files: readonly string[],
-  parsedFiles: readonly (ParsedFile | null)[],
+  parsedFiles: readonly ParsedFileResult[],
   storage: IndexStorage,
   state: MutableIndexState,
   options: IndexOptions,
-  errors: readonly FileProcessingError[],
 ): MergeResult => {
   let documentsIndexed = 0
   let sectionsIndexed = 0
@@ -172,21 +237,19 @@ const mergeParsedFiles = (
       filePath: relativePath,
     })
     if (!parsed) {
-      if (
-        state.documents[relativePath] &&
-        !errors.some((error) => error.path === relativePath)
-      ) {
-        unchanged++
-      }
+      continue
+    }
+    if (parsed.kind === 'unchanged') {
+      unchanged++
       continue
     }
     const applied = applyDocument(state, {
       document: parsed.document,
-      filePath: parsed.filePath,
-      relativePath: parsed.relativePath,
-      rootPath: storage.sourceRoot,
+      source: parsed.source,
+      resolvedLinks: parsed.resolvedLinks,
+      brokenLinks: parsed.brokenLinks,
       hash: parsed.hash,
-      mtime: parsed.stats.mtimeMs,
+      mtime: parsed.mtime,
     })
     documentsIndexed++
     sectionsIndexed += applied.sectionsIndexed
@@ -223,10 +286,7 @@ export const buildIndex = (
       followSymlinks: options.followSymlinks,
     })
     for (const deletedPath of discovery.deletedPaths) {
-      deleteIndexedDocument(
-        state,
-        path.relative(storage.sourceRoot, deletedPath),
-      )
+      deleteIndexedDocument(state, expandDeclaredPath(deletedPath))
     }
 
     const parsed = yield* parseFiles(
@@ -242,9 +302,7 @@ export const buildIndex = (
       storage,
       state,
       options,
-      errors,
     )
-    markBrokenLinks(state)
     yield* saveIndexState(storage, state)
 
     const totalLinks = Object.values(state.forward).reduce(

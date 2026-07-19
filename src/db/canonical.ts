@@ -3,7 +3,7 @@ import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
-import { Effect } from 'effect'
+import { Effect, Schema } from 'effect'
 
 import { FileReadError } from '../errors/index.js'
 
@@ -17,6 +17,27 @@ export type DocumentKey = string & {
 export type DeclaredPath = string & {
   readonly [declaredBrand]: 'DeclaredPath'
 }
+
+export const CANONICAL_SCHEMA_VERSION = 2 as const
+
+const isAbsoluteNormalizedPath = (value: unknown): value is string =>
+  typeof value === 'string' &&
+  path.isAbsolute(value) &&
+  path.normalize(value) === value
+
+export const isDocumentKey = (value: unknown): value is DocumentKey =>
+  isAbsoluteNormalizedPath(value)
+
+export const isDeclaredPath = (value: unknown): value is DeclaredPath =>
+  isAbsoluteNormalizedPath(value)
+
+export const DocumentKeySchema = Schema.declare(isDocumentKey, {
+  identifier: 'DocumentKey',
+})
+
+export const DeclaredPathSchema = Schema.declare(isDeclaredPath, {
+  identifier: 'DeclaredPath',
+})
 
 export interface FileIdentity {
   readonly device: string

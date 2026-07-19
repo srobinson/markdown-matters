@@ -4,6 +4,7 @@
 
 import type { Redacted } from 'effect'
 import type { ContextLine } from '../core/types.js'
+import type { CANONICAL_SCHEMA_VERSION, DocumentKey } from '../db/canonical.js'
 import type { OpenAICompatibleProviderId } from '../providers/index.js'
 
 export type { ContextLine } from '../core/types.js'
@@ -64,13 +65,13 @@ export interface EmbeddingResult {
 export interface VectorEntry {
   readonly id: string
   readonly sectionId: string
-  readonly documentPath: string
+  readonly documentPath: DocumentKey
   readonly heading: string
   readonly embedding: readonly number[]
 }
 
 export interface VectorIndex {
-  readonly version: number
+  readonly version: typeof CANONICAL_SCHEMA_VERSION
   readonly provider: string
   readonly providerModel?: string | undefined
   readonly providerBaseURL?: string | undefined

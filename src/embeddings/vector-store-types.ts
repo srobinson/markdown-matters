@@ -1,4 +1,5 @@
 import type { Effect } from 'effect'
+import type { DocumentKey } from '../db/canonical.js'
 import type {
   DimensionMismatchError,
   VectorStoreError,
@@ -43,7 +44,7 @@ export interface VectorStore {
 export interface VectorSearchResult {
   readonly id: string
   readonly sectionId: string
-  readonly documentPath: string
+  readonly documentPath: DocumentKey
   readonly heading: string
   readonly similarity: number
 }

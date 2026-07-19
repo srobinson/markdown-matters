@@ -414,11 +414,14 @@ describe('mdm CLI e2e', () => {
         'utf-8',
       )
       const documentIndex = JSON.parse(raw)
-      expect(Object.keys(documentIndex.documents).sort()).toEqual([
-        'README.md',
-        'api-reference.md',
-        'getting-started.md',
-      ])
+      const expectedKeys = await Promise.all(
+        ['README.md', 'api-reference.md', 'getting-started.md'].map((file) =>
+          fs.realpath(path.join(testFixtureDir, file)),
+        ),
+      )
+      expect(Object.keys(documentIndex.documents).sort()).toEqual(
+        expectedKeys.sort(),
+      )
       await expect(
         fs.access(path.join(testFixtureDir, 'indexes', 'documents.json')),
       ).rejects.toThrow()

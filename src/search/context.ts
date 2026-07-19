@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { Effect, Option } from 'effect'
+import type { DocumentKey } from '../db/canonical.js'
 import {
   DocumentNotFoundError,
   FileReadError,
@@ -61,7 +62,7 @@ export const getContext = (
       )
     }
 
-    const document = documentIndex.documents[relativePath]
+    const document = documentIndex.documents[resolvedFile as DocumentKey]
     if (!document) {
       return yield* Effect.fail(
         new DocumentNotFoundError({

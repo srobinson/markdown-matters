@@ -9,6 +9,7 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { Effect } from 'effect'
+import type { DocumentKey } from '../db/canonical.js'
 import {
   type ApiKeyInvalidError,
   type ApiKeyMissingError,
@@ -159,7 +160,7 @@ type DocSections = {
 }
 
 interface EligibleSectionGroups {
-  readonly sectionsByDoc: Map<string, DocSections[]>
+  readonly sectionsByDoc: Map<DocumentKey, DocSections[]>
   readonly currentSectionIds: Set<string>
 }
 
@@ -178,7 +179,7 @@ const groupEligibleSections = (
     return excludePatterns.some((pattern) => matchPath(docPath, pattern))
   }
 
-  const sectionsByDoc: Map<string, DocSections[]> = new Map()
+  const sectionsByDoc = new Map<DocumentKey, DocSections[]>()
 
   for (const section of Object.values(sectionIndex.sections)) {
     const document = docIndex.documents[section.documentPath]
@@ -235,10 +236,9 @@ interface SectionsToEmbed {
  * Sections already in `embeddedIds` are skipped for delta embedding.
  */
 const readSectionsToEmbed = (
-  sectionsByDoc: Map<string, DocSections[]>,
+  sectionsByDoc: Map<DocumentKey, DocSections[]>,
   docIndex: DocumentIndex,
   embeddedIds: Set<string>,
-  resolvedRoot: string,
   onFileProgress: ((progress: FileProgress) => void) | undefined,
 ): Effect.Effect<SectionsToEmbed, never, never> =>
   Effect.gen(function* () {
@@ -261,7 +261,7 @@ const readSectionsToEmbed = (
         })
       }
 
-      const filePath = path.join(resolvedRoot, docPath)
+      const filePath = docPath
 
       // Note: catchAll is intentional - file read failures during embedding
       // should skip the file with a warning rather than abort the entire
@@ -344,10 +344,7 @@ export const buildEmbeddings = (
   Effect.gen(function* () {
     const startTime = Date.now()
     const resolvedRoot = path.resolve(rootPath)
-    const storage = createStorage(
-      resolvedRoot,
-      dbIndexDir(resolveMdmHome()),
-    )
+    const storage = createStorage(resolvedRoot, dbIndexDir(resolveMdmHome()))
 
     const docIndex = yield* loadDocumentIndex(storage)
     const sectionIndex = yield* loadSectionIndex(storage)
@@ -437,7 +434,6 @@ export const buildEmbeddings = (
       sectionsByDoc,
       docIndex,
       embeddedIds,
-      resolvedRoot,
       options.onFileProgress,
     )
 

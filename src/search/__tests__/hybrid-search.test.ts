@@ -11,9 +11,12 @@
  */
 
 import * as fs from 'node:fs/promises'
+import * as os from 'node:os'
 import * as path from 'node:path'
 import { Effect } from 'effect'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { seedFreshVectorFixture } from '../../embeddings/vector-store-test-fixture.js'
+import { buildIndex } from '../../index/indexer.js'
 import { createStorage, loadSectionIndex } from '../../index/storage.js'
 import { createBM25Store } from '../bm25-store.js'
 import {
@@ -26,56 +29,50 @@ const TEST_CORPUS_PATH = path.join(
   __dirname,
   '../../__tests__/fixtures/semantic-search/multi-word-corpus',
 )
-const TEST_INDEX_PATH = path.join(TEST_CORPUS_PATH, '.mdm')
+let TEST_INDEX_PATH: string
 
 describe('Hybrid Search Integration', () => {
   beforeAll(async () => {
+    TEST_INDEX_PATH = await fs.mkdtemp(
+      path.join(os.tmpdir(), 'mdm-hybrid-schema-'),
+    )
+    await Effect.runPromise(
+      buildIndex(TEST_CORPUS_PATH, {
+        indexRoot: TEST_INDEX_PATH,
+        force: true,
+      }),
+    )
+    const storage = createStorage(TEST_CORPUS_PATH, TEST_INDEX_PATH)
+    const sectionIndex = await Effect.runPromise(loadSectionIndex(storage))
+    const docs = await Promise.all(
+      Object.values(sectionIndex?.sections ?? {}).map(async (section) => {
+        const fileContent = await fs.readFile(section.documentPath, 'utf-8')
+        return {
+          id: section.id,
+          sectionId: section.id,
+          documentPath: section.documentPath,
+          heading: section.heading,
+          content: fileContent
+            .split('\n')
+            .slice(section.startLine - 1, section.endLine)
+            .join('\n'),
+        }
+      }),
+    )
     const store = createBM25Store(TEST_INDEX_PATH)
-    const loaded = await Effect.runPromise(store.load())
-
-    if (!loaded) {
-      const storage = createStorage(TEST_CORPUS_PATH, TEST_INDEX_PATH)
-      const sectionIndex = await Effect.runPromise(loadSectionIndex(storage))
-
-      if (sectionIndex) {
-        const docs = await Promise.all(
-          Object.values(sectionIndex.sections).map(async (section) => {
-            const filePath = path.join(TEST_CORPUS_PATH, section.documentPath)
-            let content = ''
-
-            try {
-              const fileContent = await fs.readFile(filePath, 'utf-8')
-              const lines = fileContent.split('\n')
-              content = lines
-                .slice(section.startLine - 1, section.endLine)
-                .join('\n')
-            } catch (_e) {
-              content = ''
-            }
-
-            return {
-              id: section.id,
-              sectionId: section.id,
-              documentPath: section.documentPath,
-              heading: section.heading,
-              content,
-            }
-          }),
-        )
-
-        await Effect.runPromise(
-          Effect.gen(function* () {
-            yield* store.add(docs)
-            yield* store.consolidate()
-            yield* store.save()
-          }),
-        )
-      }
-    }
+    await Effect.runPromise(store.add(docs))
+    await Effect.runPromise(store.consolidate())
+    await Effect.runPromise(store.save())
+    await seedFreshVectorFixture({
+      indexRoot: TEST_INDEX_PATH,
+      provider: 'openai',
+      model: 'text-embedding-3-small',
+      dimensions: 512,
+    })
   })
 
   afterAll(async () => {
-    // Test cleanup handled by Vitest
+    await fs.rm(TEST_INDEX_PATH, { recursive: true, force: true })
   })
 
   describe('Index Detection', () => {
