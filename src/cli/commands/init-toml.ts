@@ -17,7 +17,6 @@ maxDepth = ${defaultConfig.index.maxDepth}
 excludePatterns = ${tomlArray(defaultConfig.index.excludePatterns)}
 fileExtensions = ${tomlArray(defaultConfig.index.fileExtensions)}
 followSymlinks = ${defaultConfig.index.followSymlinks}
-indexDir = "${defaultConfig.index.indexDir}"
 
 [search]
 defaultLimit = ${defaultConfig.search.defaultLimit}
@@ -64,7 +63,6 @@ verbose = ${defaultConfig.output.verbose}
 debug = ${defaultConfig.output.debug}
 
 [paths]
-cacheDir = "${defaultConfig.paths.cacheDir}"
 # root = "/path/to/project"
 # configFile = "/path/to/.mdm.toml"
 `

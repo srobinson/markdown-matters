@@ -25,8 +25,6 @@ export interface IndexConfig {
   fileExtensions: readonly string[]
   /** Whether to follow symlinks when traversing directories. */
   followSymlinks: boolean
-  /** Directory where index files are stored (relative to project root). */
-  indexDir: string
 }
 
 // ============================================================================
@@ -193,8 +191,6 @@ export interface PathsConfig {
   root: Option.Option<string>
   /** Custom config file path. */
   configFile: Option.Option<string>
-  /** Cache directory for temporary files. */
-  cacheDir: string
 }
 
 // ============================================================================
@@ -221,7 +217,6 @@ export const defaultConfig: MdmConfig = {
     excludePatterns: ['node_modules', '.git', 'dist', 'build'],
     fileExtensions: ['.md', '.mdx'],
     followSymlinks: false,
-    indexDir: '.mdm',
   },
   search: {
     defaultLimit: 10,
@@ -270,6 +265,5 @@ export const defaultConfig: MdmConfig = {
   paths: {
     root: Option.none(),
     configFile: Option.none(),
-    cacheDir: '.mdm/cache',
   },
 }

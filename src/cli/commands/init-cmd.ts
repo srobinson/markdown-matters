@@ -2,16 +2,16 @@
  * INIT Command
  *
  * Top-level `mdm init` command for initializing mdm in a directory.
- * Handles two-tier setup: local (.mdm/ in PWD) or global (~/.mdm/).
+ * Handles project config and active home setup.
  */
 
 import * as fs from 'node:fs'
-import * as os from 'node:os'
 import * as path from 'node:path'
 import * as readline from 'node:readline'
 import { Command, Options } from '@effect/cli'
 import { Console, Effect } from 'effect'
 import { loadConfigFile } from '../../config/index.js'
+import { resolveMdmHome } from '../../home.js'
 import { generateDefaultToml } from './init-toml.js'
 
 // ============================================================================
@@ -76,22 +76,6 @@ const appendSource = (
   fs.writeFileSync(globalConfigPath, content + sourceEntry, 'utf-8')
 }
 
-/**
- * Append .mdm/ to .gitignore if it exists, or create one.
- */
-const addToGitignore = (dir: string): void => {
-  const gitignorePath = path.join(dir, '.gitignore')
-  if (fs.existsSync(gitignorePath)) {
-    const content = fs.readFileSync(gitignorePath, 'utf-8')
-    if (content.includes('.mdm/') || content.includes('.mdm\n')) {
-      return // Already in gitignore
-    }
-    fs.appendFileSync(gitignorePath, '\n# mdm index directory\n.mdm/\n')
-  } else {
-    fs.writeFileSync(gitignorePath, '# mdm index directory\n.mdm/\n')
-  }
-}
-
 // ============================================================================
 // Init Command
 // ============================================================================
@@ -101,12 +85,12 @@ export const initCommand = Command.make(
   {
     local: Options.boolean('local').pipe(
       Options.withAlias('l'),
-      Options.withDescription('Initialize locally in current directory'),
+      Options.withDescription('Create project config in current directory'),
       Options.withDefault(false),
     ),
     global: Options.boolean('global').pipe(
       Options.withAlias('g'),
-      Options.withDescription('Initialize globally in ~/.mdm/'),
+      Options.withDescription('Initialize the active MDM_HOME'),
       Options.withDefault(false),
     ),
     yes: Options.boolean('yes').pipe(
@@ -118,23 +102,16 @@ export const initCommand = Command.make(
   ({ local, global: useGlobal, yes }) =>
     Effect.gen(function* () {
       const cwd = process.cwd()
-      const localMdmDir = path.join(cwd, '.mdm')
       const localConfigPath = path.join(cwd, '.mdm.toml')
-      const globalMdmDir = path.join(os.homedir(), '.mdm')
+      const globalMdmDir = resolveMdmHome()
       const globalConfigPath = path.join(globalMdmDir, '.mdm.toml')
 
       // Check existing state
-      const hasLocalDir = fs.existsSync(localMdmDir)
       const hasLocalConfig = fs.existsSync(localConfigPath)
       const hasGlobalDir = fs.existsSync(globalMdmDir)
 
       // Case 1: Already initialized locally
-      if (hasLocalDir && !useGlobal) {
-        if (!hasLocalConfig) {
-          yield* initLocal(cwd, localMdmDir, yes)
-          return
-        }
-
+      if (hasLocalConfig && !useGlobal) {
         const existingConfig = loadConfigFile(cwd)
         yield* Console.log('Already initialized locally.')
         if (existingConfig) {
@@ -150,7 +127,7 @@ export const initCommand = Command.make(
         const shouldAdd =
           yes ||
           (yield* confirm(
-            'Global ~/.mdm/ exists. Add this directory as a source?',
+            'The active MDM_HOME exists. Add this directory as a source?',
           ))
         if (shouldAdd) {
           appendSource(globalConfigPath, cwd)
@@ -165,28 +142,26 @@ export const initCommand = Command.make(
       if (local || useGlobal) {
         // Explicit choice via flag
         if (local) {
-          yield* initLocal(cwd, localMdmDir, yes)
+          yield* initLocal(cwd)
         } else {
-          yield* initGlobal(cwd, globalMdmDir, globalConfigPath, yes)
+          yield* initGlobal(cwd)
         }
         return
       }
 
       // Interactive choice
-      yield* Console.log('Where should the index live?')
+      yield* Console.log('Where should the config live?')
       yield* Console.log('')
-      yield* Console.log('  1. Local  - .mdm/ in this directory (project-only)')
-      yield* Console.log(
-        '  2. Global - ~/.mdm/ (shared across all your documents)',
-      )
+      yield* Console.log('  1. Local  - .mdm.toml in this directory')
+      yield* Console.log('  2. Global - .mdm.toml in the active MDM_HOME')
       yield* Console.log('')
 
       const choice = yes ? '1' : yield* prompt('Choose [1/2]: ')
 
       if (choice === '2' || choice.toLowerCase() === 'global') {
-        yield* initGlobal(cwd, globalMdmDir, globalConfigPath, yes)
+        yield* initGlobal(cwd)
       } else {
-        yield* initLocal(cwd, localMdmDir, yes)
+        yield* initLocal(cwd)
       }
     }),
 ).pipe(Command.withDescription('Initialize mdm in a directory'))
@@ -195,19 +170,8 @@ export const initCommand = Command.make(
 // Init Strategies
 // ============================================================================
 
-const initLocal = (
-  cwd: string,
-  mdmDir: string,
-  yes: boolean,
-): Effect.Effect<void> =>
+const initLocal = (cwd: string): Effect.Effect<void> =>
   Effect.gen(function* () {
-    // Create .mdm/ directory
-    const hasMdmDir = fs.existsSync(mdmDir)
-    fs.mkdirSync(mdmDir, { recursive: true })
-    if (!hasMdmDir) {
-      yield* Console.log(`Created ${path.relative(cwd, mdmDir)}/`)
-    }
-
     // Write default config
     const configPath = path.join(cwd, '.mdm.toml')
     if (!fs.existsSync(configPath)) {
@@ -215,34 +179,16 @@ const initLocal = (
       yield* Console.log('Created .mdm.toml')
     }
 
-    // Offer to add to .gitignore
-    const gitDir = path.join(cwd, '.git')
-    if (fs.existsSync(gitDir)) {
-      const shouldAdd = yes || (yield* confirm('Add .mdm/ to .gitignore?'))
-      if (shouldAdd) {
-        addToGitignore(cwd)
-        yield* Console.log('Updated .gitignore')
-      }
-    }
-
     yield* Console.log('')
     yield* Console.log('Run "mdm index" to build the index.')
   })
 
-const initGlobal = (
-  cwd: string,
-  globalDir: string,
-  globalConfigPath: string,
-  _yes: boolean,
-): Effect.Effect<void> =>
+const initGlobal = (cwd: string): Effect.Effect<void> =>
   Effect.gen(function* () {
-    // Create ~/.mdm/ if absent
-    if (!fs.existsSync(globalDir)) {
-      fs.mkdirSync(globalDir, { recursive: true })
-      yield* Console.log(`Created ${globalDir}/`)
-    }
+    const globalDir = resolveMdmHome({ create: true })
+    const globalConfigPath = path.join(globalDir, '.mdm.toml')
 
-    // Create ~/.mdm/.mdm.toml if absent
+    // Create the active home config if absent.
     if (!fs.existsSync(globalConfigPath)) {
       fs.writeFileSync(globalConfigPath, generateDefaultToml(), 'utf-8')
       yield* Console.log(`Created ${globalConfigPath}`)

@@ -127,13 +127,6 @@ export const indexSchema: CommandSchema = {
       alias: 'w',
       description: 'Watch for changes',
     },
-    {
-      name: 'all',
-      type: 'boolean',
-      alias: 'a',
-      description:
-        'Index all registered sources from global config (~/.mdm/.mdm.toml)',
-    },
     forceFlag,
     jsonFlag,
     prettyFlag,

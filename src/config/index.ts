@@ -17,6 +17,7 @@ export {
   loadDetailed,
   loadTomlFile,
   loadTomlFileWithStatus,
+  mergePartials,
   mergeWithDefaults,
   type PartialMdmConfig,
   readEnvVars,

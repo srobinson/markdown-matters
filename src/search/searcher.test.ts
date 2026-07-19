@@ -90,7 +90,7 @@ Set the configuration options carefully.
     )
 
     // Build index
-    await runEffect(buildIndex(TEST_DIR, { force: true }))
+    await runEffect(buildIndex(TEST_DIR, { indexRoot: TEST_DIR, force: true }))
   })
 
   afterAll(async () => {

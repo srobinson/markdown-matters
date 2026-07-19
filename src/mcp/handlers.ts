@@ -19,6 +19,7 @@ import {
   getIncomingLinks,
   getOutgoingLinks,
 } from '../index/indexer.js'
+import { dbIndexDir, resolveMdmHome } from '../home.js'
 import { parseFile } from '../parser/parser.js'
 import { search } from '../search/searcher.js'
 import { formatSummary, summarizeFile } from '../summarize/summarizer.js'
@@ -213,10 +214,15 @@ export const handleMdIndex = async (
   const resolvedPath = await resolveAndValidatePath(rootPath, indexPath)
   if (isPathError(resolvedPath)) return resolvedPath
 
-  return effectToMcpResult(buildIndex(resolvedPath, { force }), (result) =>
-    mcpText(
-      `Indexed ${result.documentsIndexed} documents, ${result.sectionsIndexed} sections, ${result.linksIndexed} links in ${result.duration}ms`,
-    ),
+  return effectToMcpResult(
+    buildIndex(resolvedPath, {
+      indexRoot: dbIndexDir(resolveMdmHome({ create: true })),
+      force,
+    }),
+    (result) =>
+      mcpText(
+        `Indexed ${result.documentsIndexed} documents, ${result.sectionsIndexed} sections, ${result.linksIndexed} links in ${result.duration}ms`,
+      ),
   )
 }
 

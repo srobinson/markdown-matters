@@ -67,7 +67,10 @@ vi.mock('./ignore-patterns.js', () => ({
 // Imports (after mocks)
 // ============================================================================
 
-import { watchDirectory } from './watcher.js'
+import {
+  type WatcherOptions,
+  watchDirectory as watchDirectoryEffect,
+} from './watcher.js'
 
 // ============================================================================
 // Helpers
@@ -94,6 +97,11 @@ const setupMocks = (opts: { indexAlreadyExists?: boolean } = {}) => {
 
 const run = <A, E>(effect: Effect.Effect<A, E>): Promise<A> =>
   Effect.runPromise(effect.pipe(Effect.catchAll((e) => Effect.die(e))))
+
+const watchDirectory = (
+  rootPath: string,
+  options: Omit<WatcherOptions, 'indexRoot'> = {},
+) => watchDirectoryEffect(rootPath, { indexRoot: '/test/index', ...options })
 
 // ============================================================================
 // Setup / Teardown
@@ -303,6 +311,10 @@ describe('initial index', () => {
 
     // buildIndex should have been called once for initial build
     expect(mockBuildIndex).toHaveBeenCalledTimes(1)
+    expect(mockBuildIndex).toHaveBeenCalledWith(
+      '/test/root',
+      expect.objectContaining({ indexRoot: '/test/index' }),
+    )
     expect(onIndex).toHaveBeenCalledWith({
       documentsIndexed: 5,
       duration: 42,

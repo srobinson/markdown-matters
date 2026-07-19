@@ -113,7 +113,7 @@ export const tools: Tool[] = [
   {
     name: 'md_index',
     description:
-      'Build or rebuild the .mdm/ index for a directory. Required before using search tools. Indexes the directory the MCP server was launched in; global sources (--all) are not available via MCP.',
+      'Build or rebuild the active database index for a directory. Required before using search tools. Indexes the directory the MCP server was launched in.',
     inputSchema: {
       type: 'object',
       properties: {

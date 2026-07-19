@@ -64,7 +64,6 @@ export type IndexConfigValues = {
   excludePatterns: readonly string[]
   fileExtensions: readonly string[]
   followSymlinks: boolean
-  indexDir: string
 }
 
 export type OutputConfigValues = {
@@ -88,7 +87,6 @@ export const getIndexConfig = (config: MdmConfig): IndexConfigValues => ({
   excludePatterns: config.index.excludePatterns,
   fileExtensions: config.index.fileExtensions,
   followSymlinks: config.index.followSymlinks,
-  indexDir: config.index.indexDir,
 })
 
 export const getOutputConfig = (config: MdmConfig): OutputConfigValues => ({

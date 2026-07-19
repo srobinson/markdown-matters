@@ -87,7 +87,9 @@ End of list.
     )
 
     const shouldRebuild = process.env.REBUILD_TEST_INDEX === 'true'
-    await runEffect(buildIndex(TEST_DIR, { force: shouldRebuild }))
+    await runEffect(
+      buildIndex(TEST_DIR, { indexRoot: TEST_DIR, force: shouldRebuild }),
+    )
   })
 
   afterAll(async () => {

@@ -109,7 +109,7 @@ Deprecated endpoints remain available for one major version.
 `,
     )
 
-    await runEffect(buildIndex(TEST_DIR, { force: true }))
+    await runEffect(buildIndex(TEST_DIR, { indexRoot: TEST_DIR, force: true }))
   })
 
   afterAll(async () => {
@@ -569,7 +569,9 @@ Test with special chars: foo.bar, test[value], foo(bar)
 `,
       )
 
-      await runEffect(buildIndex(TEST_DIR, { force: true }))
+      await runEffect(
+        buildIndex(TEST_DIR, { indexRoot: TEST_DIR, force: true }),
+      )
 
       const results = await runEffect(
         searchContent(TEST_DIR, {

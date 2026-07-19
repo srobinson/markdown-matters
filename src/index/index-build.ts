@@ -10,7 +10,6 @@ import {
   type IndexCorruptedError,
   ParseError,
 } from '../errors/index.js'
-import { dbIndexDir, resolveMdmHome } from '../home.js'
 import { parse } from '../parser/parser.js'
 import { discoverFiles } from './file-discovery.js'
 import { createIgnoreFilter } from './ignore-patterns.js'
@@ -43,6 +42,7 @@ export interface IndexProgress {
 }
 
 export interface IndexOptions {
+  readonly indexRoot: string
   readonly force?: boolean | undefined
   readonly exclude?: readonly string[] | undefined
   readonly honorGitignore?: boolean | undefined
@@ -197,7 +197,7 @@ const mergeParsedFiles = (
 
 export const buildIndex = (
   rootPath: string,
-  options: IndexOptions = {},
+  options: IndexOptions,
 ): Effect.Effect<
   IndexResult,
   | DirectoryWalkError
@@ -208,7 +208,7 @@ export const buildIndex = (
 > =>
   Effect.gen(function* () {
     const startTime = Date.now()
-    const storage = createStorage(rootPath, dbIndexDir(resolveMdmHome()))
+    const storage = createStorage(rootPath, options.indexRoot)
     const errors: FileProcessingError[] = []
     yield* initializeIndex(storage)
     const state = yield* loadMutableState(storage, options.force ?? false)

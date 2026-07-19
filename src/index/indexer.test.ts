@@ -45,10 +45,12 @@ const createFixture = async (
 
 const runBuildIndex = (
   rootPath: string,
-  options: Parameters<typeof buildIndex>[1] = {},
+  options: Omit<Parameters<typeof buildIndex>[1], 'indexRoot'> = {},
 ) =>
   Effect.runPromise(
-    buildIndex(rootPath, options).pipe(Effect.catchAll((e) => Effect.die(e))),
+    buildIndex(rootPath, { indexRoot: rootPath, ...options }).pipe(
+      Effect.catchAll((e) => Effect.die(e)),
+    ),
   )
 
 const runGetOutgoingLinks = (rootPath: string, filePath: string) =>
