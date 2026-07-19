@@ -15,6 +15,8 @@
  */
 
 import { exec } from 'node:child_process'
+import * as fs from 'node:fs/promises'
+import * as os from 'node:os'
 import * as path from 'node:path'
 import { promisify } from 'node:util'
 import { Effect } from 'effect'
@@ -27,14 +29,15 @@ const execAsync = promisify(exec)
 
 const REBUILD_TEST_INDEX = process.env.REBUILD_TEST_INDEX === 'true'
 const INCLUDE_EMBED_TESTS = process.env.INCLUDE_EMBED_TESTS === 'true'
-const TEST_FIXTURE_DIR = path.join(process.cwd(), 'tests', 'fixtures', 'cli')
+const FIXTURE_SOURCE_DIR = path.join(process.cwd(), 'tests', 'fixtures', 'cli')
 const CLI = `node ${path.join(process.cwd(), 'dist', 'cli', 'main.js')}`
+let testFixtureDir = ''
 
 const run = async (
   args: string,
   options: { cwd?: string; expectError?: boolean } = {},
 ): Promise<string> => {
-  const cwd = options.cwd ?? TEST_FIXTURE_DIR
+  const cwd = options.cwd ?? testFixtureDir
   try {
     const { stdout } = await execAsync(`${CLI} ${args}`, {
       cwd,
@@ -50,19 +53,22 @@ const run = async (
   }
 }
 
-describe.concurrent('mdm CLI e2e', () => {
+describe('mdm CLI e2e', () => {
   beforeAll(async () => {
+    testFixtureDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mdm-cli-e2e-'))
+    await fs.cp(FIXTURE_SOURCE_DIR, testFixtureDir, { recursive: true })
+
+    await Effect.runPromise(
+      buildIndex(testFixtureDir, { force: REBUILD_TEST_INDEX }),
+    )
+
     if (REBUILD_TEST_INDEX) {
-      // Build the index and embeddings only once for faster tests
-      console.log('Rebuilding test fixture index and embeddings...')
-      // Build the index (fast, no API key needed)
-      await Effect.runPromise(buildIndex(TEST_FIXTURE_DIR, { force: true }))
       console.log('Index rebuilt.')
 
       if (INCLUDE_EMBED_TESTS) {
         console.log('Rebuilding test fixture embeddings...')
         await Effect.runPromise(
-          buildEmbeddings(TEST_FIXTURE_DIR, { force: true }),
+          buildEmbeddings(testFixtureDir, { force: true }),
         )
         console.log('Embeddings rebuilt.')
       }
@@ -72,6 +78,7 @@ describe.concurrent('mdm CLI e2e', () => {
   afterAll(async () => {
     // Free tiktoken encoder to prevent process hang
     freeEncoder()
+    await fs.rm(testFixtureDir, { recursive: true, force: true })
   })
 
   describe('--version', () => {
