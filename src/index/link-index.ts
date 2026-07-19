@@ -12,6 +12,7 @@ import {
 import type { FileReadError, IndexCorruptedError } from '../errors/index.js'
 import { dbIndexDir, resolveMdmHome } from '../home.js'
 import { createStorage, loadDocumentIndex, loadLinkIndex } from './storage.js'
+import type { DocumentIndex } from './types.js'
 
 export type InternalLinkResolution =
   | { readonly kind: 'resolved'; readonly path: DocumentKey }
@@ -65,6 +66,40 @@ export const resolveInternalLink = (
   return classify(expandDeclaredPath(resolved))
 }
 
+const findStoredDocumentKey = (
+  documentIndex: DocumentIndex | null,
+  source: CanonicalSource,
+): DocumentKey => {
+  const identity = fileIdentityKey(source.identity)
+  return (
+    Object.values(documentIndex?.documents ?? {}).find(
+      (entry) =>
+        fileIdentityKey(entry.identity) === identity ||
+        entry.paths.includes(source.key),
+    )?.path ?? source.key
+  )
+}
+
+const resolveDocumentKey = (
+  documentIndex: DocumentIndex | null,
+  filePath: string,
+): Effect.Effect<DocumentKey | null> =>
+  canonicalizeSourceFile(filePath).pipe(
+    Effect.map((source) => findStoredDocumentKey(documentIndex, source)),
+    Effect.catchAll(() => Effect.succeed(null)),
+  )
+
+export const resolveIndexedDocumentKey = (
+  rootPath: string,
+  filePath: string,
+): Effect.Effect<DocumentKey | null, FileReadError | IndexCorruptedError> =>
+  Effect.gen(function* () {
+    const documentIndex = yield* loadDocumentIndex(
+      createStorage(rootPath, dbIndexDir(resolveMdmHome())),
+    )
+    return yield* resolveDocumentKey(documentIndex, filePath)
+  })
+
 const loadLinksFor = (
   rootPath: string,
   filePath: string,
@@ -77,17 +112,8 @@ const loadLinksFor = (
       loadLinkIndex(storage),
     ])
     if (!linkIndex) return []
-    const source = yield* canonicalizeSourceFile(filePath).pipe(
-      Effect.catchAll(() => Effect.succeed(null)),
-    )
-    if (!source) return []
-    const identity = fileIdentityKey(source.identity)
-    const survivor = Object.values(documentIndex?.documents ?? {}).find(
-      (entry) =>
-        fileIdentityKey(entry.identity) === identity ||
-        entry.paths.includes(source.key),
-    )?.path
-    return linkIndex[direction][survivor ?? source.key] ?? []
+    const documentKey = yield* resolveDocumentKey(documentIndex, filePath)
+    return documentKey ? (linkIndex[direction][documentKey] ?? []) : []
   })
 
 export const getOutgoingLinks = (

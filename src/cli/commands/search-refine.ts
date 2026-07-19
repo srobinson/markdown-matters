@@ -1,9 +1,9 @@
 import * as fs from 'node:fs/promises'
-import * as path from 'node:path'
 import { Effect } from 'effect'
+import { type DocumentKey, resolveSourceFile } from '../../db/canonical.js'
 
 export interface SectionInfo {
-  readonly documentPath: string
+  readonly documentPath: DocumentKey
   readonly startLine: number
   readonly endLine: number
 }
@@ -17,7 +17,6 @@ const contentMatchesAllTerms = (
 }
 
 export const filterResultsByRefineTerms = <T>(
-  rootPath: string,
   results: readonly T[],
   refineTerms: readonly string[],
   limit: number,
@@ -28,15 +27,15 @@ export const filterResultsByRefineTerms = <T>(
       return results.slice(0, limit) as T[]
     }
 
-    const fileCache = new Map<string, string | null>()
+    const fileCache = new Map<DocumentKey, string | null>()
     const getFileContent = (
-      documentPath: string,
+      documentPath: DocumentKey,
     ): Effect.Effect<string | null, never> =>
       Effect.gen(function* () {
         if (fileCache.has(documentPath)) return fileCache.get(documentPath)!
         const content = yield* Effect.promise(async () => {
           try {
-            return await fs.readFile(path.join(rootPath, documentPath), 'utf-8')
+            return await fs.readFile(resolveSourceFile(documentPath), 'utf-8')
           } catch {
             return null
           }

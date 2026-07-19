@@ -11,6 +11,7 @@
 import * as path from 'node:path'
 import { Effect } from 'effect'
 import type { ContextLine } from '../core/types.js'
+import type { DocumentKey } from '../db/canonical.js'
 import { listNamespaces } from '../embeddings/embedding-namespace.js'
 import { semanticSearch } from '../embeddings/semantic-search.js'
 import type {
@@ -22,6 +23,7 @@ import type {
   ApiKeyMissingError,
   EmbeddingError,
   FileReadError,
+  IndexCorruptedError,
   VectorStoreError,
 } from '../errors/index.js'
 import {
@@ -34,7 +36,7 @@ import {
   type RerankerError,
   rerankResults,
 } from './cross-encoder.js'
-import { matchPath } from './path-matcher.js'
+import { loadIndexedSourceRoot, matchesDocumentPath } from './path-matcher.js'
 
 // ============================================================================
 // Types
@@ -69,7 +71,7 @@ export interface HybridSearchOptions {
 
 export interface HybridSearchResult {
   readonly sectionId: string
-  readonly documentPath: string
+  readonly documentPath: DocumentKey
   readonly heading: string
   /** Combined RRF score (higher is better) */
   readonly score: number
@@ -132,7 +134,7 @@ const fusionRRF = (
   const scoreMap = new Map<
     string,
     {
-      documentPath: string
+      documentPath: DocumentKey
       heading: string
       rrfScore: number
       similarity?: number
@@ -159,7 +161,7 @@ const fusionRRF = (
       }
     } else {
       const entry: {
-        documentPath: string
+        documentPath: DocumentKey
         heading: string
         rrfScore: number
         similarity?: number
@@ -259,6 +261,7 @@ export const hybridSearch = (
 ): Effect.Effect<
   { results: readonly HybridSearchResult[]; stats: HybridSearchStats },
   | FileReadError
+  | IndexCorruptedError
   | ApiKeyMissingError
   | ApiKeyInvalidError
   | EmbeddingError
@@ -272,6 +275,9 @@ export const hybridSearch = (
     const bm25Weight = options.bm25Weight ?? 1.0
     const semanticWeight = options.semanticWeight ?? 1.0
     const rrfK = options.rrfK ?? 60
+    const sourceRoot = options.pathPattern
+      ? yield* loadIndexedSourceRoot(resolvedRoot)
+      : resolvedRoot
 
     // Check index availability
     const hasBM25 = yield* bm25IndexExists(resolvedRoot)
@@ -305,7 +311,11 @@ export const hybridSearch = (
       // Apply path pattern filter if specified
       keywordResults = options.pathPattern
         ? rawResults.filter((r) =>
-            matchPath(r.documentPath, options.pathPattern!),
+            matchesDocumentPath(
+              sourceRoot,
+              r.documentPath,
+              options.pathPattern,
+            ),
           )
         : rawResults
     }

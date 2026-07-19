@@ -10,6 +10,7 @@ import { buildIndex } from './index-build.js'
 import {
   getIncomingLinks,
   getOutgoingLinks,
+  resolveIndexedDocumentKey,
   resolveInternalLink,
 } from './link-index.js'
 import {
@@ -210,6 +211,9 @@ describe('canonical index construction', () => {
       expect(await Effect.runPromise(getIncomingLinks(sourceRoot, z))).toEqual(
         survivorIncoming,
       )
+      expect(
+        await Effect.runPromise(resolveIndexedDocumentKey(sourceRoot, z)),
+      ).toBe(await fs.realpath(a))
     } finally {
       if (originalMdmHome === undefined) delete process.env.MDM_HOME
       else process.env.MDM_HOME = originalMdmHome

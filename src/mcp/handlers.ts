@@ -6,20 +6,19 @@
  * the shared adapter from adapter.ts.
  */
 
-import * as path from 'node:path'
-
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
-import { Option } from 'effect'
+import { Effect, Option } from 'effect'
 
 import type { MdmConfig } from '../config/schema.js'
 import type { MdSection } from '../core/types.js'
 import { semanticSearch } from '../embeddings/semantic-search.js'
+import { dbIndexDir, resolveMdmHome } from '../home.js'
 import {
   buildIndex,
   getIncomingLinks,
   getOutgoingLinks,
+  resolveIndexedDocumentKey,
 } from '../index/indexer.js'
-import { dbIndexDir, resolveMdmHome } from '../home.js'
 import { parseFile } from '../parser/parser.js'
 import { search } from '../search/searcher.js'
 import { formatSummary, summarizeFile } from '../summarize/summarizer.js'
@@ -242,13 +241,16 @@ export const handleMdLinks = async (
   if (isPathError(resolvedPath)) return resolvedPath
 
   return effectToMcpResult(
-    getOutgoingLinks(rootPath, resolvedPath),
-    (links) => {
-      const relativePath = path.relative(rootPath, resolvedPath)
+    Effect.all({
+      documentKey: resolveIndexedDocumentKey(rootPath, resolvedPath),
+      links: getOutgoingLinks(rootPath, resolvedPath),
+    }),
+    ({ documentKey, links }) => {
+      const displayPath = documentKey ?? resolvedPath
       return mcpText(
         links.length > 0
-          ? `Outgoing links from ${relativePath}:\n\n${links.map((l) => `  -> ${l}`).join('\n')}\n\nTotal: ${links.length} links`
-          : `No outgoing links from ${relativePath}`,
+          ? `Outgoing links from ${displayPath}:\n\n${links.map((l) => `  -> ${l}`).join('\n')}\n\nTotal: ${links.length} links`
+          : `No outgoing links from ${displayPath}`,
       )
     },
   )
@@ -270,13 +272,16 @@ export const handleMdBacklinks = async (
   if (isPathError(resolvedPath)) return resolvedPath
 
   return effectToMcpResult(
-    getIncomingLinks(rootPath, resolvedPath),
-    (links) => {
-      const relativePath = path.relative(rootPath, resolvedPath)
+    Effect.all({
+      documentKey: resolveIndexedDocumentKey(rootPath, resolvedPath),
+      links: getIncomingLinks(rootPath, resolvedPath),
+    }),
+    ({ documentKey, links }) => {
+      const displayPath = documentKey ?? resolvedPath
       return mcpText(
         links.length > 0
-          ? `Incoming links to ${relativePath}:\n\n${links.map((l) => `  <- ${l}`).join('\n')}\n\nTotal: ${links.length} backlinks`
-          : `No incoming links to ${relativePath}`,
+          ? `Incoming links to ${displayPath}:\n\n${links.map((l) => `  <- ${l}`).join('\n')}\n\nTotal: ${links.length} backlinks`
+          : `No incoming links to ${displayPath}`,
       )
     },
   )

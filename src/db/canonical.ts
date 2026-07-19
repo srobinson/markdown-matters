@@ -75,10 +75,30 @@ export const expandDeclaredPath = (value: string): DeclaredPath => {
   return path.resolve(path.normalize(expanded)) as DeclaredPath
 }
 
-const resolveCanonicalPath = (value: string): Promise<string> =>
+const resolveCanonicalFilePath = (value: string): Promise<string> =>
   fs.realpath(value)
 
 const resolveCanonicalPathSync = (value: string): string => realpathSync(value)
+
+export const resolveCanonicalPathOrFallback = (value: string): string => {
+  const declaredPath = expandDeclaredPath(value)
+  try {
+    return resolveCanonicalPathSync(declaredPath)
+  } catch {
+    return declaredPath
+  }
+}
+
+export const resolveCanonicalPathOrFallbackAsync = async (
+  value: string,
+): Promise<string> => {
+  const declaredPath = expandDeclaredPath(value)
+  try {
+    return await resolveCanonicalFilePath(declaredPath)
+  } catch {
+    return declaredPath
+  }
+}
 
 const asciiCaseVariantInRange = (
   value: string,
@@ -128,7 +148,7 @@ export const canonicalizeSourceFile = (
   Effect.tryPromise({
     try: async () => {
       const declaredPath = expandDeclaredPath(value)
-      const key = (await resolveCanonicalPath(declaredPath)) as DocumentKey
+      const key = (await resolveCanonicalFilePath(declaredPath)) as DocumentKey
       const stat = await fs.stat(key, { bigint: true })
       const caseSensitive = await caseSensitivityProbe(key, stat.dev, stat.ino)
 
@@ -233,12 +253,7 @@ const belongsToPrefix = (
   ) {
     return true
   }
-  let canonicalPrefix: string
-  try {
-    canonicalPrefix = resolveCanonicalPathSync(declaredPrefix)
-  } catch {
-    canonicalPrefix = declaredPrefix
-  }
+  const canonicalPrefix = resolveCanonicalPathOrFallback(declaredPrefix)
   return source.paths.some((key) =>
     isPathWithin(key, canonicalPrefix, caseSensitive),
   )

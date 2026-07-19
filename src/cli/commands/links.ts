@@ -7,7 +7,10 @@
 import * as path from 'node:path'
 import { Args, Command, Options } from '@effect/cli'
 import { Console, Effect } from 'effect'
-import { getOutgoingLinks } from '../../index/indexer.js'
+import {
+  getOutgoingLinks,
+  resolveIndexedDocumentKey,
+} from '../../index/indexer.js'
 import { jsonOption, prettyOption } from '../options.js'
 import { formatJson } from '../utils.js'
 
@@ -29,14 +32,16 @@ export const linksCommand = Command.make(
     Effect.gen(function* () {
       const resolvedRoot = path.resolve(root)
       const resolvedFile = path.resolve(file)
-      const relativePath = path.relative(resolvedRoot, resolvedFile)
 
       const links = yield* getOutgoingLinks(resolvedRoot, resolvedFile)
+      const documentKey =
+        (yield* resolveIndexedDocumentKey(resolvedRoot, resolvedFile)) ??
+        resolvedFile
 
       if (json) {
-        yield* Console.log(formatJson({ file: relativePath, links }, pretty))
+        yield* Console.log(formatJson({ file: documentKey, links }, pretty))
       } else {
-        yield* Console.log(`Outgoing links from ${relativePath}:`)
+        yield* Console.log(`Outgoing links from ${documentKey}:`)
         yield* Console.log('')
         if (links.length === 0) {
           yield* Console.log('  (none)')

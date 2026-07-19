@@ -235,7 +235,7 @@ export interface SemanticSearchOptions {
 
 export interface SemanticSearchResult {
   readonly sectionId: string
-  readonly documentPath: string
+  readonly documentPath: DocumentKey
   readonly heading: string
   readonly similarity: number
   readonly content?: string | undefined

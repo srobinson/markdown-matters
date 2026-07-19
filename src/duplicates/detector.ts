@@ -7,12 +7,15 @@
 
 import * as crypto from 'node:crypto'
 import * as fs from 'node:fs/promises'
-import * as path from 'node:path'
 import { Effect, Option } from 'effect'
+import { type DocumentKey, resolveSourceFile } from '../db/canonical.js'
 import { FileReadError, type IndexCorruptedError } from '../errors/index.js'
 import { dbIndexDir, resolveMdmHome } from '../home.js'
 import { createStorage, loadSectionIndex } from '../index/storage.js'
-import { matchPath } from '../search/path-matcher.js'
+import {
+  matchesDocumentPath,
+  resolveCanonicalSourceRoot,
+} from '../search/path-matcher.js'
 
 // ============================================================================
 // Types
@@ -37,7 +40,7 @@ export interface DuplicateGroup {
  */
 export interface DuplicateSectionInfo {
   readonly sectionId: string
-  readonly documentPath: string
+  readonly documentPath: DocumentKey
   readonly heading: string
   readonly startLine: number
   readonly endLine: number
@@ -132,27 +135,24 @@ const computeContentHash = (content: string): string => {
  * Multiple sections from the same file share the cached content.
  */
 interface FileContentCache {
-  readonly cache: Map<string, string | null>
-  get: (
-    rootPath: string,
-    documentPath: string,
-  ) => Effect.Effect<string | null, never>
+  readonly cache: Map<DocumentKey, string | null>
+  get: (documentPath: DocumentKey) => Effect.Effect<string | null, never>
 }
 
 /**
  * Create a file content cache for efficient repeated lookups.
  */
 const createFileContentCache = (): FileContentCache => {
-  const cache = new Map<string, string | null>()
+  const cache = new Map<DocumentKey, string | null>()
 
   return {
     cache,
-    get: (rootPath: string, documentPath: string) =>
+    get: (documentPath: DocumentKey) =>
       Effect.gen(function* () {
         if (cache.has(documentPath)) {
           return cache.get(documentPath)!
         }
-        const filePath = path.join(rootPath, documentPath)
+        const filePath = resolveSourceFile(documentPath)
         const readResult = yield* Effect.tryPromise({
           try: () => fs.readFile(filePath, 'utf-8'),
           catch: (e) =>
@@ -201,7 +201,8 @@ export const detectExactDuplicates = (
 > =>
   Effect.gen(function* () {
     const minContentLength = options.minContentLength ?? 50
-    const storage = createStorage(rootPath, dbIndexDir(resolveMdmHome()))
+    const sourceRoot = yield* resolveCanonicalSourceRoot(rootPath)
+    const storage = createStorage(sourceRoot, dbIndexDir(resolveMdmHome()))
 
     // Load section index
     const sectionIndex = yield* loadSectionIndex(storage)
@@ -218,7 +219,13 @@ export const detectExactDuplicates = (
 
     // Filter sections by path pattern if specified
     const filteredSections = options.pathPattern
-      ? sections.filter((s) => matchPath(s.documentPath, options.pathPattern!))
+      ? sections.filter((section) =>
+          matchesDocumentPath(
+            sourceRoot,
+            section.documentPath,
+            options.pathPattern,
+          ),
+        )
       : sections
 
     // Map: hash -> list of sections with that hash
@@ -229,7 +236,7 @@ export const detectExactDuplicates = (
 
     // Process sections in parallel batches, grouped by file for cache efficiency
     // First, group sections by file to maximize cache hits
-    const sectionsByFile = new Map<string, typeof filteredSections>()
+    const sectionsByFile = new Map<DocumentKey, typeof filteredSections>()
     for (const section of filteredSections) {
       const existing = sectionsByFile.get(section.documentPath)
       if (existing) {
@@ -244,7 +251,7 @@ export const detectExactDuplicates = (
       Array.from(sectionsByFile.entries()).map(([documentPath, sections]) =>
         Effect.gen(function* () {
           // Load file content once (cached)
-          const fileContent = yield* fileCache.get(rootPath, documentPath)
+          const fileContent = yield* fileCache.get(documentPath)
           if (!fileContent) return
 
           // Process all sections from this file

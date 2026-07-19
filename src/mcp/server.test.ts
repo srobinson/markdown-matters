@@ -6,6 +6,7 @@
  * ReDoS protection.
  */
 
+import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
@@ -272,10 +273,6 @@ describe('MCP Server', () => {
     })
   })
 
-  // ==========================================================================
-  // md_links - Happy Path
-  // ==========================================================================
-
   describe('md_links', () => {
     it('should return outgoing links from a file', async () => {
       const result = await client.callTool({
@@ -287,6 +284,9 @@ describe('MCP Server', () => {
       const text = getText(result)
       // README.md links to getting-started.md
       expect(text).toContain('getting-started')
+      expect(text).toContain(
+        await fs.realpath(path.join(FIXTURES_DIR, 'README.md')),
+      )
     })
 
     it('should return empty links for non-existent file', async () => {
@@ -302,10 +302,6 @@ describe('MCP Server', () => {
     })
   })
 
-  // ==========================================================================
-  // md_backlinks - Happy Path
-  // ==========================================================================
-
   describe('md_backlinks', () => {
     it('should return incoming links to a file', async () => {
       const result = await client.callTool({
@@ -315,7 +311,9 @@ describe('MCP Server', () => {
 
       expect(result.isError).toBeFalsy()
       const text = getText(result)
-      expect(text).toBeDefined()
+      expect(text).toContain(
+        await fs.realpath(path.join(FIXTURES_DIR, 'getting-started.md')),
+      )
     })
 
     it('should return empty backlinks for non-existent file', async () => {

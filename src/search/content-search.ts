@@ -1,8 +1,11 @@
 import * as fs from 'node:fs/promises'
-import * as path from 'node:path'
 import { Effect, Option } from 'effect'
 import type { ContextLine } from '../core/types.js'
-import type { DocumentKey } from '../db/canonical.js'
+import {
+  type DocumentKey,
+  resolveCanonicalPathOrFallback,
+  resolveSourceFile,
+} from '../db/canonical.js'
 import {
   type CliValidationError,
   FileReadError,
@@ -21,7 +24,7 @@ import {
   type MatchOptions,
   matchesWithOptions,
 } from './fuzzy-search.js'
-import { matchPath } from './path-matcher.js'
+import { matchesDocumentPath } from './path-matcher.js'
 import {
   buildHighlightPattern,
   evaluateQuery,
@@ -76,14 +79,6 @@ const matchesSectionFilters = (
     (options.maxLevel !== undefined && section.level > options.maxLevel)
   )
 
-const matchesPathPattern = (
-  sourceRoot: string,
-  documentPath: DocumentKey,
-  pattern: string | undefined,
-): boolean =>
-  pattern === undefined ||
-  matchPath(path.relative(sourceRoot, documentPath), pattern)
-
 export const search = (
   rootPath: string,
   options: SearchOptions = {},
@@ -93,6 +88,7 @@ export const search = (
 > =>
   Effect.gen(function* () {
     const storage = createStorage(rootPath, dbIndexDir(resolveMdmHome()))
+    const sourceRoot = resolveCanonicalPathOrFallback(storage.sourceRoot)
     const documentIndex = yield* loadDocumentIndex(storage)
     const sectionIndex = yield* loadSectionIndex(storage)
     if (!documentIndex || !sectionIndex) return []
@@ -104,8 +100,8 @@ export const search = (
     for (const section of Object.values(sectionIndex.sections)) {
       if (!matchesSectionFilters(section, options, headingRegex)) continue
       if (
-        !matchesPathPattern(
-          storage.sourceRoot,
+        !matchesDocumentPath(
+          sourceRoot,
           section.documentPath,
           options.pathPattern,
         )
@@ -188,7 +184,7 @@ const groupSections = (
 const readSearchDocument = (
   documentPath: DocumentKey,
 ): Effect.Effect<Option.Option<string>, never> => {
-  const filePath = documentPath
+  const filePath = resolveSourceFile(documentPath)
   return Effect.tryPromise({
     try: () => fs.readFile(filePath, 'utf-8'),
     catch: (cause) =>
@@ -296,6 +292,7 @@ export const searchContent = (
 > =>
   Effect.gen(function* () {
     const storage = createStorage(rootPath, dbIndexDir(resolveMdmHome()))
+    const sourceRoot = resolveCanonicalPathOrFallback(storage.sourceRoot)
     const documentIndex = yield* loadDocumentIndex(storage)
     const sectionIndex = yield* loadSectionIndex(storage)
     if (!documentIndex || !sectionIndex) return []
@@ -309,13 +306,7 @@ export const searchContent = (
     for (const [documentPath, sections] of groupSections(
       sectionIndex.sections,
     )) {
-      if (
-        !matchesPathPattern(
-          storage.sourceRoot,
-          documentPath,
-          options.pathPattern,
-        )
-      ) {
+      if (!matchesDocumentPath(sourceRoot, documentPath, options.pathPattern)) {
         continue
       }
       const document = documentIndex.documents[documentPath]
@@ -377,7 +368,7 @@ export const searchWithContent = (
     const results = yield* search(rootPath, options)
     const withContent: SearchResult[] = []
     for (const result of results) {
-      const filePath = result.section.documentPath
+      const filePath = resolveSourceFile(result.section.documentPath)
       const readResult = yield* Effect.tryPromise({
         try: () => fs.readFile(filePath, 'utf-8'),
         catch: (cause) =>

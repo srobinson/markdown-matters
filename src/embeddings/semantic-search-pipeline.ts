@@ -11,6 +11,7 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { Effect } from 'effect'
+import { type DocumentKey, resolveSourceFile } from '../db/canonical.js'
 import {
   type ApiKeyInvalidError,
   type ApiKeyMissingError,
@@ -29,7 +30,10 @@ import type {
   ProviderId,
   ProviderNotFound,
 } from '../providers/index.js'
-import { matchPath } from '../search/path-matcher.js'
+import {
+  loadIndexedSourceRoot,
+  matchesDocumentPath,
+} from '../search/path-matcher.js'
 import { getRecommendedDimensions, supportsMatryoshka } from './dimensions.js'
 import { createEmbeddingClient } from './embed-batched.js'
 import {
@@ -312,7 +316,6 @@ export const prepareSearchPipeline = (
 const addContextLinesToResults = (
   limitedResults: readonly VectorSearchResult[],
   sectionIndex: { sections: Record<string, SectionEntry> },
-  resolvedRoot: string,
   options: {
     contextBefore?: number | undefined
     contextAfter?: number | undefined
@@ -323,7 +326,7 @@ const addContextLinesToResults = (
     const contextAfter = options.contextAfter ?? 0
 
     const resultsWithContext: SemanticSearchResult[] = []
-    const fileCache = new Map<string, string>()
+    const fileCache = new Map<DocumentKey, string>()
 
     for (const r of limitedResults) {
       const section = sectionIndex.sections[r.sectionId]
@@ -339,7 +342,7 @@ const addContextLinesToResults = (
 
       let fileContent = fileCache.get(r.documentPath)
       if (!fileContent) {
-        const filePath = path.join(resolvedRoot, r.documentPath)
+        const filePath = resolveSourceFile(r.documentPath)
         const contentResult = yield* Effect.promise(() =>
           fs.readFile(filePath, 'utf-8'),
         ).pipe(
@@ -413,8 +416,9 @@ export const postProcessResults = (
     // Apply path filter if specified
     let filteredResults = rawResults
     if (options.pathPattern) {
+      const sourceRoot = yield* loadIndexedSourceRoot(resolvedRoot)
       filteredResults = rawResults.filter((r) =>
-        matchPath(r.documentPath, options.pathPattern!),
+        matchesDocumentPath(sourceRoot, r.documentPath, options.pathPattern),
       )
     }
 
@@ -448,17 +452,13 @@ export const postProcessResults = (
       options.contextBefore !== undefined ||
       options.contextAfter !== undefined
     ) {
-      const storage = createStorage(
-        resolvedRoot,
-        dbIndexDir(resolveMdmHome()),
-      )
+      const storage = createStorage(resolvedRoot, dbIndexDir(resolveMdmHome()))
       const sectionIndex = yield* loadSectionIndex(storage)
 
       if (sectionIndex) {
         results = yield* addContextLinesToResults(
           limitedResults,
           sectionIndex,
-          resolvedRoot,
           options,
         )
       } else {
