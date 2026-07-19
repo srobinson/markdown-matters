@@ -58,8 +58,28 @@ describe('mdm CLI e2e', () => {
     testFixtureDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mdm-cli-e2e-'))
     await fs.cp(FIXTURE_SOURCE_DIR, testFixtureDir, { recursive: true })
 
+    const legacyFixtureDir = path.join(testFixtureDir, '.mdm')
+    await fs.copyFile(
+      path.join(legacyFixtureDir, 'active-provider.json'),
+      path.join(testFixtureDir, 'active-provider.json'),
+    )
+    await fs.cp(
+      path.join(legacyFixtureDir, 'embeddings'),
+      path.join(testFixtureDir, 'embeddings'),
+      { recursive: true },
+    )
+    await fs.rm(path.join(legacyFixtureDir, 'indexes'), {
+      recursive: true,
+      force: true,
+    })
+
     await Effect.runPromise(
       buildIndex(testFixtureDir, { force: REBUILD_TEST_INDEX }),
+    )
+    await fs.cp(
+      path.join(testFixtureDir, 'indexes'),
+      path.join(legacyFixtureDir, 'indexes'),
+      { recursive: true },
     )
 
     if (REBUILD_TEST_INDEX) {
