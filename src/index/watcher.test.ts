@@ -42,16 +42,18 @@ vi.mock('./indexer.js', () => ({
 }))
 
 vi.mock('./storage.js', () => ({
-  createStorage: (rootPath: string) => ({
-    rootPath,
+  createStorage: (sourceRoot: string, indexRoot: string) => ({
+    sourceRoot,
+    indexRoot,
     paths: {
-      root: `${rootPath}/.mdm`,
-      config: `${rootPath}/.mdm/config.json`,
-      documents: `${rootPath}/.mdm/indexes/documents.json`,
-      sections: `${rootPath}/.mdm/indexes/sections.json`,
-      links: `${rootPath}/.mdm/indexes/links.json`,
-      cache: `${rootPath}/.mdm/cache`,
-      parsed: `${rootPath}/.mdm/cache/parsed`,
+      root: indexRoot,
+      documents: `${indexRoot}/indexes/documents.json`,
+      sections: `${indexRoot}/indexes/sections.json`,
+      links: `${indexRoot}/indexes/links.json`,
+      cache: `${indexRoot}/cache`,
+      parsed: `${indexRoot}/cache/parsed`,
+      bm25: `${indexRoot}/bm25.json`,
+      bm25Metadata: `${indexRoot}/bm25.meta.json`,
     },
   }),
   indexExists: (...args: unknown[]) => mockIndexExists(...args),

@@ -5,19 +5,7 @@
 import * as path from 'node:path'
 
 import type { HeadingLevel } from '../core/types.js'
-
-// ============================================================================
-// Configuration
-// ============================================================================
-
-export interface IndexConfig {
-  readonly version: number
-  readonly rootPath: string
-  readonly include: readonly string[]
-  readonly exclude: readonly string[]
-  readonly createdAt: string
-  readonly updatedAt: string
-}
+import { dbIndexDir } from '../home.js'
 
 // ============================================================================
 // Document Index
@@ -137,15 +125,18 @@ export interface FileProcessingError {
 // Index Paths
 // ============================================================================
 
-export const INDEX_DIR = '.mdm'
 export const INDEX_VERSION = 1
 
-export const getIndexPaths = (rootPath: string) => ({
-  root: path.join(rootPath, INDEX_DIR),
-  config: path.join(rootPath, INDEX_DIR, 'config.json'),
-  documents: path.join(rootPath, INDEX_DIR, 'indexes', 'documents.json'),
-  sections: path.join(rootPath, INDEX_DIR, 'indexes', 'sections.json'),
-  links: path.join(rootPath, INDEX_DIR, 'indexes', 'links.json'),
-  cache: path.join(rootPath, INDEX_DIR, 'cache'),
-  parsed: path.join(rootPath, INDEX_DIR, 'cache', 'parsed'),
-})
+export const getIndexPaths = (indexRoot: string) => {
+  const root = dbIndexDir(indexRoot)
+  return {
+    root,
+    documents: path.join(root, 'indexes', 'documents.json'),
+    sections: path.join(root, 'indexes', 'sections.json'),
+    links: path.join(root, 'indexes', 'links.json'),
+    cache: path.join(root, 'cache'),
+    parsed: path.join(root, 'cache', 'parsed'),
+    bm25: path.join(root, 'bm25.json'),
+    bm25Metadata: path.join(root, 'bm25.meta.json'),
+  }
+}

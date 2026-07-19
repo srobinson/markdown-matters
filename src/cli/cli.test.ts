@@ -15,11 +15,16 @@
  */
 
 import { exec } from 'node:child_process'
+import * as fs from 'node:fs/promises'
+import * as os from 'node:os'
 import * as path from 'node:path'
 import { promisify } from 'node:util'
 import { Effect } from 'effect'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { buildEmbeddings } from '../embeddings/semantic-search.js'
+import {
+  buildEmbeddings,
+  estimateEmbeddingCost,
+} from '../embeddings/semantic-search.js'
 import { buildIndex } from '../index/indexer.js'
 import { freeEncoder } from '../utils/tokens.js'
 
@@ -27,14 +32,17 @@ const execAsync = promisify(exec)
 
 const REBUILD_TEST_INDEX = process.env.REBUILD_TEST_INDEX === 'true'
 const INCLUDE_EMBED_TESTS = process.env.INCLUDE_EMBED_TESTS === 'true'
-const TEST_FIXTURE_DIR = path.join(process.cwd(), 'tests', 'fixtures', 'cli')
+const FIXTURE_SOURCE_DIR = path.join(process.cwd(), 'tests', 'fixtures', 'cli')
 const CLI = `node ${path.join(process.cwd(), 'dist', 'cli', 'main.js')}`
+let testFixtureDir = ''
+let testHomeDir = ''
+let originalMdmHome: string | undefined
 
 const run = async (
   args: string,
   options: { cwd?: string; expectError?: boolean } = {},
 ): Promise<string> => {
-  const cwd = options.cwd ?? TEST_FIXTURE_DIR
+  const cwd = options.cwd ?? testFixtureDir
   try {
     const { stdout } = await execAsync(`${CLI} ${args}`, {
       cwd,
@@ -50,19 +58,45 @@ const run = async (
   }
 }
 
-describe.concurrent('mdm CLI e2e', () => {
+describe('mdm CLI e2e', () => {
   beforeAll(async () => {
+    testFixtureDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mdm-cli-e2e-'))
+    testHomeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mdm-cli-home-'))
+    originalMdmHome = process.env.MDM_HOME
+    process.env.MDM_HOME = testHomeDir
+    await fs.cp(FIXTURE_SOURCE_DIR, testFixtureDir, { recursive: true })
+
+    const legacyFixtureDir = path.join(testFixtureDir, '.mdm')
+    await fs.copyFile(
+      path.join(legacyFixtureDir, 'active-provider.json'),
+      path.join(testHomeDir, 'active-provider.json'),
+    )
+    await fs.cp(
+      path.join(legacyFixtureDir, 'embeddings'),
+      path.join(testHomeDir, 'embeddings'),
+      { recursive: true },
+    )
+    await fs.rm(path.join(legacyFixtureDir, 'indexes'), {
+      recursive: true,
+      force: true,
+    })
+
+    await Effect.runPromise(
+      buildIndex(testFixtureDir, { force: REBUILD_TEST_INDEX }),
+    )
+    await fs.cp(
+      path.join(testHomeDir, 'indexes'),
+      path.join(legacyFixtureDir, 'indexes'),
+      { recursive: true },
+    )
+
     if (REBUILD_TEST_INDEX) {
-      // Build the index and embeddings only once for faster tests
-      console.log('Rebuilding test fixture index and embeddings...')
-      // Build the index (fast, no API key needed)
-      await Effect.runPromise(buildIndex(TEST_FIXTURE_DIR, { force: true }))
       console.log('Index rebuilt.')
 
       if (INCLUDE_EMBED_TESTS) {
         console.log('Rebuilding test fixture embeddings...')
         await Effect.runPromise(
-          buildEmbeddings(TEST_FIXTURE_DIR, { force: true }),
+          buildEmbeddings(testFixtureDir, { force: true }),
         )
         console.log('Embeddings rebuilt.')
       }
@@ -72,6 +106,10 @@ describe.concurrent('mdm CLI e2e', () => {
   afterAll(async () => {
     // Free tiktoken encoder to prevent process hang
     freeEncoder()
+    await fs.rm(testFixtureDir, { recursive: true, force: true })
+    await fs.rm(testHomeDir, { recursive: true, force: true })
+    if (originalMdmHome === undefined) delete process.env.MDM_HOME
+    else process.env.MDM_HOME = originalMdmHome
   })
 
   describe('--version', () => {
@@ -169,6 +207,16 @@ describe.concurrent('mdm CLI e2e', () => {
     it('defaults to current directory', async () => {
       const output = await run('tree')
       expect(output).toContain('Markdown files')
+    })
+  })
+
+  describe('index command', () => {
+    it('writes the corpus index to MDM_HOME', async () => {
+      const output = await run('index --force --no-embed')
+      expect(output).toContain('Indexed 3 documents')
+      await expect(
+        fs.access(path.join(testHomeDir, 'indexes', 'documents.json')),
+      ).resolves.toBeUndefined()
     })
   })
 
@@ -348,9 +396,35 @@ describe.concurrent('mdm CLI e2e', () => {
   })
 
   describe('stats command', () => {
-    it('shows index statistics', async () => {
-      const output = await run('stats')
-      expect(output.length).toBeGreaterThan(0)
+    it('reads real index statistics from MDM_HOME', async () => {
+      const output = await run('stats --json')
+      const stats = JSON.parse(output)
+      expect(stats.documentCount).toBe(3)
+      expect(stats.totalSections).toBeGreaterThan(3)
+      expect(stats.totalTokens).toBeGreaterThan(0)
+    })
+
+    it('stores indexes and reads cost inputs from MDM_HOME', async () => {
+      const raw = await fs.readFile(
+        path.join(testHomeDir, 'indexes', 'documents.json'),
+        'utf-8',
+      )
+      const documentIndex = JSON.parse(raw)
+      expect(Object.keys(documentIndex.documents).sort()).toEqual([
+        'README.md',
+        'api-reference.md',
+        'getting-started.md',
+      ])
+      await expect(
+        fs.access(path.join(testFixtureDir, 'indexes', 'documents.json')),
+      ).rejects.toThrow()
+
+      const estimate = await Effect.runPromise(
+        estimateEmbeddingCost(testFixtureDir),
+      )
+      expect(estimate.totalFiles).toBe(3)
+      expect(estimate.totalSections).toBeGreaterThan(0)
+      expect(estimate.totalTokens).toBeGreaterThan(0)
     })
   })
 

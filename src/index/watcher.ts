@@ -33,6 +33,7 @@ import {
   type IndexCorruptedError,
   WatchError,
 } from '../errors/index.js'
+import { dbIndexDir, resolveMdmHome } from '../home.js'
 import { getChokidarIgnorePatterns } from './ignore-patterns.js'
 import { buildIndex, type IndexOptions } from './indexer.js'
 import { createStorage, indexExists } from './storage.js'
@@ -82,7 +83,10 @@ export const watchDirectory = (
 ): Effect.Effect<Watcher, WatchDirectoryError> =>
   Effect.gen(function* () {
     const resolvedRoot = path.resolve(rootPath)
-    const storage = createStorage(resolvedRoot)
+    const storage = createStorage(
+      resolvedRoot,
+      dbIndexDir(resolveMdmHome()),
+    )
     const debounceMs = options.debounceMs ?? 300
 
     // Ensure index exists

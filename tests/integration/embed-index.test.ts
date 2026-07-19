@@ -32,7 +32,9 @@ describe('Embed + Index Integration Tests', () => {
 
     // Save and mock API key for tests
     savedEnv.OPENAI_API_KEY = process.env.OPENAI_API_KEY
+    savedEnv.MDM_HOME = process.env.MDM_HOME
     process.env.OPENAI_API_KEY = 'sk-test-mock-key-for-testing'
+    process.env.MDM_HOME = tempDir
   })
 
   afterEach(() => {
@@ -141,15 +143,15 @@ describe('Embed + Index Integration Tests', () => {
       expect(result.errors).toHaveLength(0)
     })
 
-    it('creates .mdm directory structure', async () => {
+    it('creates the explicit index directory structure', async () => {
       createSmallCorpus(tempDir)
 
       await Effect.runPromise(buildIndex(tempDir))
 
-      const mdmDir = path.join(tempDir, '.mdm')
+      const mdmDir = tempDir
       const indexesDir = path.join(mdmDir, 'indexes')
       expect(fileExists(mdmDir)).toBe(true)
-      expect(fileExists(path.join(mdmDir, 'config.json'))).toBe(true)
+      expect(fileExists(path.join(mdmDir, 'config.json'))).toBe(false)
       expect(fileExists(path.join(indexesDir, 'documents.json'))).toBe(true)
       expect(fileExists(path.join(indexesDir, 'sections.json'))).toBe(true)
       expect(fileExists(path.join(indexesDir, 'links.json'))).toBe(true)
@@ -177,8 +179,8 @@ describe('Embed + Index Integration Tests', () => {
       await Effect.runPromise(vectorStore.save())
 
       // Check that binary format (.bin) is created, not JSON
-      const metaPath = path.join(tempDir, '.mdm', 'vectors.meta.bin')
-      const jsonPath = path.join(tempDir, '.mdm', 'vectors.meta.json')
+      const metaPath = path.join(tempDir, 'vectors.meta.bin')
+      const jsonPath = path.join(tempDir, 'vectors.meta.json')
 
       expect(fileExists(metaPath)).toBe(true)
       expect(fileExists(jsonPath)).toBe(false)
@@ -190,7 +192,7 @@ describe('Embed + Index Integration Tests', () => {
       await Effect.runPromise(buildIndex(tempDir))
 
       // Verify we can load the created index
-      const storage = createStorage(tempDir)
+      const storage = createStorage(tempDir, tempDir)
       const docIndex = await Effect.runPromise(loadDocumentIndex(storage))
       const sectionIndex = await Effect.runPromise(loadSectionIndex(storage))
 
@@ -252,7 +254,7 @@ describe('Embed + Index Integration Tests', () => {
 
       await Effect.runPromise(buildIndex(tempDir))
 
-      const metaPath = path.join(tempDir, '.mdm', 'vectors.meta.bin')
+      const metaPath = path.join(tempDir, 'vectors.meta.bin')
 
       // Create a large vector store with some entries to test MessagePack
       const vectorStore = createVectorStore(tempDir, 512)
@@ -283,13 +285,13 @@ describe('Embed + Index Integration Tests', () => {
       await Effect.runPromise(buildIndex(tempDir))
 
       // Check document index size
-      const docPath = path.join(tempDir, '.mdm', 'indexes', 'documents.json')
+      const docPath = path.join(tempDir, 'indexes', 'documents.json')
       const docSize = getFileSize(docPath)
       expect(docSize).toBeGreaterThan(0)
       expect(docSize).toBeLessThan(50_000_000) // < 50MB reasonable for 1000+ docs
 
       // Check section index size
-      const sectionPath = path.join(tempDir, '.mdm', 'indexes', 'sections.json')
+      const sectionPath = path.join(tempDir, 'indexes', 'sections.json')
       const sectionSize = getFileSize(sectionPath)
       expect(sectionSize).toBeGreaterThan(0)
       expect(sectionSize).toBeLessThan(100_000_000) // < 100MB reasonable
@@ -300,7 +302,7 @@ describe('Embed + Index Integration Tests', () => {
 
       await Effect.runPromise(buildIndex(tempDir))
 
-      const storage = createStorage(tempDir)
+      const storage = createStorage(tempDir, tempDir)
       const docIndex = await Effect.runPromise(loadDocumentIndex(storage))
       const sectionIndex = await Effect.runPromise(loadSectionIndex(storage))
 
@@ -351,8 +353,8 @@ describe('Embed + Index Integration Tests', () => {
       )
       await Effect.runPromise(vectorStore.save())
 
-      const binPath = path.join(tempDir, '.mdm', 'vectors.meta.bin')
-      const jsonPath = path.join(tempDir, '.mdm', 'vectors.meta.json')
+      const binPath = path.join(tempDir, 'vectors.meta.bin')
+      const jsonPath = path.join(tempDir, 'vectors.meta.json')
 
       expect(fileExists(binPath)).toBe(true)
       expect(fileExists(jsonPath)).toBe(false)
@@ -413,7 +415,7 @@ describe('Embed + Index Integration Tests', () => {
 
         // For very large corpora (>100MB), a warning should appear
         // This test verifies the warning system works
-        const metaPath = path.join(tempDir, '.mdm', 'vectors.meta.bin')
+        const metaPath = path.join(tempDir, 'vectors.meta.bin')
         const size = getFileSize(metaPath)
 
         if (size > 100_000_000) {
@@ -687,7 +689,7 @@ describe('Embed + Index Integration Tests', () => {
       }
 
       // Final verification
-      const storage = createStorage(tempDir)
+      const storage = createStorage(tempDir, tempDir)
       const docIndex = await Effect.runPromise(loadDocumentIndex(storage))
       expect(docIndex).not.toBeNull()
     })

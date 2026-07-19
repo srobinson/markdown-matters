@@ -8,6 +8,7 @@ import {
 import { semanticSearchWithStats } from '../../embeddings/semantic-search.js'
 import type { SearchQuality } from '../../embeddings/types.js'
 import { CliValidationError } from '../../errors/index.js'
+import { dbIndexDir, resolveMdmHome } from '../../home.js'
 import { createStorage, loadSectionIndex } from '../../index/storage.js'
 import {
   detectSearchModes,
@@ -110,7 +111,7 @@ const runHybridMode = (context: ExecutionContext) =>
     let results = rawResults
     if (refineTerms.length > 0) {
       const sectionIndex = yield* loadSectionIndex(
-        createStorage(context.indexRoot),
+        createStorage(context.indexRoot, dbIndexDir(resolveMdmHome())),
       )
       if (sectionIndex) {
         results = yield* filterResultsByRefineTerms(
@@ -262,7 +263,7 @@ const runSemanticMode = (context: ExecutionContext) =>
     let { results } = searchResult
     if (refineTerms.length > 0) {
       const sectionIndex = yield* loadSectionIndex(
-        createStorage(context.indexRoot),
+        createStorage(context.indexRoot, dbIndexDir(resolveMdmHome())),
       )
       if (sectionIndex) {
         results = yield* filterResultsByRefineTerms(
@@ -384,7 +385,7 @@ export const runSearchCommand = (input: SearchCommandInput) =>
       )
     }
     if (input.rerankInit) {
-      yield* initializeSearchReranker(resolvedDir)
+      yield* initializeSearchReranker()
       return
     }
     const config = yield* Effect.serviceOption(ConfigService).pipe(

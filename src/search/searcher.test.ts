@@ -16,6 +16,7 @@ import {
 
 // Test fixture directory
 const TEST_DIR = path.join(process.cwd(), 'tests', 'fixtures', 'search')
+const originalMdmHome = process.env.MDM_HOME
 
 // Helper to run Effect
 const runEffect = <A, E>(effect: Effect.Effect<A, E>) =>
@@ -23,6 +24,7 @@ const runEffect = <A, E>(effect: Effect.Effect<A, E>) =>
 
 describe('search', () => {
   beforeAll(async () => {
+    process.env.MDM_HOME = TEST_DIR
     // Create test fixtures
     await fs.mkdir(TEST_DIR, { recursive: true })
 
@@ -94,6 +96,8 @@ Set the configuration options carefully.
   afterAll(async () => {
     // Clean up
     await fs.rm(TEST_DIR, { recursive: true, force: true })
+    if (originalMdmHome === undefined) delete process.env.MDM_HOME
+    else process.env.MDM_HOME = originalMdmHome
   })
 
   describe('search()', () => {

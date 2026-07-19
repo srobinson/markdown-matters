@@ -47,6 +47,7 @@ const runIndex = async (
       env: {
         ...process.env,
         HOME: fakeHome,
+        MDM_HOME: path.join(fakeHome, '.mdm'),
         // Windows: os.homedir() reads USERPROFILE (and HOMEDRIVE+HOMEPATH),
         // not HOME. Set all three so the subprocess is fully isolated.
         USERPROFILE: fakeHome,
@@ -105,10 +106,11 @@ describe('index sentinel detection', () => {
     expect(result.stdout).not.toContain('Created .mdm/ index directory')
   })
 
-  it('writes index files inside .mdm/', async () => {
+  it('writes index files under the explicit index root', async () => {
     await runIndex(tempDir)
-    // After indexing, there should be index files in .mdm/
-    const mdmContents = fs.readdirSync(path.join(tempDir, '.mdm'))
-    expect(mdmContents.length).toBeGreaterThan(0)
+    const indexContents = fs.readdirSync(
+      path.join(fakeHome, '.mdm', 'indexes'),
+    )
+    expect(indexContents.length).toBeGreaterThan(0)
   })
 })

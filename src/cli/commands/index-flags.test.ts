@@ -54,6 +54,7 @@ const runIndex = async (
       env: {
         ...process.env,
         HOME: fakeHome,
+        MDM_HOME: path.join(fakeHome, '.mdm'),
         // Windows: os.homedir() reads USERPROFILE (and HOMEDRIVE+HOMEPATH),
         // not HOME. Set all three so the subprocess is fully isolated.
         USERPROFILE: fakeHome,
@@ -102,19 +103,19 @@ describe('index --force flag', () => {
     expect(third.stdout).not.toContain('unchanged')
   })
 
-  it('does not delete the .mdm/ index directory', async () => {
-    // First run creates .mdm/ and index files
+  it('does not delete the explicit index directory', async () => {
+    // First run creates the index files
     await runIndex(tempDir)
-    const mdmDir = path.join(tempDir, '.mdm')
-    expect(fs.existsSync(mdmDir)).toBe(true)
-    const beforeContents = fs.readdirSync(mdmDir)
+    const indexDir = path.join(fakeHome, '.mdm', 'indexes')
+    expect(fs.existsSync(indexDir)).toBe(true)
+    const beforeContents = fs.readdirSync(indexDir)
     expect(beforeContents.length).toBeGreaterThan(0)
 
     // --force should NOT delete the directory
     await runIndex(tempDir, '--force')
-    expect(fs.existsSync(mdmDir)).toBe(true)
+    expect(fs.existsSync(indexDir)).toBe(true)
     // Index files should still exist
-    const afterContents = fs.readdirSync(mdmDir)
+    const afterContents = fs.readdirSync(indexDir)
     expect(afterContents.length).toBeGreaterThan(0)
   })
 

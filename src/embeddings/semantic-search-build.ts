@@ -19,6 +19,7 @@ import {
   IndexNotFoundError,
   type VectorStoreError,
 } from '../errors/index.js'
+import { dbIndexDir, resolveMdmHome } from '../home.js'
 import {
   createStorage,
   loadDocumentIndex,
@@ -343,7 +344,10 @@ export const buildEmbeddings = (
   Effect.gen(function* () {
     const startTime = Date.now()
     const resolvedRoot = path.resolve(rootPath)
-    const storage = createStorage(resolvedRoot)
+    const storage = createStorage(
+      resolvedRoot,
+      dbIndexDir(resolveMdmHome()),
+    )
 
     const docIndex = yield* loadDocumentIndex(storage)
     const sectionIndex = yield* loadSectionIndex(storage)
@@ -370,7 +374,7 @@ export const buildEmbeddings = (
 
     // Create namespaced vector store for this provider/model/dimensions combination
     const vectorStore = createNamespacedVectorStore(
-      resolvedRoot,
+      storage.indexRoot,
       providerName,
       providerModel,
       dimensions,
@@ -418,7 +422,7 @@ export const buildEmbeddings = (
       // Still save if we removed stale entries
       if (embeddedIds.size > 0) {
         yield* vectorStore.save()
-        invalidateHnswCache(resolvedRoot, namespace)
+        invalidateHnswCache(storage.indexRoot, namespace)
       }
       return {
         sectionsEmbedded: 0,
@@ -441,7 +445,7 @@ export const buildEmbeddings = (
       // All sections already embedded (or stale ones were cleaned up)
       if (embeddedIds.size > 0) {
         yield* vectorStore.save()
-        invalidateHnswCache(resolvedRoot, namespace)
+        invalidateHnswCache(storage.indexRoot, namespace)
       }
       const estimatedSavings =
         embeddedIds.size > 0
@@ -507,10 +511,10 @@ export const buildEmbeddings = (
 
     // Save and invalidate cache so next search picks up new vectors
     yield* vectorStore.save()
-    invalidateHnswCache(resolvedRoot, namespace)
+    invalidateHnswCache(storage.indexRoot, namespace)
 
     // Set this namespace as the active provider
-    yield* writeActiveProvider(resolvedRoot, {
+    yield* writeActiveProvider(storage.indexRoot, {
       namespace,
       provider: providerName,
       model: providerModel,

@@ -14,12 +14,14 @@ import { buildIndex } from '../../src/index/indexer.js'
 import { searchContent } from '../../src/search/searcher.js'
 
 const TEST_DIR = path.join(process.cwd(), 'tests', 'fixtures', 'context-search')
+const originalMdmHome = process.env.MDM_HOME
 
 const runEffect = <A, E>(effect: Effect.Effect<A, E>) =>
   Effect.runPromise(effect)
 
 describe('keyword search context flags', () => {
   beforeAll(async () => {
+    process.env.MDM_HOME = TEST_DIR
     await fs.mkdir(TEST_DIR, { recursive: true })
 
     await fs.writeFile(
@@ -90,6 +92,8 @@ End of list.
 
   afterAll(async () => {
     await fs.rm(TEST_DIR, { recursive: true, force: true })
+    if (originalMdmHome === undefined) delete process.env.MDM_HOME
+    else process.env.MDM_HOME = originalMdmHome
   })
 
   describe('-C flag (context around matches)', () => {

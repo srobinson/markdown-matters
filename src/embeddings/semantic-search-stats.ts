@@ -7,9 +7,9 @@
  * search calls don't re-load the same store.
  */
 
-import * as path from 'node:path'
 import { Effect } from 'effect'
 import type { VectorStoreError } from '../errors/index.js'
+import { dbIndexDir } from '../home.js'
 import {
   type ActiveProvider,
   generateNamespace,
@@ -48,16 +48,16 @@ const emptyStats: EmbeddingStats = {
  * Get statistics about stored embeddings.
  * Uses the active namespace to find the current embedding index.
  *
- * @param rootPath - Root directory containing embeddings
+ * @param indexRoot - Root directory containing embeddings
  * @returns Embedding statistics (count, provider, costs)
  *
  * @throws VectorStoreError - Cannot load vector index metadata
  */
 export const getEmbeddingStats = (
-  rootPath: string,
+  indexRoot: string,
 ): Effect.Effect<EmbeddingStats, VectorStoreError> =>
   Effect.gen(function* () {
-    const resolvedRoot = path.resolve(rootPath)
+    const resolvedRoot = dbIndexDir(indexRoot)
 
     // Get the active namespace to find where embeddings are stored
     const activeProvider = yield* getActiveNamespace(resolvedRoot).pipe(

@@ -13,12 +13,7 @@ import {
   FileWriteError,
   IndexCorruptedError,
 } from '../errors/index.js'
-import type {
-  DocumentIndex,
-  IndexConfig,
-  LinkIndex,
-  SectionIndex,
-} from './types.js'
+import type { DocumentIndex, LinkIndex, SectionIndex } from './types.js'
 import { getIndexPaths, INDEX_VERSION } from './types.js'
 
 // ============================================================================
@@ -79,15 +74,6 @@ const LinkIndexSchema = Schema.Struct({
     value: Schema.Array(Schema.String),
   }),
   broken: Schema.Array(Schema.String),
-})
-
-const IndexConfigSchema = Schema.Struct({
-  version: Schema.Number,
-  rootPath: Schema.String,
-  include: Schema.Array(Schema.String),
-  exclude: Schema.Array(Schema.String),
-  createdAt: Schema.String,
-  updatedAt: Schema.String,
 })
 
 // ============================================================================
@@ -286,57 +272,27 @@ export const computeHash = (content: string): string => {
 // ============================================================================
 
 export interface IndexStorage {
-  readonly rootPath: string
+  readonly sourceRoot: string
+  readonly indexRoot: string
   readonly paths: ReturnType<typeof getIndexPaths>
 }
 
-export const createStorage = (rootPath: string): IndexStorage => ({
-  rootPath: path.resolve(rootPath),
-  paths: getIndexPaths(path.resolve(rootPath)),
+export const createStorage = (
+  sourceRoot: string,
+  indexRoot: string,
+): IndexStorage => ({
+  sourceRoot: path.resolve(sourceRoot),
+  indexRoot: path.resolve(indexRoot),
+  paths: getIndexPaths(indexRoot),
 })
 
 export const initializeIndex = (
   storage: IndexStorage,
-): Effect.Effect<
-  void,
-  DirectoryCreateError | FileReadError | FileWriteError | IndexCorruptedError
-> =>
+): Effect.Effect<void, DirectoryCreateError> =>
   Effect.gen(function* () {
     yield* ensureDir(storage.paths.root)
     yield* ensureDir(storage.paths.parsed)
     yield* ensureDir(path.dirname(storage.paths.documents))
-
-    // Create default config if it doesn't exist
-    const existingConfig = yield* loadConfig(storage)
-    if (!existingConfig) {
-      const config: IndexConfig = {
-        version: INDEX_VERSION,
-        rootPath: storage.rootPath,
-        include: ['**/*.md', '**/*.mdx'],
-        exclude: ['**/node_modules/**', '**/.*/**'],
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      }
-      yield* saveConfig(storage, config)
-    }
-  })
-
-// ============================================================================
-// Config Operations
-// ============================================================================
-
-export const loadConfig = (
-  storage: IndexStorage,
-): Effect.Effect<IndexConfig | null, FileReadError | IndexCorruptedError> =>
-  readJsonFile(storage.paths.config, IndexConfigSchema)
-
-export const saveConfig = (
-  storage: IndexStorage,
-  config: IndexConfig,
-): Effect.Effect<void, DirectoryCreateError | FileWriteError> =>
-  writeJsonFile(storage.paths.config, {
-    ...config,
-    updatedAt: new Date().toISOString(),
   })
 
 // ============================================================================
@@ -413,8 +369,9 @@ export const indexExists = (
 ): Effect.Effect<boolean, FileReadError> =>
   Effect.tryPromise({
     try: async () => {
+      const indexesDir = path.dirname(storage.paths.documents)
       try {
-        await fs.access(storage.paths.config)
+        await fs.access(indexesDir)
         return true
       } catch {
         return false
@@ -422,7 +379,7 @@ export const indexExists = (
     },
     catch: (e) =>
       new FileReadError({
-        path: storage.paths.config,
+        path: path.dirname(storage.paths.documents),
         message: e instanceof Error ? e.message : String(e),
         cause: e,
       }),

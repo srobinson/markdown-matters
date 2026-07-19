@@ -13,8 +13,8 @@ import type { HnswMismatchWarning, VectorStore } from './vector-store.js'
 
 const hnswCache = new Map<string, VectorStore>()
 
-export const hnswCacheKey = (resolvedRoot: string, namespace: string): string =>
-  `${resolvedRoot}::${namespace}`
+export const hnswCacheKey = (indexRoot: string, namespace: string): string =>
+  `${indexRoot}::${namespace}`
 
 export const getHnswCacheEntry = (key: string): VectorStore | undefined =>
   hnswCache.get(key)
@@ -28,10 +28,10 @@ export const setHnswCacheEntry = (key: string, store: VectorStore): void => {
  * Called after buildEmbeddings writes new vectors to disk.
  */
 export const invalidateHnswCache = (
-  resolvedRoot: string,
+  indexRoot: string,
   namespace: string,
 ): void => {
-  hnswCache.delete(hnswCacheKey(resolvedRoot, namespace))
+  hnswCache.delete(hnswCacheKey(indexRoot, namespace))
 }
 
 /**

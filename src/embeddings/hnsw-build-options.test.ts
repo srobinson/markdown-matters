@@ -22,6 +22,7 @@ const TEST_CORPUS_PATH = path.join(
   __dirname,
   '../__tests__/fixtures/semantic-search/multi-word-corpus',
 )
+const TEST_INDEX_PATH = path.join(TEST_CORPUS_PATH, '.mdm')
 
 // Test corpus uses 512 dimensions (text-embedding-3-small with Matryoshka reduction)
 const TEST_CORPUS_DIMENSIONS = 512
@@ -31,7 +32,7 @@ const TEST_CORPUS_MODEL = 'text-embedding-3-small'
 // Helper to create the namespaced vector store for test corpus
 const createTestVectorStore = (hnswOptions?: HnswBuildOptions) =>
   createNamespacedVectorStore(
-    TEST_CORPUS_PATH,
+    TEST_INDEX_PATH,
     TEST_CORPUS_PROVIDER,
     TEST_CORPUS_MODEL,
     TEST_CORPUS_DIMENSIONS,

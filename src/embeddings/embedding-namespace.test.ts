@@ -9,7 +9,11 @@ import * as path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   generateNamespace,
+  getActiveProviderPath,
   getEmbeddingsDir,
+  getLegacyMetaJsonPath,
+  getLegacyMetaPath,
+  getLegacyVectorPath,
   getMetaPath,
   getNamespaceDir,
   getVectorPath,
@@ -147,12 +151,32 @@ describe('Embedding Namespace', () => {
   describe('getEmbeddingsDir', () => {
     it('should return correct embeddings directory path', () => {
       const result = getEmbeddingsDir('/project')
-      expect(result).toBe(path.join('/project', '.mdm', 'embeddings'))
+      expect(result).toBe(path.join(path.resolve('/project'), 'embeddings'))
     })
 
     it('should handle trailing slash in root path', () => {
       const result = getEmbeddingsDir('/project/')
-      expect(result).toBe(path.join('/project/', '.mdm', 'embeddings'))
+      expect(result).toBe(path.join(path.resolve('/project/'), 'embeddings'))
+    })
+  })
+
+  describe('database and legacy paths', () => {
+    it('keeps active provider state directly under the index root', () => {
+      expect(getActiveProviderPath('/db')).toBe(
+        path.join(path.resolve('/db'), 'active-provider.json'),
+      )
+    })
+
+    it('keeps legacy flat vectors under the source .mdm directory', () => {
+      expect(getLegacyVectorPath('/source')).toBe(
+        path.join(path.resolve('/source'), '.mdm', 'vectors.bin'),
+      )
+      expect(getLegacyMetaPath('/source')).toBe(
+        path.join(path.resolve('/source'), '.mdm', 'vectors.meta.bin'),
+      )
+      expect(getLegacyMetaJsonPath('/source')).toBe(
+        path.join(path.resolve('/source'), '.mdm', 'vectors.meta.json'),
+      )
     })
   })
 
@@ -164,8 +188,7 @@ describe('Embedding Namespace', () => {
       )
       expect(result).toBe(
         path.join(
-          '/project',
-          '.mdm',
+          path.resolve('/project'),
           'embeddings',
           'openai_text-embedding-3-small_512',
         ),
@@ -219,8 +242,7 @@ describe('Embedding Namespace', () => {
       )
       expect(result).toBe(
         path.join(
-          '/project',
-          '.mdm',
+          path.resolve('/project'),
           'embeddings',
           'openai_text-embedding-3-small_512',
           'vectors.bin',
@@ -241,8 +263,7 @@ describe('Embedding Namespace', () => {
       )
       expect(result).toBe(
         path.join(
-          '/project',
-          '.mdm',
+          path.resolve('/project'),
           'embeddings',
           'openai_text-embedding-3-small_512',
           'vectors.meta.bin',

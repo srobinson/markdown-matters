@@ -22,6 +22,7 @@ import {
 // ============================================================================
 
 let tempRoot: string
+const originalMdmHome = process.env.MDM_HOME
 
 const createFixture = async (
   files: Record<string, string>,
@@ -31,6 +32,7 @@ const createFixture = async (
     `fixture-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
   )
   await fs.mkdir(dir, { recursive: true })
+  process.env.MDM_HOME = dir
 
   for (const [filePath, content] of Object.entries(files)) {
     const fullPath = path.join(dir, filePath)
@@ -80,6 +82,8 @@ afterAll(async () => {
   if (tempRoot) {
     await fs.rm(tempRoot, { recursive: true, force: true })
   }
+  if (originalMdmHome === undefined) delete process.env.MDM_HOME
+  else process.env.MDM_HOME = originalMdmHome
 })
 
 // ============================================================================

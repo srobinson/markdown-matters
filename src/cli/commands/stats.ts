@@ -8,6 +8,7 @@ import * as path from 'node:path'
 import { Args, Command } from '@effect/cli'
 import { Console, Effect } from 'effect'
 import { getEmbeddingStats } from '../../embeddings/semantic-search.js'
+import { dbIndexDir, resolveMdmHome } from '../../home.js'
 import {
   createStorage,
   loadDocumentIndex,
@@ -42,7 +43,8 @@ export const statsCommand = Command.make(
   ({ path: dirPath, json, pretty }) =>
     Effect.gen(function* () {
       const resolvedRoot = path.resolve(dirPath)
-      const storage = createStorage(resolvedRoot)
+      const indexRoot = dbIndexDir(resolveMdmHome())
+      const storage = createStorage(resolvedRoot, indexRoot)
 
       // Load document and section indexes
       const docIndex = yield* loadDocumentIndex(storage)
@@ -88,7 +90,7 @@ export const statsCommand = Command.make(
       }
 
       // Get embedding stats
-      const embeddingStats = yield* getEmbeddingStats(resolvedRoot)
+      const embeddingStats = yield* getEmbeddingStats(storage.indexRoot)
 
       if (json) {
         yield* Console.log(

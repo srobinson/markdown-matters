@@ -21,6 +21,7 @@ import {
   type IndexCorruptedError,
   type VectorStoreError,
 } from '../errors/index.js'
+import { dbIndexDir, resolveMdmHome } from '../home.js'
 import { createStorage, loadSectionIndex } from '../index/storage.js'
 import type { SectionEntry } from '../index/types.js'
 import type {
@@ -447,7 +448,10 @@ export const postProcessResults = (
       options.contextBefore !== undefined ||
       options.contextAfter !== undefined
     ) {
-      const storage = createStorage(resolvedRoot)
+      const storage = createStorage(
+        resolvedRoot,
+        dbIndexDir(resolveMdmHome()),
+      )
       const sectionIndex = yield* loadSectionIndex(storage)
 
       if (sectionIndex) {

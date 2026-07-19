@@ -1,4 +1,3 @@
-import * as path from 'node:path'
 import { Console, Effect, Option } from 'effect'
 import type {
   BuildEmbeddingsResult,
@@ -8,21 +7,22 @@ import {
   buildEmbeddings,
   estimateEmbeddingCost,
 } from '../../embeddings/semantic-search.js'
-import { INDEX_DIR } from '../../index/types.js'
-import { initializeReranker } from '../../search/cross-encoder.js'
+import { resolveMdmHome } from '../../home.js'
+import {
+  getRerankerCacheDir,
+  initializeReranker,
+} from '../../search/cross-encoder.js'
 import {
   createCostEstimateErrorHandler,
   createEmbeddingErrorHandler,
 } from '../shared-error-handling.js'
 import { promptUser } from './search-output.js'
 
-export const initializeSearchReranker = (
-  resolvedDir: string,
-): Effect.Effect<void, Error> =>
+export const initializeSearchReranker = (): Effect.Effect<void, Error> =>
   Effect.gen(function* () {
     yield* Console.log('Initializing cross-encoder model (~90MB download)...')
     const available = yield* initializeReranker(
-      path.join(resolvedDir, INDEX_DIR, 'models'),
+      getRerankerCacheDir(resolveMdmHome({ create: true })),
       (progress) => {
         if (
           progress.status === 'loading' &&

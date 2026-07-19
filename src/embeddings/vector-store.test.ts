@@ -181,6 +181,20 @@ describe('add and search', () => {
 // ============================================================================
 
 describe('save and load round-trip', () => {
+  it('writes vectors directly under the explicit index root', async () => {
+    const indexRoot = await createTempDir()
+    const store = createVectorStore(indexRoot, DIMS)
+    await run(store.add([makeEntry('direct', 1)]))
+    await run(store.save())
+
+    await expect(fs.access(path.join(indexRoot, 'vectors.bin'))).resolves.toBe(
+      undefined,
+    )
+    await expect(
+      fs.access(path.join(indexRoot, '.mdm', 'vectors.bin')),
+    ).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it('preserves all vectors and metadata after save/load', async () => {
     const dir = await createTempDir()
     const store1 = createVectorStore(dir, DIMS)
@@ -348,7 +362,7 @@ describe('legacy JSON metadata migration', () => {
     await run(store1.save())
 
     // Read the binary metadata and convert to JSON at the old path
-    const indexDir = path.join(dir, '.mdm')
+    const indexDir = dir
     const binPath = path.join(indexDir, 'vectors.meta.bin')
     const jsonPath = path.join(indexDir, 'vectors.meta.json')
 
@@ -396,7 +410,7 @@ describe('corrupted metadata validation', () => {
     await run(store1.save())
 
     // Overwrite metadata with invalid structure
-    const indexDir = path.join(dir, '.mdm')
+    const indexDir = dir
     const metaPath = path.join(indexDir, 'vectors.meta.bin')
     const { encode } = await import('@msgpack/msgpack')
     await fs.writeFile(metaPath, encode({ bad: 'data', version: 'wrong' }))
@@ -420,7 +434,7 @@ describe('corrupted metadata validation', () => {
     await run(store1.save())
 
     // Replace binary metadata with invalid JSON at legacy path
-    const indexDir = path.join(dir, '.mdm')
+    const indexDir = dir
     const binPath = path.join(indexDir, 'vectors.meta.bin')
     const jsonPath = path.join(indexDir, 'vectors.meta.json')
 

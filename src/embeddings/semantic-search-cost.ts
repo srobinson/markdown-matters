@@ -10,6 +10,7 @@ import * as path from 'node:path'
 import { Effect } from 'effect'
 import type { FileReadError, IndexCorruptedError } from '../errors/index.js'
 import { IndexNotFoundError } from '../errors/index.js'
+import { dbIndexDir, resolveMdmHome } from '../home.js'
 import {
   createStorage,
   loadDocumentIndex,
@@ -65,7 +66,7 @@ export const estimateEmbeddingCost = (
 > =>
   Effect.gen(function* () {
     const resolvedRoot = path.resolve(rootPath)
-    const storage = createStorage(resolvedRoot)
+    const storage = createStorage(resolvedRoot, dbIndexDir(resolveMdmHome()))
 
     const docIndex = yield* loadDocumentIndex(storage)
     const sectionIndex = yield* loadSectionIndex(storage)

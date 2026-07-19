@@ -18,12 +18,14 @@ import { buildIndex } from '../index/indexer.js'
 import { searchContent } from '../search/searcher.js'
 
 const TEST_DIR = path.join(process.cwd(), 'tests', 'fixtures', 'keyword-search')
+const originalMdmHome = process.env.MDM_HOME
 
 const runEffect = <A, E>(effect: Effect.Effect<A, E>) =>
   Effect.runPromise(effect)
 
 describe('Keyword Search Integration', () => {
   beforeAll(async () => {
+    process.env.MDM_HOME = TEST_DIR
     await fs.mkdir(TEST_DIR, { recursive: true })
 
     await fs.writeFile(
@@ -112,6 +114,8 @@ Deprecated endpoints remain available for one major version.
 
   afterAll(async () => {
     await fs.rm(TEST_DIR, { recursive: true, force: true })
+    if (originalMdmHome === undefined) delete process.env.MDM_HOME
+    else process.env.MDM_HOME = originalMdmHome
   })
 
   describe('Basic Keyword Search', () => {
