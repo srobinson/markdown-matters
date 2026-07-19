@@ -1,390 +1,626 @@
-# Federated Markdown Knowledge Layer — Design
+# Markdown Knowledge Database — Design
 
-Status: draft for review
-Date: 2026-06-22
+Status: draft for review (v2.2, consolidated-DB model, post three review rounds)
+Date: 2026-06-22 (revised 2026-07-18)
 Repo: `markdown-matters`
 Owner: Stuart (what/why) · Claude (how)
 
+> **Supersedes the v1 "federated per-directory" framing.** v1's default path
+> (search-time fusion across N per-directory indexes) had a ranking-correctness
+> blocker: reciprocal-rank fusion across indexes discards magnitude, so a
+> 5-document directory's weak top hit tied a 50,000-document directory's
+> definitive hit. Stuart's model — "one machine config lists my directories,
+> together they are my db; projects partition it" — dissolves that by keeping
+> **one index per database** and partitioning it with a filter. Federation
+> survives only as a **signature-aware cross-database read** (Section 9), which is
+> in-scope for the "make sense of everything, even across providers" view. This is
+> the robust end-state; delivery is sequenced (Section 17) so each step is
+> verifiable.
+
 ## 1. Problem and value
 
-A fresh machine. No `~/.mdx`, no convention, no agreed structure. Hundreds or
-thousands of markdown files spread across a hundred project directories, each
-following its own (or no) pattern. Today mdm can only index and search one
-directory tree at a time, which forced consolidation (moving everything into
-`~/.mdx`) — bending the user's life around the tool. That is why the tool was
-abandoned.
+A machine with hundreds or thousands of markdown files scattered across many
+directories, each following its own (or no) convention. The user **knows their
+locations** (the operative word is plural), but does not want to move files,
+consolidate them, or re-index a directory more than once. v1 could only index and
+search one directory tree at a time, forcing consolidation into `~/.mdx` — bending
+the user's life around the tool. That is why it was abandoned.
 
-The value of mdm is **making sense of markdown that already lives scattered
-across your machine, without moving it.** You point mdm at the directories you
-care about, it ingests exactly those, and from any project you get search and
-comprehension scoped to the slice that matters to that project.
-
-This document specifies the robust end-state, not a minimal slice. Delivery is
-sequenced (Section 12) so each step is independently verifiable, but the design
-target is the whole system with the hard problems solved, not deferred.
+The value of mdm is **making sense of the markdown that already lives scattered
+across your machine, in place.** You declare the directories you care about, mdm
+ingests exactly those into a database, and from any project you get search and
+comprehension scoped to the slice that matters — with `mdm map --all` over a whole
+database and `mdm map --across` over every database (Section 9) giving the "make
+sense of it all, even across providers" view.
 
 ## 2. The model
 
-> **Slurp full-path directories → a catalog of paths (your machine view) → a
-> project declares which paths it cares about → search and comprehension are
-> auto-scoped to that declaration, with every result keyed by its real path.**
+> **A manifest of directories (each with recurse + depth) → one consolidated
+> database (one embedding signature) → a project partitions the database by
+> canonical prefix → search and comprehension run over that partition, the whole
+> database, or across databases, every result keyed by its real path.**
 
-- **Slurp, don't discover.** You tell mdm which directories to ingest; it
-  ingests exactly those. No filesystem crawl, no heuristics guessing which
-  files are "real." Deliberate and explicit.
-- **A registry is a full path.** No names, no aliases. The absolute, canonical
-  path *is* the identity, because the path already carries meaning (whose,
-  what, where).
-- **The catalog is self-assembling.** Slurping a directory registers its path
-  in a machine-level catalog. The catalog is the set of paths you have slurped:
-  "the markdown I care about."
-- **A project declares its scope.** In a project's config you list the registry
-  paths that project cares about. Search and comprehension from that project
-  run over exactly that set plus the project's own files. The config is the
-  scope; there is no per-query `--in` flag.
-- **Reuse is free.** Slurp a directory once; every project that declares it
-  shares the one index. Re-slurp only when files change.
+- **You declare, mdm ingests.** A per-database manifest lists directories to
+  ingest and, per directory, whether to recurse and how deep. No filesystem crawl.
+- **One database, one index, one signature.** All ingested directories feed a
+  single index (semantic vectors + BM25) under the database home, embedded under
+  **one** signature (Section 6.1). One index means one coherent ranking: no
+  cross-index score-comparability problem exists to solve within a database.
+- **A database is a home.** A database is the directory `$MDM_HOME` (default
+  `~/.mdm`). It holds the manifest, the index, the active signature, the cache, and
+  its own config. **Multiple homes = multiple databases** (Section 5).
+- **A project declares a partition.** In a project's config you list the canonical
+  prefixes that project cares about — a subset or sub-slice of the database.
+  Search and comprehension filter the one index to those prefixes plus, optionally,
+  the project's own files. The config is the scope; there is no per-query `--in`.
+- **Reuse is free.** Ingest a directory once; a same-signature directory that
+  already has an mdm index (e.g. `~/.mdx`) is imported by **re-inserting its
+  existing vectors** — no re-embedding, no API cost (Section 6.2). Re-embedding
+  happens only on explicit, costed opt-in (Section 6.1).
+- **Everything across signatures is a federated read.** Because a database is
+  signature-homogeneous, the "make sense of *everything*, even across providers"
+  view is a signature-aware read across databases (Section 9). This is the only
+  place federation remains; it is read-only, and its map/enumerate form is in
+  scope for delivery.
 
-## 3. Vocabulary (precise, to avoid the ambiguity that started this)
+## 3. Vocabulary
 
-The current half-step uses `[[sources]]` to mean "build targets," which is a
-different concept and a source of confusion. This design retires that overload.
+The v1 `[[sources]]` overload ("build targets") is retired.
 
 | Term | Meaning |
 | --- | --- |
-| **Registry** | A directory that has been slurped, identified by its canonical full path. Holds an mdm index under `<path>/.mdm/`. |
-| **Catalog** | The machine-level set of all registries, stored at `~/.mdm/catalog.toml`. The "global view." |
-| **Slurp** | The act of ingesting a directory: build/refresh its index and record it in the catalog. Exposed as `mdm index <dir>`. |
-| **Project scope** | The subset of registry paths a project declares it cares about, in the project's `.mdm.toml`. |
-| **Federated search** | A query executed across the resolved scope (project-local index plus declared registries), merged into one ranked, path-keyed result list. |
-| **Signature** | An embedding namespace `{provider}_{model}_{dimensions}`. Two registries are embedding-compatible iff signatures match. |
+| **Database (db)** | A signature-homogeneous index over a set of directories, living under a home dir `$MDM_HOME`. |
+| **Home** | `$MDM_HOME` (default `~/.mdm`). The db root and its config root (Section 5). Selecting a different home selects a different db. |
+| **Manifest** | The per-db list of ingested directories, each with `recurse` and `depth`. Source of truth for what the db contains. |
+| **Signature** | An embedding namespace `{provider}_{model}_{dimensions}`. A db has exactly one; enforced at ingest (Section 6.1). |
+| **Ingest (slurp)** | Build/refresh the db from its manifest: walk each directory (honoring recurse/depth and nested ignore rules), embed or import changed files, key chunks by canonical document key. `mdm index`. |
+| **Canonical document key** | The one absolute, inode-anchored, boundary-comparable identity of a file, computed once and used everywhere (document/section/link/vector/BM25/dedup/CLI/MCP), with one shared resolver back to the on-disk file (Section 7.1). |
+| **Partition** | The subset of canonical prefixes a project declares, applied as an inode-aware query-time filter over the one index. |
+| **Cross-db read** | The across-signature view: per-signature query embedding, per-db filtered search, union rerank (Section 9). Map/enumerate (`mdm map --across`) is in scope; full search ranking is a follow-up. |
 
 ## 4. Architecture (grounded in current code)
 
-The design is an orchestration layer **above** the existing single-root engine,
-not a rewrite. What already exists and is reused unchanged:
+An orchestration layer **above** the existing single-root engine, reusing it.
 
-- **Per-root index layout.** `INDEX_DIR='.mdm'`; `getIndexPaths()` lays out
-  `.mdm/indexes/{documents,sections,links}.json`, `.mdm/cache/`, and
-  per-namespace embeddings (`src/index/types.ts`). A built index is
-  self-contained under its root and can be read from any absolute path.
-- **Embedding namespace + active provider.** `generateNamespace(provider,
-  model, dimensions)` and `<root>/.mdm/active-provider.json` /
-  `getActiveNamespace(root)` (`src/embeddings/embedding-namespace.ts`).
-  Authoritative per-root signature.
-- **The enabler: per-root vector-store cache keyed by `${resolvedRoot}::${namespace}`**
-  (`src/embeddings/hnsw-cache.ts`), with an in-code comment that it exists "so
-  multiple roots and provider/model/dimensions tuples can coexist." N indexes
-  from N roots already load and query in one process with no collision. This is
-  what makes search-time federation tractable rather than a rewrite.
-- **Single-root search + rank fusion.** `semanticSearch(root, …)`
-  (`src/embeddings/semantic-search.ts`); `hybridSearch(root, …)` fuses BM25 +
-  semantic by **RRF** (`src/search/hybrid-search.ts`); optional cross-encoder
-  rerank (`src/search/cross-encoder.ts`). RRF fuses by **rank**, so scores from
-  different indexes never need a common scale.
+Reused as-is:
 
-What does not exist and must be built:
+- **Per-root index layout.** `getIndexPaths()` lays out
+  `indexes/{documents,sections,links}.json`, `cache/`, and per-namespace
+  embeddings (`src/index/types.ts`). Under Model A this is produced **once, at the
+  database home** via the index-directory abstraction of Section 5, not per
+  directory.
+- **Vector store + HNSW cache.** `createNamespacedVectorStore`, cached by
+  `${resolvedRoot}::${namespace}` (`src/embeddings/hnsw-cache.ts`). `add(entries)`
+  inserts **precomputed** embeddings: it assigns fresh labels, calls
+  `addPoint(entry.embedding, idx)`, updates `entries`/`idToIndex`, and has no
+  provider path (`vector-store.ts`) — the vector-import primitive (Section 6.2).
+  hnswlib-node v3.0.0 declares `searchKnn(query, k, filter?)` (label-based
+  `FilterFunction`) and `getPoint(label)` (`lib/index.d.ts`) — the partition-filter
+  primitives (Section 9); today the call sites pass only `(vector, k)`.
+- **Per-call provider resolution.** The provider registry is a `Map<ProviderId,
+  ProviderRuntime>` resolved per call (`src/embeddings/providers/registry.ts`); no
+  active-provider singleton. Load-bearing for the cross-db read.
+- **Rank fusion + rerank.** `hybridSearch` fuses BM25 + semantic by RRF
+  (`src/search/hybrid-search.ts`); cross-encoder rerank
+  (`src/search/cross-encoder.ts`).
+- **Ignore engine.** `ignore@7` via `src/index/ignore-patterns.ts` (precedence
+  `CLI/config > .mdmignore > .gitignore > defaults`; defaults include
+  `node_modules`, `.git`, `dist`, `build`). Reused; extended to per-level
+  re-anchored nesting (Section 6.3).
+- **Guards + storage.** The realpath path guard (`src/mcp/adapter.ts`) and the
+  temp+rename structural writer (`src/index/storage.ts`) are reused.
 
-- Multi-root search. Every entry point (`search.ts`, `semantic-search.ts`, MCP
-  `handlers.ts`) takes exactly one `rootPath`.
-- A catalog of slurped registries (only the build-oriented `[[sources]]`
-  exists, read by `readGlobalSources` at `src/config/loader.ts`, consumed only
-  by `mdm index --all`).
-- Cross-index merge, realpath dedup, and per-result source attribution.
-- Multi-namespace query execution (one query embedding per signature group).
-- The comprehension layer (clustering, labeling, near-duplicate, map).
-- Federation-aware MCP (today it pins one corpus = `process.cwd()` in
-  `src/mcp/server.ts`; the integration is launched with `cd ~/.mdx` to work
-  around exactly this).
+Must be built: `resolveMdmHome()` + the index-directory abstraction + config merge
+(Section 5); signature enforcement (6.1); vector import (6.2); nested-ignore
+re-anchoring (6.3); the canonical document key + shared resolver (7.1); the
+generation swap (7.2); partition filter + coverage states (8, 9); comprehension
+(12); cross-db read (9); federation-aware MCP (14).
 
-Load-bearing constraint discovered by the design panel: `loadConfigFile` is
-local-OR-global, not merged (`src/config/loader.ts`) — a project-local
-`.mdm.toml` short-circuits the global file. Therefore the **catalog must be
-read by a dedicated global reader** (mirroring `readGlobalSources`),
-independent of which config tier won, while project scope is read from the
-effective local config.
+## 5. MDM_HOME, the index directory, and config
 
-## 5. Why search-time federation, not a consolidated index
+A single resolver is the database switch:
 
-The requirement is explicit: never re-index an already-built registry, never
-move files, never consolidate. A build-time merged super-index re-embeds or
-copies vectors — that is consolidation, the abandoned model. Search-time
-scatter-gather:
-
-- reuses each index byte-for-byte, zero migration;
-- reuses the entire single-root stack (call it once per registry);
-- isolates cleanly behind the per-root HNSW cache key;
-- makes the only new compute the merge, which RRF keeps cheap and
-  namespace-agnostic.
-
-## 6. Full-path registry identity
-
-Identity is the canonical path. Consequences, each handled in-design:
-
-1. **Canonicalization.** On slurp and on every reference, expand `~` and
-   resolve `realpath`. `~/.mdx`, `/Users/alphab/.mdx`, and a symlink to it
-   resolve to one registry, never three. Canonical form is what the catalog
-   stores and what dedup compares.
-2. **Moves are detectable, not silent.** If a referenced registry path no
-   longer exists, mdm reports `registry <path> not found (moved or deleted?)`
-   and offers `mdm registry relink <old> <new>`, rather than quietly returning
-   fewer results.
-3. **Nesting/overlap is computable from the paths.** If both `~/work` and
-   `~/work/clientA` are registries, mdm detects the containment by prefix and
-   deduplicates overlapping hits by canonical file path, so a file reachable
-   through two registries is returned once (attributed to the nearest
-   containing registry).
-
-Tradeoff acknowledged: full paths in a committed project `.mdm.toml` are
-machine-specific and will not port to another machine unchanged. This is an
-accepted, deliberate choice — the path carries meaning the user wants and the
-alias indirection was explicitly unwanted. `~` expansion mitigates the common
-home-relative case; cross-machine portability is out of scope (Section 13).
-
-## 7. The catalog
-
-Machine-level, at `~/.mdm/catalog.toml`, read by a dedicated global reader.
-
-```toml
-# ~/.mdm/catalog.toml  — self-assembled by `mdm index <dir>`
-[[registry]]
-path = "/Users/alphab/.mdx"
-slurped_at = "2026-06-22T10:00:00Z"
-# signature is NOT cached as truth here; it is read live from
-# <path>/.mdm/active-provider.json at use time. An optional cached hint may be
-# stored and refreshed by `mdm registry refresh`.
-
-[[registry]]
-path = "/Users/alphab/Dev/LLM/DEV/helioy/transport-matters"
-slurped_at = "2026-06-22T10:05:00Z"
+```
+resolveMdmHome() = process.env.MDM_HOME ?? path.join(os.homedir(), '.mdm')
 ```
 
-Lifecycle commands (Section 10): the catalog is written by slurping and managed
-by a `registry` command group. Signature and health are probed live; the
-catalog never becomes the source of truth for what an index contains.
+It is realpath-resolved lazily **after** the directory exists (a fresh
+`MDM_HOME` that is not yet on disk is created on first write, then canonicalized),
+so a not-yet-existing home never throws. Every reference to the global directory
+routes through it (DRY — today `~/.mdm` is computed inline via `os.homedir()` in
+≥5 places: `loader.ts:150`, `loader.ts:543`, `index-cmd.ts:208`, `init-cmd.ts:123`,
+`config-cmd.ts:45`). It joins the existing `MDM_*` env convention.
 
-## 8. Project scope
+**The index-directory abstraction.** A single `dbIndexDir(home)` names where the
+database's index lives, **distinct** from the legacy per-directory import path
+`<dir>/.mdm` that Section 6.2 reads from. Today `INDEX_DIR='.mdm'` is appended by
+`getIndexPaths`, `getEmbeddingsDir`, `getActiveProviderPath`,
+`HnswVectorStore.getIndexDir`, and `createBM25Store`; these are re-pointed at
+`dbIndexDir(home)` so a db home does **not** double to `~/.mdm/.mdm`. The db home
+and its config home are the same directory:
 
-In a project's `.mdm.toml`:
+```
+$MDM_HOME/                        # default ~/.mdm; == dbIndexDir root
+  .mdm.toml                       # this db's config (the former "global" tier)
+  manifest.toml                   # directories + recurse/depth (Section 6)
+  gen-<n>/                        # one atomic generation (Section 7.2), holding:
+    active-provider.json          #   the db's one signature
+    indexes/{documents,sections,links}.json
+    embeddings/<namespace>/vectors.{bin,meta.bin}
+    bm25.{json,meta.json}
+  current                         # pointer file naming the live generation
+  cache/
+```
+
+**Config precedence (merge, highest wins), by key:**
+`env MDM_*` > project `.mdm.local.toml` > project `.mdm.toml` > `$MDM_HOME/.mdm.toml`
+> built-in defaults. The two project files **merge** (machine-local overrides
+portable); this deliberately refines today's local-OR-global short-circuit
+(`loadConfigFile`), which the loader change implements as a keyed merge. Switch
+home = switch database *and* its config. On-machine/on-disk relocation is supported
+by a rehome migration (Section 18), not a bare copy (keys inside are canonical
+absolute — Section 7.1).
+
+Project directories no longer carry their own `.mdm/` index; their content lives in
+the db. Legacy per-project `.mdm/` indexes are import sources (Section 18).
+
+## 6. Ingestion (slurp)
+
+`mdm index` builds/refreshes the active database (`$MDM_HOME`) from its manifest.
 
 ```toml
+# $MDM_HOME/manifest.toml
+[[dir]]
+path = "~/.mdx"
+recurse = true          # default true
+[[dir]]
+path = "~/work/clientA/notes"
+recurse = true
+depth = 2               # descend at most 2 levels below path
+[[dir]]
+path = "~/Documents/loose-notes"
+recurse = false         # top-level markdown only
+```
+
+- **Manifest is the source of truth**, maintained declaratively (edit it, or
+  `mdm index <dir>` appends a `[[dir]]`). No arg refreshes the whole manifest.
+- **recurse / depth** bound each walk — the primary control for scattered trees.
+- **Incremental.** Only changed files are re-embedded (content-hash cache). Files
+  reachable through overlapping/nested manifest directories dedup by canonical key
+  + inode at ingest (Section 7.1), so a file is stored once.
+- **Atomic.** Writes use the generation swap of Section 7.2.
+
+### 6.1 Signature homogeneity (enforced) and mismatch handling
+
+A database holds exactly one signature (`active-provider.json`). The code already
+enforces this structurally (`load()` raises `DimensionMismatchError`; `addPoint`
+rejects wrong-length vectors — `vector-store.ts`). The design turns that hard
+failure into **world-class guidance**. When `mdm index <dir>` finds `<dir>`'s
+signature differs from the db's, nothing is written and three explicit paths are
+offered. The directory's signature is its existing index's when it has one, or the
+one the active provider **would produce** when it does not (knowable before any
+embedding, from the active-provider config):
+
+```
+This database (~/.mdm) is embedded with  openai/text-embedding-3-small/512.
+~/proj/notes has no mdm index yet; your active provider would embed it as
+                                         ollama/nomic-embed-text/768.
+A database holds one signature, so they cannot share an index. Choose:
+
+  1. Put it in its own database (no cost). NOTE: this is a SECOND database — you
+     will have two indexes, unified only by `mdm map --across` (§9), not one index:
+       MDM_HOME=~/notes-db mdm index ~/proj/notes
+
+  2. Re-embed ~/proj/notes into THIS database's signature (openai/…/512):
+       ~4,120 chunks · est. $0.02 · ~40s
+       mdm index ~/proj/notes --reembed
+
+  3. Rewrite THIS database to ollama/…/768 (re-embeds everything already here):
+       ~25,300 chunks · local model, no API cost · ~6m      [destructive]
+       mdm index --rewrite-signature ollama/nomic-embed-text/768   (confirm)
+
+Nothing changed. Re-run with your choice.
+```
+
+Both re-embed paths quantify **cost and time** (dollars for a paid provider, "local
+model, no API cost" for a local one) and count. Option 1 preserves "reuse is free"
+but is explicitly a second database. Option 2 is costed opt-in re-embed of one
+directory. Option 3 is the destructive nuke-and-rewrite of the whole db, gated
+behind an explicit confirm. The feedback always states both signatures, explains
+the constraint, quantifies, and never proceeds without intent.
+
+### 6.2 Vector import (no re-embed)
+
+When a manifest directory already has an mdm index of the **same signature** (e.g.
+`~/.mdx` = openai/512 = the common default), ingest imports it by decoding its
+stored metadata payload `<dir>/.mdm/embeddings/<ns>/vectors.meta.bin` (verified
+122 MB, 25,300 entries with full 512-dim embeddings inline — this file supplies the
+re-insert payload; the raw `vectors.bin` HNSW graph need not be merged) and
+re-inserting via `add(entries)` — precomputed, zero API calls, labels remapped,
+`entries` map updated. Keys are rewritten to the canonical document key on import
+(Section 7.1). A different-signature directory takes the Section 6.1 path.
+
+### 6.3 Git-style nested ignore inheritance
+
+The `ignore@7` engine is reused, extended so `.gitignore`/`.mdmignore` are read at
+**each descended directory level** with git semantics: patterns are **re-anchored**
+to the directory of the file they came from (not flattened to the walk root),
+nested rules override ancestors, negation (`!keep.md`) is honored across levels, and
+an ignore file inside an already-ignored directory is skipped. The existing
+type-precedence composes with level (nearer file wins within a tier). Built-in
+defaults still guarantee `node_modules`/`.git`/`dist`/`build` exclusion. Deliberate
+divergences from git are enumerated in code comments and tests.
+
+## 7. Identity, canonicalization, and atomicity
+
+### 7.1 One canonical document key (the keystone)
+
+Every path-related review finding reduced to one missing definition: a single
+canonical **key** that identifies a file everywhere (document index, section index,
+links, vectors, BM25, dedup, CLI output, MCP refs), plus **one shared resolver**
+from that key to the on-disk file.
+
+- **Form.** The key is the absolute, `~`-expanded, `realpath`-resolved path,
+  anchored to `(st_dev, st_ino)` inode identity; on case-insensitive volumes it is
+  case-folded for comparison (macOS `realpath` is empirically case-*preserving*, so
+  string compares alone break). This replaces today's root-relative `documentPath`
+  (`indexer.ts:577`) and the relative keys in `DocumentIndex`/`LinkIndex`.
+- **Do NOT flip `documentPath` to absolute in isolation.** Every current consumer
+  does `path.join(root, documentPath)` to read the file — `buildIndex`,
+  `searcher.searchWithContent`, `buildBM25Index`, `duplicates` `createFileContentCache`,
+  `semanticSearchWithContent`, `semantic-search-pipeline`, `search.ts` — and that
+  join would turn `/Users/x.md` into `<db-home>/Users/x.md`. The change is: (a) one
+  canonical key stored in `DocumentEntry.path`, `SectionEntry.documentPath`, links,
+  vector metadata, and BM25 docs; (b) one shared `resolveSourceFile(key)` that
+  returns the real on-disk path, replacing **every** `path.join(root, documentPath)`
+  caller; (c) a migration rewriting existing relative keys to canonical on
+  ingest/import. Touch points, migration, and tests are enumerated in §13 and §16.
+- **Prefix comparison is boundary-aware** (reusing `adapter.ts:120`, DRY) so
+  `~/work` does not match `~/work-notes`; trailing slashes normalized.
+- **Dedup + membership are inode-aware.** On hardlink dedup the file is stored once;
+  the **surviving key is the lexicographically-least in-manifest canonical path**
+  (deterministic), and the store records **all** in-manifest canonical paths for
+  that inode. Partition membership tests inode, not a single string: a file
+  hardlinked into two manifest directories **belongs to every partition whose prefix
+  contains any of its links** — closing the "looks-covered-isn't" silent-invisible
+  gap and honoring the §15/§16 hardlink guarantee.
+- **Move / symlink re-target detection.** The manifest stores declared path +
+  canonical target captured at ingest; a missing path is reported
+  `not found (moved/deleted?)` with relink; a symlink whose target changed (old
+  target still exists) is caught by declared-vs-canonical mismatch and treated as a
+  move — never a silent wrong corpus.
+
+### 7.2 Atomic generation swap
+
+An index is several files across several directories (structural JSON, the BM25
+pair, vectors + metadata, `active-provider.json`), so no per-file `rename`
+suffices — a reader could pair a new `vectors.bin` with an old `meta.bin` and
+silently drop hits. A rebuild writes a whole new **root generation**
+`$MDM_HOME/gen-<n>/` containing the *entire* consistent set (structural JSON, BM25,
+vectors, metadata, active-provider), fsyncs it, then flips a single atomic `current`
+pointer (a pointer file renamed into place) naming that generation.
+
+- **Reader protocol (one concrete cross-process gate).** A reader: (1) reads
+  `current` → generation `G`; (2) acquires a lease on `G` by creating
+  `gen-<G>/leases/<pid>-<ts>` **only if `G`'s reaping gate is open** — the
+  gate-check-and-lease-create is the single atomic step; (3) re-reads `current` —
+  if it no longer names `G`, or `G`'s gate has since closed, the reader releases the
+  lease and retries with the new generation; otherwise it now holds a lease that
+  protects `G` and opens `G`'s files. This resolve→lease→recheck sequence closes the
+  TOCTOU without pretending a multi-file open is itself atomic. The reader holds the
+  lease through all reads and releases it on completion.
+- **Reaper protocol.** To reap an old generation `G'` (never `current`): (1)
+  atomically **close `G'`'s gate** so no new reader can lease it; (2) wait for
+  existing leases on `G'` to drain, plus a grace window; (3) delete `G'`. The live
+  `current` generation is never gated or reaped.
+- **Crash recovery, never reaping a live reader.** A lease records holder PID **and
+  process-start identity** (start-time / boot-id) to defeat PID reuse. A lease is
+  abandoned **only** when its holder is no longer alive, or a process now holds that
+  PID with a *different* start identity (the original crashed). A lease whose holder
+  is alive **and** identity matches is retained **indefinitely**, however long the
+  read runs — lease age is never on its own an abandonment condition. The reaper
+  deletes an old generation only after every lease on it is released or proven
+  abandoned by this liveness+identity test, plus the grace window.
+- The HNSW/LRU cache key includes the generation (`home::namespace::gen`), so a
+  flip invalidates naturally.
+
+Tradeoff acknowledged: absolute keys are machine-specific. They live only in the
+database (under the machine-local home) and in the gitignored `.mdm.local.toml`
+partition, never in committed portable config. Relocation uses the rehome migration
+(Section 18).
+
+## 8. Project partition
+
+A project selects a database (home binding) and declares a partition. Config is
+split to keep machine paths out of version control.
+
+```toml
+# .mdm.toml         — committed, portable. No machine paths.
 [project]
-registries = [
-  "~/.mdx",
-  "/Users/alphab/work/clientA/notes",
-  "/Users/alphab/Dev/LLM/DEV/helioy/transport-matters",
-]
-include_local = true   # default true: the project's own .mdm/ is in scope
+rerank = true
+
+# .mdm.local.toml   — gitignored, machine-local.
+[project]
+home = "~/work-db"                 # optional: pin this project's db (a path, not a name)
+dirs = ["~/.mdx", "~/work/clientA/notes"]   # the partition: canonical prefixes
+include_local = "off"              # off | read | ingest  (Section 8.1)
 ```
 
-Resolution: project-local index (if `include_local`) ∪ each declared registry
-path (canonicalized). With no `[project].registries`, behavior is byte-for-byte
-today's single-root search — fully backward compatible. A declared path that is
-not yet a registry triggers an offer to slurp it (Section 10), never a silent
-empty result.
+- **Database selection precedence:** `env MDM_HOME` > project `home` > default
+  `~/.mdm`.
+- **Partition = a set of canonical prefixes** (Section 7.1), a subset or sub-slice
+  of the db. Membership is **inode-aware** (Section 7.1): a hit belongs iff any
+  canonical link of its inode is under a prefix (boundary-aware).
+- **Coverage is three-state, per prefix:**
+  - *present* — a manifest directory covers the prefix at sufficient depth (best
+    coverage across multiple manifest ancestors wins → present): searched normally.
+  - *partial* — a manifest directory contains the prefix but its `recurse`/`depth`
+    stops short of the prefix's subtree: a **warning** names the gap and the
+    `mdm index` that closes it; present files still return. Never a silent
+    "looks-covered-isn't."
+  - *absent* — no manifest directory contains it: offer to ingest (CLI) or the
+    defined non-interactive behavior (MCP, Section 14).
+  If **all** declared prefixes are absent (e.g. a repo cloned to a new machine),
+  raise a loud blocking error, never a silent degrade to local-only.
+- A single-file prefix (a partition entry that is a file, not a directory) is
+  supported explicitly.
 
-## 9. Federated search
+### 8.1 include_local: read vs ingest are separate
 
-New engine `src/federation/` exposing two functions used by **both** CLI and
-MCP (DRY):
+`include_local` never silently mutates a shared home:
 
-- `resolveScope(projectRoot, config, overrides) → ResolvedRegistry[]`
-- `federatedSearch(registries, query, opts) → FederatedResult[]`
+- `off` (default) — the project's own directory is not in scope.
+- `read` — include the project directory in the *partition* **only if** it is
+  already ingested; otherwise warn (partial/absent). A pure read filter, no writes.
+- `ingest` — register the project directory into the selected db's manifest and
+  ingest it, then include it. A deliberate write, never implicit.
 
-Pipeline:
+This removes the "every project pollutes the shared `~/.mdm`" trap: reads never
+write, and writing a project's files into a shared db is an opt-in.
 
-1. **Resolve scope** to `ResolvedRegistry[] = {path, signature}` (signature read
-   live from each `active-provider.json`).
-2. **Group by signature.** Embed the query **once per distinct signature group**
-   using that group's provider/model/dimensions. This is both the
-   mismatch-handling mechanism and a cost optimization when registries share a
-   signature.
-3. **Per-registry hybrid search** via existing `hybridSearch(path, …)` — BM25 +
-   semantic, isolated by the per-root HNSW cache.
-4. **Realpath dedup** by canonical file path + section anchor, so a file in two
-   overlapping registries is not double-counted.
-5. **RRF merge** the per-registry ranked lists. Rank fusion is the answer to
-   cross-index comparability; no cosine normalization.
-6. **Optional global rerank** (`--rerank`): cross-encoder over the merged top-K
-   for one globally comparable ordering (text-pair scoring is index-agnostic).
-7. **Attribute** each result with its registry path and present results keyed by
-   real path (Section 6 — path is first-class).
+## 9. Search
 
-### Embedding compatibility and graceful degradation
+Two functions used by **both** CLI and MCP (DRY):
 
-- **Uniform signature** (common: everything openai/3-small/512): embed once,
-  search all, RRF.
-- **Mixed signatures** (e.g. `~/.mdx` openai/512 vs a project on ollama/768):
-  embed once per signature group, search within group, RRF across groups
-  (rank-based, so cross-space is fine). Requires each group's provider
-  credentials in-process.
-- **Missing credentials / unservable signature / no embeddings:** that registry
-  participates **BM25/keyword-only** (needs no embeddings) and is still
-  RRF-merged, with a warning. A search never hard-fails because one provider key
-  is absent — this also removes the `OPENAI_API_KEY`-in-MCP fragility.
+- `resolvePartition(projectRoot, config, env) → { home, prefixes, coverage }`
+- `search(home, prefixes, query, opts) → Result[]`
 
-Cross-index cosine normalization is explicitly out (RRF + optional cross-encoder
-suffice).
+Default path (single database — the common case):
+
+1. Resolve the partition and its coverage (Section 8).
+2. Open the db index (HNSW cache keyed by `home::namespace::gen`; read `current`
+   once — Section 7.2).
+3. **Filtered hybrid search over the one index:**
+   - semantic: `searchKnn(query, k·f, filter)` where the filter accepts labels
+     whose inode has a canonical link under a prefix (boundary-aware); for a very
+     selective partition, brute-force cosine over just the partition's vectors
+     (`getPoint`/`entries`) instead;
+   - BM25 (wink has no native filter): over-fetch then post-filter by canonical key.
+4. **One coherent ranking.** Single index + single signature → the existing
+   within-index RRF fuses BM25 + semantic with no cross-index comparability problem.
+5. **Optional rerank** (`--rerank`): cross-encoder over the top-K.
+6. **Attribute** each result with its origin directory; present keyed by real path.
+
+**Cross-database read** (the across-signature view — Section 2): when a partition,
+`mdm search --across`, or `mdm map --across` spans databases with **different
+signatures**, embed the query once per signature (per-call provider resolution),
+run the filtered single-db search in each db **with a per-db over-fetch (k·f)**,
+then rerank the **union of all per-db candidates** with the cross-encoder by
+default. Reranking the union — not a pre-truncated RRF top-K — guarantees RRF's
+magnitude-blindness never gates a strong deep hit out of the rerank pool. A per-db
+relevance floor applies to **both** channels (BM25 min-score, and the semantic
+0.35 cosine threshold as the semantic floor) so a tiny db cannot inject rank-1
+noise. Deterministic tiebreak (canonical key, then origin, then section id) over a
+fixed db iteration order. **Cross-db map/enumerate (`mdm map --across`: themes,
+counts, near-dups over the union) is in scope for delivery (step 6); full cross-db
+search ranking is a follow-up.**
 
 ## 10. CLI surface
 
 No `--in`. Scope is declarative (Section 8). Additive commands:
 
-- `mdm index [dir]` — slurp: build/refresh the index for `dir` (default cwd)
-  **and** register its canonical path in the catalog. Incremental
-  (content-hash cached), resumable, with the existing cost preview before
-  embedding. `--embed` builds semantic vectors; `--watch` keeps the index fresh
-  (Section 11).
-- `mdm search "<query>"` — federated over the resolved project scope by default;
-  results keyed by real path, tagged with their registry; `--rerank` optional.
-- `mdm registry list|remove|refresh|relink|inspect` — manage the catalog
-  (`inspect <path>` shows signature, doc/vector counts, health, staleness).
-- `mdm map` — the comprehension entry point (Section 12): themes, near-dups,
-  layout across the resolved scope.
-- `mdm index --all` — refresh every registry in the catalog. Incremental: only
-  changed files are re-processed (content-hash cached), so it is cheap and safe
-  to run anytime.
-
-Optional convenience (not the primary API): `mdm search "<q>" <dir>` may search
-a one-off directory ad hoc; if that dir is not yet a registry, mdm offers to
-slurp it.
+- `mdm index [dir]` — ingest into the active db (`$MDM_HOME`). No arg refreshes the
+  manifest; `<dir>` ingests/updates one directory. Incremental, resumable, cost
+  preview before any embedding, vector import when a same-signature index exists,
+  the Section 6.1 mismatch flow otherwise. `--embed`, `--watch` (Section 11),
+  `--force`, `--reembed`, `--rewrite-signature <sig>`.
+- `mdm search "<query>"` — filtered over the resolved partition; keyed by real path,
+  origin-tagged; `--rerank`; `--across` for the cross-db read.
+- `mdm map [--all] [--across]` — comprehension (Section 12) over the partition, the
+  whole db (`--all`), or across dbs (`--across`).
+- `mdm manifest list|remove|refresh|relink|inspect|suggest` — manage the manifest
+  (`inspect` shows signature, counts, health, staleness; `suggest` reports
+  directories with dense markdown as candidates — suggest-only, no crawl-ingest).
+- Database selection is ambient via `MDM_HOME`.
 
 ## 11. Freshness
 
-`mdm index --watch` today rebuilds only the structural index
-(`src/index/watcher.ts` calls `buildIndex`, not `buildEmbeddings`), so
-`--embed --watch` silently lets semantic vectors go stale. This design fixes
-that: the watch path performs an incremental embedding refresh for changed files
-so `--embed --watch` keeps both structural and semantic indexes current. Catalog
-registries can be refreshed on demand (`registry refresh`) or watched.
+`mdm index --watch` today rebuilds only the structural index (`watcher.ts` calls
+`buildIndex`, not `buildEmbeddings`), so `--embed --watch` lets vectors go stale.
+Fixed: the watch path performs an incremental embedding refresh for changed files
+(`buildEmbeddings` is already delta by section id), honoring the manifest's
+recurse/depth and the nested ignore rules, writing via the generation swap.
+`mdm manifest refresh` refreshes on demand.
 
 ## 12. Comprehension layer
 
-The differentiated value, computed over the resolved project scope (not the
-whole machine), additive on top of embeddings already built:
+The differentiated value ("make chaos legible"), over the partition, the whole db,
+or across dbs:
 
-- **Theme map (`mdm map`).** Cluster the in-scope corpus by embedding
-  (k-means or HDBSCAN over the vectors), label each cluster via the existing
-  `aiSummarization` provider from representative docs, and present "N documents
-  in K themes, living across these directories." Chaos becomes legible. Output
-  in text and JSON; available over MCP.
-- **Near-duplicate detection.** Extend the existing exact-duplicate command with
-  semantic near-dups via cosine threshold over vectors: "these 9 notes are the
-  same idea."
+- **Theme map (`mdm map`).** Cluster the in-scope corpus by embedding, label each
+  cluster via the existing `aiSummarization` provider, present "N documents in K
+  themes across these directories." `--all` covers the whole db; `--across` covers
+  every db (Section 9). Text + JSON; over MCP.
+- **Near-duplicate detection.** Extend the existing exact-duplicate command
+  (`src/cli/commands/duplicates.ts`) with semantic near-dups via cosine threshold.
 - **Relationships and orphans.** The existing link/backlink graph plus semantic
-  relatedness — hubs, islands, what connects to what.
-- **Organization suggestions (suggest only, never move):** a note's cluster vs
-  its directory, candidate merges for near-dups. Surfaced, never applied to the
-  user's files.
+  relatedness — hubs, islands, connections.
+- **Misfiled flag (descriptive, not prescriptive).** A thin derived signal in
+  `mdm map` output: a note whose cluster differs from its directory siblings. The
+  v1 organization-suggestion/merge *engine* is **cut**; kept as a flag only.
 
 ## 13. Codebase health / refactor map
 
-Robust means the federation engine sits on a clean core, not bolted onto
-oversized files. Pre-existing files over the 700-line limit, to be decomposed as
-part of this work (not grown):
-
-- `src/cli/commands/search.ts` (~1316 LOC) — extract single-root execution into
-  helpers; the command only wires options and calls `federatedSearch`.
-- `src/embeddings/vector-store.ts` (~823 LOC) — separate persistence, query, and
-  metadata concerns; federation wraps the existing store, does not fork HNSW.
-- `src/embeddings/embedding-namespace.ts` (~947 LOC) — split namespace
-  generation, active-provider resolution, and path helpers.
+Pre-existing files over the 700-line limit, decomposed as part of this work (not
+grown): `src/cli/commands/search.ts` (~1316), `src/embeddings/vector-store.ts`
+(~823), `src/embeddings/embedding-namespace.ts` (~947).
 
 New, focused modules (each well under 700 LOC):
 
 ```
-src/federation/catalog.ts      # read/write ~/.mdm/catalog.toml, canonicalization
-src/federation/scope.ts        # resolve project scope -> ResolvedRegistry[]
-src/federation/compat.ts       # signature grouping, mismatch reporting
-src/federation/search.ts       # multi-registry query, dedup, RRF merge, rerank
-src/federation/types.ts        # shared types
-src/comprehension/cluster.ts   # cluster + label
-src/comprehension/map.ts       # theme map assembly
-src/comprehension/neardup.ts   # semantic near-duplicate detection
+src/home.ts                    # resolveMdmHome, dbIndexDir abstraction, config merge (5)
+src/db/manifest.ts             # read/write manifest.toml, recurse/depth
+src/db/canonical.ts            # canonical document key + boundary-aware prefix +
+                               #   shared resolveSourceFile(key) (replaces every
+                               #   path.join(root, documentPath) caller) (7.1)
+src/db/signature.ts            # signature detect/compare + mismatch UX (6.1)
+src/db/generation.ts           # gen-<n> write, current-pointer flip, reader lease/reap (7.2)
+src/db/ingest.ts               # manifest-driven ingest, vector import
+src/db/partition.ts            # resolve partition -> {home, prefixes, coverage}
+src/db/search.ts               # single-db filtered query + selectivity strategy
+src/federation/crossdb.ts      # cross-db read: per-signature embed, union rerank (9)
+src/comprehension/{cluster,map,neardup}.ts
 ```
+
+The canonical-key migration is a required, enumerated part of the `canonical.ts`
+work: every `path.join(root, documentPath)` site listed in §7.1 moves to
+`resolveSourceFile`, and existing on-disk indexes rewrite relative keys to canonical
+on first ingest/import.
 
 ## 14. MCP surface
 
-- The MCP server resolves the federation scope from the cwd project config at
-  startup and fans out; `rootPath` becomes the **anchor project**, not the only
-  corpus. Removes the `cd ~/.mdx` launch hack.
-- `md_search` / `md_context` gain an optional `scope`/registry selector and
-  return path-keyed, registry-attributed refs that round-trip into `md_context`.
-- `md_map` exposes the comprehension map.
-- **Bounded LRU vector-store cache** replaces the current unbounded `Map`
-  (`src/embeddings/hnsw-cache.ts`), keyed by `path::namespace::vectorMtime`,
-  with a `maxLoadedIndexes` bound and lazy mount — required because the MCP
-  server is long-lived and may mount many large registries.
-- **Per-registry path security:** the current single-root lexical+realpath
-  guard (`src/mcp/adapter.ts`) is applied per resolved registry; MCP never
-  accepts arbitrary external paths in tool args, only configured registries.
+- The server resolves `MDM_HOME` + the project partition from cwd at startup and
+  serves the db; the partition is the default filter. Removes the `cd ~/.mdx` hack.
+- `md_search` / `md_context` gain an optional prefix selector and return path-keyed,
+  origin-attributed refs that round-trip into `md_context`. (`md_search` moves from
+  `semanticSearch` to the filtered hybrid engine — a called-out change.)
+- `md_map` exposes the comprehension map (partition / `--all` / `--across`).
+- **Declared-but-not-ingested prefix (non-interactive):** MCP does not prompt. It
+  does a cheap structural ingest on first use and returns a "semantic pending" ref,
+  or a structured "not indexed" ref. Signature mismatch returns a structured "needs
+  its own home or --reembed" ref — never a silent skip or empty result.
+- **Bounded LRU vector-store cache** replaces the unbounded `Map`, keyed by
+  `home::namespace::gen`, `maxLoadedIndexes` bound, lazy mount.
+- **Per-partition path security:** the root-parameterized realpath guard
+  (`adapter.ts`) is applied per allowed prefix; only paths inside the partition are
+  accepted.
 
 ## 15. Failure modes and robustness
 
 | Failure | Behavior |
 | --- | --- |
-| Declared registry path missing/moved | Report `not found (moved/deleted?)`, offer relink; continue with the rest. |
-| Provider key missing for a signature group | That group degrades to BM25/keyword-only, warn, never hard-fail. |
-| Mixed signatures | Per-group query embedding + RRF across groups. |
-| Overlapping/nested registries | Realpath dedup; attribute to nearest containing registry. |
-| Large/long-lived MCP memory | Bounded LRU + lazy mount + `maxLoadedIndexes`. |
-| Stale index (files changed since slurp) | `registry inspect` reports staleness; `index`/`refresh` is incremental and cheap. |
-| Corrupt/partial index in a registry | Skip that registry with a clear error, search the rest. |
+| `mdm index <dir>` signature ≠ db | World-class 3-option guidance (new home / `--reembed` costed / `--rewrite-signature` destructive), cost+time quantified; nothing written until chosen (6.1). |
+| Manifest directory missing/moved | Report `not found (moved/deleted?)`, offer relink; continue with the rest. |
+| Symlink directory re-targeted | Detect declared-vs-canonical mismatch, treat as move; never wrong corpus silently. |
+| File hardlinked into two manifest dirs | Stored once (least-path survives); membership is inode-aware so it belongs to every containing partition (7.1). |
+| Partition prefix partially covered | Warn with the exact gap + the `mdm index` to close it; return present files (8). |
+| All partition prefixes absent | Loud blocking error (cloned to a new machine?); never silent local-only. |
+| Concurrent index/watch/MCP + search (separate processes) | Generation swap + `current` flip + per-generation reader lease; readers pin one generation; no torn reads, no premature reap, no leak (7.2). |
+| Home relocated on-disk / to another machine | Rehome migration rewrites canonical keys; a bare copy is flagged, not silently wrong (18). |
+| Corrupt/partial generation | Clear error + `--force`; the last-good `current` still serves. |
 
 ## 16. Test strategy
 
-- Fixtures: ≥2 registries with deterministic fake embeddings, ≥1 incompatible
-  signature, ≥1 overlapping/nested pair, ≥1 missing path. No live API calls.
-- Single-root behavior unchanged when no `[project].registries` is set
-  (regression guard).
-- Federated search returns merged, path-keyed, registry-attributed results;
-  realpath dedup verified on the overlapping pair.
-- Mixed-signature search embeds once per group and RRF-merges; missing-key group
-  degrades to keyword and still contributes.
-- Catalog round-trips; canonicalization collapses symlink/`~`/absolute to one
-  entry; relink updates references.
-- `--embed --watch` refreshes embeddings on file change (the current gap).
-- MCP: `md_search` returns registry-attributed refs; `md_context` consumes a
-  ref; path traversal via ref is rejected; LRU evicts under bound.
-- Comprehension: clustering is deterministic on fixtures; near-dup threshold
-  flags the planted duplicate; map JSON shape is stable.
+- Fixtures: a db over ≥2 directories with deterministic fake embeddings; ≥1
+  overlapping/nested pair; ≥1 case-variant path; ≥1 hardlink into two manifest
+  dirs; ≥1 missing path; ≥1 symlink re-target; ≥1 depth-partial prefix. A second db
+  of a different signature for the cross-db read. No live API calls.
+- Regression: single-root behavior unchanged with no `[project].dirs` + no manifest.
+- `MDM_HOME` selects the db and its config; two homes fully isolated; no
+  `~/.mdm/.mdm/` doubling; a not-yet-existing `MDM_HOME` is created then resolved;
+  config merge precedence (`.mdm.local.toml` over `.mdm.toml` over `$MDM_HOME/.mdm.toml`).
+- Signature enforcement: mismatch triggers the 3-option flow and writes nothing;
+  no-prior-index uses "would produce"; `--reembed` brings one dir in; `--rewrite-signature`
+  re-embeds under confirm; same-signature import re-inserts from `vectors.meta.bin`
+  with zero embedding calls.
+- Canonical key: ingest keys canonical; import rewrites relative→canonical; every
+  former `path.join(root, documentPath)` site resolves via `resolveSourceFile`;
+  boundary-aware prefix rejects `~/work-notes` for prefix `~/work`; case-fold and
+  hardlink dedup verified; **a file hardlinked into two manifest dirs is found by a
+  partition on either link.**
+- Generation swap: a search during a concurrent rebuild always reads one consistent
+  generation; a held (leased) generation is not reaped; a reader whose gate closes
+  mid-resolve retries onto `current`; a released one is reaped after grace. A **live
+  lease older than any backstop is never reaped**; a crashed holder (dead PID, or
+  PID reused with a mismatched start identity) is reclaimed after grace.
+- Partition coverage: present/partial/absent behaviors; best-ancestor-coverage →
+  present; all-absent blocks loudly; single-file prefix matches one file.
+- include_local: `read` never writes; `ingest` writes only on opt-in.
+- Nested ignore: negation across levels; ignore file in an ignored dir skipped.
+- Cross-db read: mixed-signature embeds once per signature; **rerank scores the
+  union of per-db over-fetched candidates** (a large db's deep-but-strong hit is not
+  gated out by a tiny db's rank-1); semantic + BM25 floors both applied; tiebreak
+  deterministic; `map --across` enumerates.
+- `--embed --watch` refreshes embeddings on change.
+- MCP: origin-attributed refs; traversal outside partition rejected; LRU evicts;
+  not-ingested and signature-mismatch return the defined refs.
+- Comprehension: clustering deterministic; near-dup flags the plant; `map --all`
+  covers the db; JSON shape stable.
 
 ## 17. Delivery sequencing
 
-The target is the whole system. Sequencing exists only so each step is
-verifiable and the tree stays green — not to ship a partial product and stop.
+The target is the whole system; sequencing keeps each step verifiable and green.
 
-1. **Catalog + full-path identity + canonicalization** (`catalog.ts`,
-   `registry` command group, slurp registers path). Refactor `search.ts`
-   single-root execution into helpers first.
-2. **Federated search engine** (`scope.ts`, `search.ts`): declarative project
-   scope, multi-registry query, realpath dedup, RRF merge, source attribution,
-   `--rerank`. Same-signature and mixed-signature both handled; missing-key
-   degradation included (it is core, not deferred).
-3. **MCP federation**: scope resolution, bounded LRU, per-registry security,
-   refs; remove the `cd ~/.mdx` hack.
-4. **Freshness**: `--embed --watch` embedding refresh; `registry refresh`.
-5. **Comprehension**: `map`, clustering+labeling, semantic near-dup,
-   relationships; suggestions (suggest-only).
+1. **Home + canonical key + manifest + consolidated ingest.** `resolveMdmHome` +
+   `dbIndexDir` + config merge (§5); `canonical.ts` (the keystone) with the shared
+   `resolveSourceFile` and the `path.join` migration; `manifest.toml`; ingest into
+   one db; **signature detect + enforcement UX** (6.1); **same-signature vector
+   import** (6.2, validate on `~/.mdx` first); nested-ignore re-anchoring (6.3);
+   generation swap (7.2). Refactor `embedding-namespace.ts` and `vector-store.ts`
+   seams first.
+1b. **Thin whole-db `mdm map --all`** (cluster + label + near-dup, no partition
+   filter) — a step-1 exit criterion that proves comprehension on the consolidated
+   db before any search plumbing, so the differentiator can never stall behind
+   step 2.
+2. **Partitioned search.** `partition.ts` + `db/search.ts`: config split, home
+   binding, inode-aware canonical-prefix filter, 3-state coverage, selectivity
+   strategy, `include_local` read/ingest, origin attribution. Refactor `search.ts`.
+3. **Full comprehension.** Partition-scoped `mdm map`, relationships/orphans,
+   misfiled flag, `manifest suggest`.
+4. **MCP.** Home + partition resolution, filtered hybrid engine, bounded LRU,
+   per-partition security, refs (incl. not-ingested + signature-mismatch); remove
+   the `cd ~/.mdx` hack.
+5. **Freshness.** `--embed --watch` embedding refresh; `manifest refresh`.
+6. **Cross-db read.** Signature-aware view: per-signature embedding, **union
+   rerank**, dual-channel floors, deterministic tiebreak. `mdm map --across` (the
+   across-signature "everything" view) ships in scope; full cross-db search ranking
+   is the sole deferred follow-up.
 
-Each step ships behind real verification (tests + dogfood on the existing
-`~/.mdx` registry and this repo) and an adversarial review pass.
+Each step ships behind real verification (tests + dogfood on `~/.mdx` and this repo)
+and an adversarial review pass **run through the warroom**.
 
-## 18. Migration from `[[sources]]`
+## 18. Migration from v1
 
-Existing global `[[sources]]` entries auto-import into the catalog as registry
-paths (read by the same global reader). `mdm index --all` refreshes every
-catalog registry incrementally. `[[sources]]`
-parsing is kept for one or two releases with a deprecation note, then removed
-(the product is pre-release; the clean end state is the catalog).
+- **`[[sources]]`** entries auto-import into the default db's manifest as `[[dir]]`.
+  `name` is dropped.
+- **Existing per-directory `.mdm` indexes** of the same signature (e.g. `~/.mdx`)
+  import by re-inserting their `vectors.meta.bin` payload (Section 6.2); different
+  signature takes the 6.1 path.
+- **Canonical-key migration**: on first ingest/import an existing index's relative
+  document keys are rewritten to canonical (Section 7.1).
+- **Rehome migration** (`mdm manifest rehome <old> <new>` / on-copy detection):
+  rewrites canonical keys when a home moves on-disk or to another machine.
+- `[[sources]]` parsing kept one or two releases with a deprecation note, then
+  removed.
 
 ## 19. Open questions
 
-1. Clustering algorithm and default cluster-count selection (k-means with
-   silhouette vs HDBSCAN) — to be settled with a small spike on the real
-   `~/.mdx` corpus during step 5.
-2. Whether `mdm map` labels are cached per registry (cost) or recomputed on
-   demand.
-3. Whether project scope may also reference another project's *declared scope*
-   (transitive registries) or only concrete registry paths (default: concrete
-   paths only; no transitivity in v1).
+1. Clustering algorithm and default cluster-count selection (k-means + silhouette vs
+   HDBSCAN) — a small spike on the real `~/.mdx` corpus during step 1b.
+2. Whether `mdm map` labels are cached per db or recomputed on demand.
+3. `vectors.meta.bin` memory: inline embeddings make the payload large (0.5–1 GB
+   read whole into RAM at 100k+ entries; `save()` already warns >100 MB). Whether to
+   move to a memory-mapped/chunked store during consolidation, or defer.
+4. Nested-ignore performance on very deep trees (per-level ignore reads) — measure,
+   cache per directory.
+
+**Resolved:** consolidated-DB pivot (dissolves v1's RRF blocker); signature-homogeneous
+db with world-class 3-option enforcement + costed opt-in re-embed (6.1); one
+canonical document key + shared resolver with enumerated migration (7.1); inode-aware
+partition membership incl. hardlinks (7.1/8); atomic single-root generation swap with
+cross-process reader lease (7.2); `MDM_HOME` = db + config home with `dbIndexDir`
+abstraction, config-merge precedence, and not-yet-existing-home handling (5);
+`include_local` read/ingest split (8.1); 3-state partition coverage (8); cross-db
+rerank over the union with dual-channel floors (9); **cross-db map/enumerate in scope,
+only full cross-db search ranking deferred** (9/§17 step 6); comprehension pulled to
+step 1b; org-suggestion engine cut to a descriptive misfiled flag (12).
