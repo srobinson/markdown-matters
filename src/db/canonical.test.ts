@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs'
 import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -43,8 +44,8 @@ describe('canonical document identity', () => {
       Effect.all([canonicalizeSourceFile(z), canonicalizeSourceFile(a)]),
     )
     const selected = selectCanonicalSource(sources)
-    const realA = await fs.realpath(a)
-    const realZ = await fs.realpath(z)
+    const realA = realpathSync(a)
+    const realZ = realpathSync(z)
     const canonicalDir = await fs.realpath(dir)
 
     expect(selected.key).toBe(realA)
@@ -82,7 +83,7 @@ describe('canonical document identity', () => {
     )
     const selected = selectCanonicalSource(sources)
 
-    expect(selected.key).toBe(await fs.realpath(zoo))
+    expect(selected.key).toBe(realpathSync(zoo))
   })
 
   it('matches a declared prefix against realpath canonical keys', async () => {
@@ -156,7 +157,7 @@ describe('canonical document identity', () => {
     await fs.writeFile(file, '# Source\n')
     const source = await Effect.runPromise(canonicalizeSourceFile(file))
 
-    expect(resolveSourceFile(source.key)).toBe(await fs.realpath(file))
+    expect(resolveSourceFile(source.key)).toBe(realpathSync(file))
     expect(() => resolveSourceFile('relative.md' as DocumentKey)).toThrow(
       'DocumentKey must be absolute',
     )

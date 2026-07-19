@@ -42,6 +42,8 @@ export const expandDeclaredPath = (value: string): DeclaredPath => {
   return path.resolve(path.normalize(expanded)) as DeclaredPath
 }
 
+const resolveCanonicalPath = (value: string): string => realpathSync(value)
+
 const asciiCaseVariantInRange = (
   value: string,
   start: number,
@@ -89,7 +91,7 @@ export const canonicalizeSourceFile = (
   Effect.tryPromise({
     try: async () => {
       const declaredPath = expandDeclaredPath(value)
-      const key = (await fs.realpath(declaredPath)) as DocumentKey
+      const key = resolveCanonicalPath(declaredPath) as DocumentKey
       const stat = await fs.stat(key, { bigint: true })
       const caseSensitive = await detectCaseSensitivity(key, stat.dev, stat.ino)
 
@@ -181,9 +183,7 @@ export const sourceBelongsToPrefix = (
   const declaredPrefix = expandDeclaredPath(prefix)
   let canonicalPrefix: string
   try {
-    // Match the native representation used by fs.promises.realpath for keys.
-    // This also expands Windows short path aliases consistently.
-    canonicalPrefix = realpathSync.native(declaredPrefix)
+    canonicalPrefix = resolveCanonicalPath(declaredPrefix)
   } catch {
     canonicalPrefix = declaredPrefix
   }
