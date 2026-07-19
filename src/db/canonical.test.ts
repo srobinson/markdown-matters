@@ -6,6 +6,7 @@ import { Effect } from 'effect'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import {
+  belongsToAnyPrefix,
   canonicalizeSourceFile,
   type DocumentKey,
   expandDeclaredPath,
@@ -91,6 +92,39 @@ describe('canonical document identity', () => {
     expect(sourceBelongsToPrefix(selectCanonicalSource([source]), dir)).toBe(
       true,
     )
+  })
+
+  it('matches every hardlink alias against partition prefixes', async () => {
+    const dir = await makeTempDir()
+    const firstPrefix = path.join(dir, 'first')
+    const secondPrefix = path.join(dir, 'second')
+    await Promise.all([
+      fs.mkdir(firstPrefix, { recursive: true }),
+      fs.mkdir(secondPrefix, { recursive: true }),
+    ])
+    const first = path.join(firstPrefix, 'shared.md')
+    const second = path.join(secondPrefix, 'shared.md')
+    await fs.writeFile(first, '# Shared\n')
+    await fs.link(first, second)
+
+    const selected = selectCanonicalSource(
+      await Effect.runPromise(
+        Effect.all([
+          canonicalizeSourceFile(first),
+          canonicalizeSourceFile(second),
+        ]),
+      ),
+    )
+    const documentAliases = {
+      paths: selected.paths,
+      declaredPaths: selected.declaredPaths,
+    }
+
+    expect(belongsToAnyPrefix(documentAliases, [firstPrefix])).toBe(true)
+    expect(belongsToAnyPrefix(documentAliases, [secondPrefix])).toBe(true)
+    expect(
+      belongsToAnyPrefix(documentAliases, [path.join(dir, 'second-notes')]),
+    ).toBe(false)
   })
 
   it('folds comparison paths only when the containing volume is insensitive', async () => {

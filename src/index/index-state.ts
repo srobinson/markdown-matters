@@ -1,7 +1,7 @@
 import { Effect } from 'effect'
 import type { MdDocument, MdSection } from '../core/types.js'
 import type {
-  CanonicalSource,
+  CanonicalSourceSelection,
   DeclaredPath,
   DocumentKey,
 } from '../db/canonical.js'
@@ -87,22 +87,49 @@ const removeForwardEdges = (
   delete state.forward[source]
 }
 
-export const deleteIndexedDocument = (
+const removeIncomingEdges = (
+  state: MutableIndexState,
+  target: DocumentKey,
+): void => {
+  for (const source of state.backward[target] ?? []) {
+    const targets = state.forward[source]
+    if (targets) {
+      state.forward[source] = targets.filter(
+        (candidate) => candidate !== target,
+      )
+    }
+  }
+  delete state.backward[target]
+}
+
+export const findIndexedDocumentByDeclaredPath = (
   state: MutableIndexState,
   declaredPath: DeclaredPath,
-): void => {
-  const documentKey = Object.values(state.documents).find((document) =>
+): DocumentEntry | undefined =>
+  Object.values(state.documents).find((document) =>
     document.declaredPaths.includes(declaredPath),
-  )?.path
-  if (!documentKey) return
+  )
+
+export const deleteIndexedDocumentByKey = (
+  state: MutableIndexState,
+  documentKey: DocumentKey,
+): void => {
   const entry = state.documents[documentKey]
   if (!entry) return
 
   removeDocumentSections(state, entry)
   removeForwardEdges(state, documentKey)
-  delete state.backward[documentKey]
+  removeIncomingEdges(state, documentKey)
   delete state.brokenBySource[documentKey]
   delete state.documents[documentKey]
+}
+
+export const deleteIndexedDocument = (
+  state: MutableIndexState,
+  declaredPath: DeclaredPath,
+): void => {
+  const entry = findIndexedDocumentByDeclaredPath(state, declaredPath)
+  if (entry) deleteIndexedDocumentByKey(state, entry.path)
 }
 
 const flattenSections = (
@@ -133,7 +160,7 @@ const flattenSections = (
 
 export interface ApplyDocumentInput {
   readonly document: MdDocument
-  readonly source: CanonicalSource
+  readonly source: CanonicalSourceSelection
   readonly resolvedLinks: readonly DocumentKey[]
   readonly brokenLinks: readonly DeclaredPath[]
   readonly hash: string
@@ -159,8 +186,8 @@ export const applyDocument = (
   state.documents[source.key] = {
     id: document.id,
     path: source.key,
-    paths: [source.key],
-    declaredPaths: [source.declaredPath],
+    paths: source.paths,
+    declaredPaths: source.declaredPaths,
     identity: source.identity,
     comparisonKey: source.comparisonKey,
     title: document.title,

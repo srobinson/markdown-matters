@@ -4,9 +4,9 @@ import * as path from 'node:path'
 
 import { Effect } from 'effect'
 import ignore from 'ignore'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 
-import { discoverFiles } from './file-discovery.js'
+import { canonicalizeDiscoveredFiles, discoverFiles } from './file-discovery.js'
 
 const cleanup: string[] = []
 
@@ -49,4 +49,21 @@ it('follows contained symlinks without accepting sibling prefix targets', async 
       path.join(root, 'inside-link', 'inside.md'),
     ].sort(),
   )
+})
+
+it('probes case sensitivity once per device while grouping a batch', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'mdm-discovery-'))
+  cleanup.push(root)
+  const first = path.join(root, 'first.md')
+  const second = path.join(root, 'second.md')
+  await fs.writeFile(first, '# First\n')
+  await fs.writeFile(second, '# Second\n')
+  const probe = vi.fn().mockResolvedValue(true)
+
+  const result = await Effect.runPromise(
+    canonicalizeDiscoveredFiles([first, second], probe),
+  )
+
+  expect(result.selections).toHaveLength(2)
+  expect(probe).toHaveBeenCalledTimes(1)
 })
