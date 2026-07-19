@@ -29,7 +29,7 @@ export interface MutableIndexState {
   readonly byDocument: Record<string, string[]>
   readonly forward: Record<DocumentKey, DocumentKey[]>
   readonly backward: Record<DocumentKey, DocumentKey[]>
-  readonly brokenLinks: Set<DeclaredPath>
+  readonly brokenBySource: Record<DocumentKey, DeclaredPath[]>
 }
 
 const copyArrayRecord = <Key extends string, Value>(
@@ -54,7 +54,7 @@ export const createMutableIndexState = (
   byDocument: copyArrayRecord(sections.byDocument),
   forward: copyArrayRecord(links.forward),
   backward: copyArrayRecord(links.backward),
-  brokenLinks: new Set(links.broken),
+  brokenBySource: copyArrayRecord(links.brokenBySource),
 })
 
 const removeDocumentSections = (
@@ -74,6 +74,19 @@ const removeDocumentSections = (
   delete state.byDocument[entry.id]
 }
 
+const removeForwardEdges = (
+  state: MutableIndexState,
+  source: DocumentKey,
+): void => {
+  for (const target of state.forward[source] ?? []) {
+    const backList = state.backward[target]
+    const index = backList?.indexOf(source) ?? -1
+    if (index !== -1) backList?.splice(index, 1)
+    if (backList?.length === 0) delete state.backward[target]
+  }
+  delete state.forward[source]
+}
+
 export const deleteIndexedDocument = (
   state: MutableIndexState,
   declaredPath: DeclaredPath,
@@ -86,13 +99,9 @@ export const deleteIndexedDocument = (
   if (!entry) return
 
   removeDocumentSections(state, entry)
-  for (const target of state.forward[documentKey] ?? []) {
-    const backList = state.backward[target]
-    const index = backList?.indexOf(documentKey) ?? -1
-    if (index !== -1) backList?.splice(index, 1)
-  }
-  delete state.forward[documentKey]
+  removeForwardEdges(state, documentKey)
   delete state.backward[documentKey]
+  delete state.brokenBySource[documentKey]
   delete state.documents[documentKey]
 }
 
@@ -144,7 +153,7 @@ export const applyDocument = (
   const existing = state.documents[source.key]
   if (existing) {
     removeDocumentSections(state, existing)
-    delete state.forward[source.key]
+    removeForwardEdges(state, source.key)
   }
 
   state.documents[source.key] = {
@@ -178,7 +187,11 @@ export const applyDocument = (
     }
   }
   state.forward[source.key] = [...resolvedLinks]
-  for (const target of brokenLinks) state.brokenLinks.add(target)
+  if (brokenLinks.length > 0) {
+    state.brokenBySource[source.key] = [...new Set(brokenLinks)]
+  } else {
+    delete state.brokenBySource[source.key]
+  }
   return {
     sectionsIndexed: sections.length,
     linksIndexed: resolvedLinks.length + brokenLinks.length,
@@ -188,8 +201,15 @@ export const applyDocument = (
 export const saveIndexState = (
   storage: IndexStorage,
   state: MutableIndexState,
-) =>
-  saveDocumentIndex(storage, {
+) => {
+  const broken = [
+    ...new Set(
+      (Object.keys(state.brokenBySource) as DocumentKey[])
+        .sort()
+        .flatMap((source) => state.brokenBySource[source] ?? []),
+    ),
+  ]
+  return saveDocumentIndex(storage, {
     version: state.documentVersion,
     rootPath: storage.sourceRoot,
     documents: state.documents,
@@ -207,7 +227,9 @@ export const saveIndexState = (
         version: state.linkVersion,
         forward: state.forward,
         backward: state.backward,
-        broken: [...state.brokenLinks],
+        brokenBySource: state.brokenBySource,
+        broken,
       }),
     ),
   )
+}

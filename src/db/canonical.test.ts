@@ -159,6 +159,15 @@ describe('canonical document identity', () => {
     )
   })
 
+  it('keeps every realpath call on the shared nonnative variant', async () => {
+    const source = await fs.readFile(
+      new URL('./canonical.ts', import.meta.url),
+      'utf-8',
+    )
+
+    expect(source).not.toContain('realpathSync.native')
+  })
+
   it('reports missing source files through FileReadError', async () => {
     const dir = await makeTempDir()
     const missing = path.join(dir, 'missing.md')

@@ -85,6 +85,7 @@ const LinkIndexSchema = Schema.Struct({
   version: Schema.Literal(INDEX_VERSION),
   forward: documentKeyRecord(Schema.Array(DocumentKeySchema)),
   backward: documentKeyRecord(Schema.Array(DocumentKeySchema)),
+  brokenBySource: documentKeyRecord(Schema.Array(DeclaredPathSchema)),
   broken: Schema.Array(DeclaredPathSchema),
 })
 
@@ -369,6 +370,7 @@ export const createEmptyLinkIndex = (): LinkIndex => ({
   version: INDEX_VERSION,
   forward: Object.create(null),
   backward: Object.create(null),
+  brokenBySource: Object.create(null),
   broken: [],
 })
 

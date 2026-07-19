@@ -346,6 +346,7 @@ describe('LinkIndex round-trip', () => {
       version: INDEX_VERSION,
       forward: { [a]: [b, c] },
       backward: { [b]: [a], [c]: [a] },
+      brokenBySource: { [a]: [d] },
       broken: [d],
     }
 
@@ -355,6 +356,7 @@ describe('LinkIndex round-trip', () => {
     expect(loaded).not.toBeNull()
     expect(loaded!.forward[a]).toEqual([b, c])
     expect(loaded!.backward[b]).toEqual([a])
+    expect(loaded!.brokenBySource[a]).toEqual([d])
     expect(loaded!.broken).toEqual([d])
   })
 
@@ -368,6 +370,7 @@ describe('LinkIndex round-trip', () => {
     expect(empty.version).toBe(INDEX_VERSION)
     expect(Object.keys(empty.forward)).toHaveLength(0)
     expect(Object.keys(empty.backward)).toHaveLength(0)
+    expect(Object.keys(empty.brokenBySource)).toHaveLength(0)
     expect(empty.broken).toEqual([])
   })
 })
@@ -485,6 +488,7 @@ describe('malformed JSON handling', () => {
         version: INDEX_VERSION,
         forward: { [source]: [] },
         backward: {},
+        brokenBySource: { [source]: ['missing.md'] },
         broken: ['missing.md'],
       }),
     )

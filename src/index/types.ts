@@ -70,6 +70,7 @@ export interface LinkIndex {
   readonly version: typeof INDEX_VERSION
   readonly forward: Record<DocumentKey, readonly DocumentKey[]>
   readonly backward: Record<DocumentKey, readonly DocumentKey[]>
+  readonly brokenBySource: Record<DocumentKey, readonly DeclaredPath[]>
   readonly broken: readonly DeclaredPath[]
 }
 

@@ -66,8 +66,7 @@ export const expandDeclaredPath = (value: string): DeclaredPath => {
 const resolveCanonicalPath = (value: string): Promise<string> =>
   fs.realpath(value)
 
-const resolveCanonicalPathSync = (value: string): string =>
-  realpathSync.native(value)
+const resolveCanonicalPathSync = (value: string): string => realpathSync(value)
 
 const asciiCaseVariantInRange = (
   value: string,

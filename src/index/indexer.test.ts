@@ -134,6 +134,9 @@ describe('buildIndex', () => {
       ).toBe(true)
       expect(links?.forward[readmeKey as DocumentKey]).toContain(guideKey)
       expect(links?.backward[guideKey as DocumentKey]).toContain(readmeKey)
+      expect(links?.brokenBySource[readmeKey as DocumentKey]).toContain(
+        missingPath,
+      )
       expect(links?.broken).toContain(missingPath)
       expect(links?.broken.every(path.isAbsolute)).toBe(true)
     })
@@ -476,6 +479,21 @@ describe('buildIndex', () => {
       )
     })
 
+    it('should remove a backlink when its source drops the link', async () => {
+      const sourcePath = path.join(linkDir, 'README.md')
+      const guidePath = path.join(linkDir, 'guide.md')
+      const sourceKey = await fs.realpath(sourcePath)
+
+      expect(await runGetIncomingLinks(linkDir, guidePath)).toContain(sourceKey)
+
+      await fs.writeFile(sourcePath, '# Home\n\nNo links remain.\n')
+      await runBuildIndex(linkDir, { changedPaths: [sourcePath] })
+
+      expect(await runGetIncomingLinks(linkDir, guidePath)).not.toContain(
+        sourceKey,
+      )
+    })
+
     it('should return empty for non-indexed file', async () => {
       const links = await runGetOutgoingLinks(
         linkDir,
@@ -513,6 +531,58 @@ describe('buildIndex', () => {
       const broken = await runGetBrokenLinks(dir)
 
       expect(broken).not.toContain(path.resolve(dir, 'guide.md'))
+    })
+
+    it('should remove a broken target when the source link becomes valid', async () => {
+      const dir = await createFixture({
+        'README.md': '# Home\n\nSee [Missing](./missing.md)\n',
+      })
+      const sourcePath = path.join(dir, 'README.md')
+      const missingPath = path.join(dir, 'missing.md')
+
+      await runBuildIndex(dir)
+      expect(await runGetBrokenLinks(dir)).toContain(missingPath)
+
+      await fs.writeFile(missingPath, '# Found\n')
+      await fs.writeFile(
+        sourcePath,
+        '# Home Updated\n\nSee [Found](./missing.md)\n',
+      )
+      await runBuildIndex(dir, { changedPaths: [sourcePath] })
+
+      expect(await runGetBrokenLinks(dir)).not.toContain(missingPath)
+    })
+
+    it('should remove broken targets when their source is deleted', async () => {
+      const dir = await createFixture({
+        'README.md': '# Home\n\nSee [Missing](./missing.md)\n',
+        'keep.md': '# Keep\n',
+      })
+      const sourcePath = path.join(dir, 'README.md')
+      const missingPath = path.join(dir, 'missing.md')
+
+      await runBuildIndex(dir)
+      expect(await runGetBrokenLinks(dir)).toContain(missingPath)
+
+      await fs.rm(sourcePath)
+      await runBuildIndex(dir, { changedPaths: [sourcePath] })
+
+      expect(await runGetBrokenLinks(dir)).not.toContain(missingPath)
+    })
+
+    it('should retain a broken target contributed by another source', async () => {
+      const dir = await createFixture({
+        'one.md': '# One\n\nSee [Missing](./missing.md)\n',
+        'two.md': '# Two\n\nSee [Missing](./missing.md)\n',
+      })
+      const firstSource = path.join(dir, 'one.md')
+      const missingPath = path.join(dir, 'missing.md')
+
+      await runBuildIndex(dir)
+      await fs.rm(firstSource)
+      await runBuildIndex(dir, { changedPaths: [firstSource] })
+
+      expect(await runGetBrokenLinks(dir)).toContain(missingPath)
     })
   })
 
