@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs'
 import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -121,7 +122,6 @@ const compareCanonicalSources = (
   left: CanonicalSource,
   right: CanonicalSource,
 ): number =>
-  compareText(left.comparisonKey, right.comparisonKey) ||
   compareText(left.key, right.key) ||
   compareText(left.declaredPath, right.declaredPath)
 
@@ -177,8 +177,18 @@ export const isPathWithin = (
 export const sourceBelongsToPrefix = (
   source: CanonicalSourceSelection,
   prefix: string,
-): boolean =>
-  source.paths.some((key) => isPathWithin(key, prefix, source.caseSensitive))
+): boolean => {
+  const declaredPrefix = expandDeclaredPath(prefix)
+  let canonicalPrefix: string
+  try {
+    canonicalPrefix = realpathSync(declaredPrefix)
+  } catch {
+    canonicalPrefix = declaredPrefix
+  }
+  return source.paths.some((key) =>
+    isPathWithin(key, canonicalPrefix, source.caseSensitive),
+  )
+}
 
 export const resolveSourceFile = (key: DocumentKey): string => {
   if (!path.isAbsolute(key)) {

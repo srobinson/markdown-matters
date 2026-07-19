@@ -70,6 +70,32 @@ describe('canonical document identity', () => {
     expect(before.identity).not.toEqual(after.identity)
   })
 
+  it('selects the lexically least raw hardlink key', async () => {
+    const dir = await makeTempDir()
+    const zoo = path.join(dir, 'Zoo.md')
+    const apple = path.join(dir, 'apple.md')
+    await fs.writeFile(zoo, '# Shared\n')
+    await fs.link(zoo, apple)
+
+    const sources = await Effect.runPromise(
+      Effect.all([canonicalizeSourceFile(apple), canonicalizeSourceFile(zoo)]),
+    )
+    const selected = selectCanonicalSource(sources)
+
+    expect(selected.key).toBe(await fs.realpath(zoo))
+  })
+
+  it('matches a declared prefix against realpath canonical keys', async () => {
+    const dir = await makeTempDir()
+    const file = path.join(dir, 'source.md')
+    await fs.writeFile(file, '# Source\n')
+    const source = await Effect.runPromise(canonicalizeSourceFile(file))
+
+    expect(sourceBelongsToPrefix(selectCanonicalSource([source]), dir)).toBe(
+      true,
+    )
+  })
+
   it('folds comparison paths only when the containing volume is insensitive', async () => {
     const dir = await makeTempDir()
     const exactDir = path.join(dir, 'CaseProbe')

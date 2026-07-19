@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { Effect } from 'effect'
 import type { Ignore } from 'ignore'
+import { isPathWithin } from '../db/canonical.js'
 import { DirectoryWalkError } from '../errors/index.js'
 import { shouldIgnore } from './ignore-patterns.js'
 
@@ -28,13 +29,13 @@ export const isMarkdownFile = (filename: string): boolean =>
 const walkDirectory = async (
   dir: string,
   rootPath: string,
+  canonicalRoot: string,
   filter: Ignore,
   options: WalkOptions = {},
 ): Promise<WalkResult> => {
   const files: string[] = []
   let hiddenCount = 0
   let excludedCount = 0
-  const normalizedRoot = path.resolve(rootPath)
   const entries = await fs.readdir(dir, { withFileTypes: true })
 
   for (const entry of entries) {
@@ -52,10 +53,7 @@ const walkDirectory = async (
     if (entry.isSymbolicLink() && options.followSymlinks) {
       try {
         const realPath = await fs.realpath(fullPath)
-        if (
-          !realPath.startsWith(normalizedRoot + path.sep) &&
-          realPath !== normalizedRoot
-        ) {
+        if (!isPathWithin(realPath, canonicalRoot, true)) {
           continue
         }
         const stat = await fs.stat(realPath)
@@ -63,6 +61,7 @@ const walkDirectory = async (
           const nested = await walkDirectory(
             fullPath,
             rootPath,
+            canonicalRoot,
             filter,
             options,
           )
@@ -78,7 +77,13 @@ const walkDirectory = async (
       continue
     }
     if (entry.isDirectory()) {
-      const nested = await walkDirectory(fullPath, rootPath, filter, options)
+      const nested = await walkDirectory(
+        fullPath,
+        rootPath,
+        canonicalRoot,
+        filter,
+        options,
+      )
       files.push(...nested.files)
       hiddenCount += nested.skipped.hidden
       excludedCount += nested.skipped.excluded
@@ -125,10 +130,19 @@ export const discoverFiles = (
     return Effect.promise(() => classifyChangedPaths(options.changedPaths!))
   }
   return Effect.tryPromise({
-    try: async () => ({
-      ...(await walkDirectory(rootPath, rootPath, filter, options)),
-      deletedPaths: [],
-    }),
+    try: async () => {
+      const canonicalRoot = await fs.realpath(rootPath)
+      return {
+        ...(await walkDirectory(
+          rootPath,
+          rootPath,
+          canonicalRoot,
+          filter,
+          options,
+        )),
+        deletedPaths: [],
+      }
+    },
     catch: (cause) =>
       new DirectoryWalkError({
         path: rootPath,
