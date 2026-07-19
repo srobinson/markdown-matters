@@ -12,8 +12,7 @@
 
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
-import * as msgpack from '@msgpack/msgpack'
-import { Effect, Schema } from 'effect'
+import { Effect } from 'effect'
 import HierarchicalNSW from 'hnswlib-node'
 import { DimensionMismatchError, VectorStoreError } from '../errors/index.js'
 import { INDEX_DIR } from '../index/types.js'
@@ -24,6 +23,32 @@ import {
   getVectorPath as getNamespacedVectorPath,
 } from './embedding-namespace.js'
 import type { VectorEntry, VectorIndex } from './types.js'
+import {
+  loadVectorIndex,
+  migrateJsonVectorIndex,
+  writeVectorIndex,
+} from './vector-store-codec.js'
+import type {
+  HnswBuildOptions,
+  HnswMismatchWarning,
+  VectorSearchOptions,
+  VectorSearchResult,
+  VectorSearchResultWithStats,
+  VectorStore,
+  VectorStoreLoadResult,
+  VectorStoreStats,
+} from './vector-store-types.js'
+
+export type {
+  HnswBuildOptions,
+  HnswMismatchWarning,
+  VectorSearchOptions,
+  VectorSearchResult,
+  VectorSearchResultWithStats,
+  VectorStore,
+  VectorStoreLoadResult,
+  VectorStoreStats,
+} from './vector-store-types.js'
 
 // ============================================================================
 // Constants
@@ -32,170 +57,6 @@ import type { VectorEntry, VectorIndex } from './types.js'
 const VECTOR_INDEX_FILE = 'vectors.bin'
 const VECTOR_META_FILE = 'vectors.meta.bin'
 const INDEX_VERSION = 1
-
-// ============================================================================
-// Runtime Schema Validation for Vector Metadata
-// ============================================================================
-
-// Schema.optional accepts undefined but msgpack serializes undefined as null.
-// Use Schema.NullishOr to accept both null and undefined for optional fields.
-const NullishString = Schema.Union(Schema.String, Schema.Null, Schema.Undefined)
-
-const VectorEntrySchema = Schema.Struct({
-  id: Schema.String,
-  sectionId: Schema.String,
-  documentPath: Schema.String,
-  heading: Schema.String,
-  embedding: Schema.Array(Schema.Number),
-})
-
-const HnswIndexParamsSchema = Schema.Struct({
-  m: Schema.Number,
-  efConstruction: Schema.Number,
-})
-
-const VectorIndexSchema = Schema.Struct({
-  version: Schema.Number,
-  provider: Schema.String,
-  providerModel: Schema.optional(NullishString),
-  providerBaseURL: Schema.optional(NullishString),
-  dimensions: Schema.Number,
-  entries: Schema.Record({ key: Schema.String, value: VectorEntrySchema }),
-  totalCost: Schema.Number,
-  totalTokens: Schema.Number,
-  createdAt: Schema.String,
-  updatedAt: Schema.String,
-  hnswParams: Schema.optional(
-    Schema.Union(HnswIndexParamsSchema, Schema.Null, Schema.Undefined),
-  ),
-})
-
-const decodeVectorIndex = (
-  raw: unknown,
-  source: string,
-): Effect.Effect<VectorIndex, VectorStoreError> =>
-  Schema.decodeUnknown(VectorIndexSchema)(raw).pipe(
-    Effect.mapError(
-      (parseError) =>
-        new VectorStoreError({
-          operation: 'load',
-          message: `Corrupted vector metadata (${source}): schema validation failed: ${String(parseError)}`,
-        }),
-    ),
-    // Schema output type is structurally compatible with VectorIndex
-    Effect.map((validated) => validated as unknown as VectorIndex),
-  )
-
-// ============================================================================
-// Vector Store
-// ============================================================================
-
-export interface VectorSearchOptions {
-  /** efSearch parameter for HNSW (controls recall/speed tradeoff, default: 100) */
-  readonly efSearch?: number | undefined
-}
-
-export interface VectorStore {
-  readonly rootPath: string
-  readonly dimensions: number
-  add(entries: VectorEntry[]): Effect.Effect<void, VectorStoreError>
-  search(
-    vector: number[],
-    limit: number,
-    threshold?: number,
-    options?: VectorSearchOptions,
-  ): Effect.Effect<VectorSearchResult[], VectorStoreError>
-  /**
-   * Search with additional stats about below-threshold results.
-   * Used to provide feedback when 0 results pass the threshold.
-   */
-  searchWithStats(
-    vector: number[],
-    limit: number,
-    threshold?: number,
-    options?: VectorSearchOptions,
-  ): Effect.Effect<VectorSearchResultWithStats, VectorStoreError>
-  save(): Effect.Effect<void, VectorStoreError>
-  /**
-   * Load the vector store from disk.
-   *
-   * @returns VectorStoreLoadResult with loaded status and any warnings
-   * @throws DimensionMismatchError if the stored dimensions don't match current provider
-   */
-  load(): Effect.Effect<
-    VectorStoreLoadResult,
-    VectorStoreError | DimensionMismatchError
-  >
-  getStats(): VectorStoreStats
-  /**
-   * Return the set of entry IDs currently in the store.
-   * Used for delta embedding to determine which sections already have vectors.
-   */
-  getEmbeddedIds(): Set<string>
-  /**
-   * Soft-delete entries by ID. Marks them as deleted in the HNSW index
-   * so they are excluded from search results without rebuilding the index.
-   */
-  removeEntries(ids: string[]): Effect.Effect<void, VectorStoreError>
-  /** Set the embedding provider metadata (name, model, base URL). */
-  setProvider(name: string, model?: string, baseURL?: string): void
-  /** Accumulate embedding cost and token usage. */
-  addCost(cost: number, tokens: number): void
-  /** Set a namespace prefix for index file paths. */
-  setNamespace(namespace: string): void
-  /** Return the current namespace, if any. */
-  getNamespace(): string | undefined
-}
-
-export interface VectorSearchResult {
-  readonly id: string
-  readonly sectionId: string
-  readonly documentPath: string
-  readonly heading: string
-  readonly similarity: number
-}
-
-/**
- * Extended search result with metadata about below-threshold results.
- * Used to provide user feedback when 0 results pass the threshold.
- */
-export interface VectorSearchResultWithStats {
-  readonly results: VectorSearchResult[]
-  /** Number of results that were found but below threshold */
-  readonly belowThresholdCount: number
-  /** Highest similarity score among below-threshold results (if any) */
-  readonly belowThresholdHighest: number | null
-}
-
-export interface VectorStoreStats {
-  readonly count: number
-  readonly dimensions: number
-  readonly provider: string
-  readonly providerModel?: string | undefined
-  readonly totalCost: number
-  readonly totalTokens: number
-}
-
-/**
- * Result of loading a vector store, including any warnings about config mismatches.
- */
-export interface VectorStoreLoadResult {
-  /** Whether the index was loaded successfully */
-  readonly loaded: boolean
-  /** Warning about HNSW parameter mismatch (if any) */
-  readonly hnswMismatch?: HnswMismatchWarning | undefined
-}
-
-/**
- * Warning when HNSW parameters in config differ from stored index parameters.
- * The index was built with different parameters than currently configured.
- */
-export interface HnswMismatchWarning {
-  /** Current config values */
-  readonly configParams: { m: number; efConstruction: number }
-  /** Values stored in the index */
-  readonly indexParams: { m: number; efConstruction: number }
-}
 
 // ============================================================================
 // Implementation
@@ -530,9 +391,7 @@ class HnswVectorStore implements VectorStore {
               )
             }
 
-            // Encode with MessagePack and write
-            const encoded = msgpack.encode(meta)
-            await fs.writeFile(this.getMetaPath(), encoded)
+            await writeVectorIndex(this.getMetaPath(), meta)
           },
           catch: (e) =>
             new VectorStoreError({
@@ -582,71 +441,10 @@ class HnswVectorStore implements VectorStore {
           return { loaded: false }
         }
 
-        // Load raw metadata - try binary first, fall back to JSON for migration
-        const rawMeta = yield* Effect.tryPromise({
-          try: async () => {
-            // Try binary format first (new)
-            try {
-              await fs.access(metaPath)
-              const buffer = await fs.readFile(metaPath)
-              return {
-                data: msgpack.decode(buffer) as unknown,
-                source: 'binary' as const,
-              }
-            } catch {
-              // Fall back to JSON for migration (old)
-              const jsonPath = metaPath.replace('.bin', '.json')
-              try {
-                await fs.access(jsonPath)
-                const json = await fs.readFile(jsonPath, 'utf-8')
-                return {
-                  data: JSON.parse(json) as unknown,
-                  source: 'json' as const,
-                }
-              } catch {
-                throw new Error('Metadata file not found')
-              }
-            }
-          },
-          catch: (e) =>
-            new VectorStoreError({
-              operation: 'load',
-              message: `Failed to read metadata: ${e instanceof Error ? e.message : String(e)}`,
-              cause: e,
-            }),
-        })
-
-        // Apply legacy index migration: default to 'openai' if provider is missing.
-        // Patch raw data before schema validation so legacy indexes pass.
-        const patched =
-          rawMeta.data &&
-          typeof rawMeta.data === 'object' &&
-          !(
-            'provider' in rawMeta.data &&
-            (rawMeta.data as Record<string, unknown>).provider
-          )
-            ? { ...rawMeta.data, provider: 'openai' }
-            : rawMeta.data
-
-        // Validate metadata against schema
-        const meta = yield* decodeVectorIndex(patched, rawMeta.source)
+        const { meta, source } = yield* loadVectorIndex(metaPath)
 
         // Auto-migrate JSON metadata to binary format
-        if (rawMeta.source === 'json') {
-          yield* Effect.tryPromise({
-            try: async () => {
-              const encoded = msgpack.encode(meta)
-              await fs.writeFile(metaPath, encoded)
-              const jsonPath = metaPath.replace('.bin', '.json')
-              await fs.unlink(jsonPath).catch(() => {})
-            },
-            catch: () =>
-              new VectorStoreError({
-                operation: 'load',
-                message: 'Failed to migrate metadata to binary format',
-              }),
-          }).pipe(Effect.catchAll(() => Effect.void))
-        }
+        if (source === 'json') yield* migrateJsonVectorIndex(metaPath, meta)
 
         // Verify dimensions match - fail with clear error if mismatch
         if (meta.dimensions !== this.dimensions) {
@@ -762,21 +560,6 @@ class HnswVectorStore implements VectorStore {
     this.totalCost += cost
     this.totalTokens += tokens
   }
-}
-
-// ============================================================================
-// Factory
-// ============================================================================
-
-/**
- * HNSW build parameters for index construction.
- * These affect index quality and build time - changes require index rebuild.
- */
-export interface HnswBuildOptions {
-  /** Max connections per node (default: 16). Higher = better recall, larger index. */
-  readonly m?: number | undefined
-  /** Construction-time search width (default: 200). Higher = better quality, slower builds. */
-  readonly efConstruction?: number | undefined
 }
 
 /**
