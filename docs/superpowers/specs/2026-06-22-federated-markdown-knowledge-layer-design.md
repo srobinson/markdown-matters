@@ -229,16 +229,14 @@ directory. Option 3 is the destructive nuke-and-rewrite of the whole db, gated
 behind an explicit confirm. The feedback always states both signatures, explains
 the constraint, quantifies, and never proceeds without intent.
 
-### 6.2 Vector import (no re-embed)
+### 6.2 Fresh embedding (no import, no backcompat)
 
-When a manifest directory already has an mdm index of the **same signature** (e.g.
-`~/.mdx` = openai/512 = the common default), ingest imports it by decoding its
-stored metadata payload `<dir>/.mdm/embeddings/<ns>/vectors.meta.bin` (verified
-122 MB, 25,300 entries with full 512-dim embeddings inline — this file supplies the
-re-insert payload; the raw `vectors.bin` HNSW graph need not be merged) and
-re-inserting via `add(entries)` — precomputed, zero API calls, labels remapped,
-`entries` map updated. Keys are rewritten to the canonical document key on import
-(Section 7.1). A different-signature directory takes the Section 6.1 path.
+`mdm index` embeds a directory's markdown from source into the db under the db's
+signature. There is **no** import of any pre-existing v1 per-directory `.mdm` index
+and **no** migration (Section 18) — a stale old index is nuked and rebuilt fresh.
+Subsequent runs are incremental: content-hash caching re-embeds only changed files,
+so re-indexing an unchanged corpus costs nothing. A directory whose declared
+signature differs from the db's takes the Section 6.1 mismatch path.
 
 ### 6.3 Git-style nested ignore inheritance
 
@@ -589,19 +587,18 @@ The target is the whole system; sequencing keeps each step verifiable and green.
 Each step ships behind real verification (tests + dogfood on `~/.mdx` and this repo)
 and an adversarial review pass **run through the warroom**.
 
-## 18. Migration from v1
+## 18. No migration, no backwards compatibility
 
-- **`[[sources]]`** entries auto-import into the default db's manifest as `[[dir]]`.
-  `name` is dropped.
-- **Existing per-directory `.mdm` indexes** of the same signature (e.g. `~/.mdx`)
-  import by re-inserting their `vectors.meta.bin` payload (Section 6.2); different
-  signature takes the 6.1 path.
-- **Canonical-key migration**: on first ingest/import an existing index's relative
-  document keys are rewritten to canonical (Section 7.1).
-- **Rehome migration** (`mdm manifest rehome <old> <new>` / on-copy detection):
-  rewrites canonical keys when a home moves on-disk or to another machine.
-- `[[sources]]` parsing kept one or two releases with a deprecation note, then
-  removed.
+By design. The product is pre-release with **no users and no data worth
+preserving** — any pre-existing v1 index (e.g. the old `~/.mdx/.mdm`) is deleted and
+rebuilt fresh under the new layout. There is **no** `[[sources]]` import, **no**
+relative-to-canonical key migration, **no** vector import from old indexes, and
+**no** rehome migration. Stores are written in the canonical schema from the first
+build and readers assume it. **This section supersedes any migration/import/backcompat
+language elsewhere in this document** — the Section 6.2 vector-import (removed), the
+Section 7.1 relative-key migration, and any migration tasks/tests implied in
+Sections 13/16 are void. A fresh `mdm index` embeds from source; incremental
+content-hash caching (Section 6) avoids re-embedding unchanged files on later runs.
 
 ## 19. Open questions
 
