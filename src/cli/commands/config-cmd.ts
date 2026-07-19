@@ -5,7 +5,6 @@
  */
 
 import * as fs from 'node:fs'
-import * as os from 'node:os'
 import * as path from 'node:path'
 import { Command, Options } from '@effect/cli'
 import { Console, Effect, Option } from 'effect'
@@ -18,6 +17,7 @@ import {
   type PartialMdmConfig,
 } from '../../config/index.js'
 import { ConfigError } from '../../errors/index.js'
+import { resolveMdmHome } from '../../home.js'
 import { jsonOption, prettyOption } from '../options.js'
 import { formatJson } from '../utils.js'
 
@@ -33,7 +33,7 @@ const initCommand = Command.make(
     ),
     global: Options.boolean('global').pipe(
       Options.withAlias('g'),
-      Options.withDescription('Write to ~/.mdm/.mdm.toml instead of PWD'),
+      Options.withDescription('Write to the active MDM_HOME instead of PWD'),
       Options.withDefault(false),
     ),
     json: jsonOption,
@@ -42,13 +42,8 @@ const initCommand = Command.make(
   ({ force, global: useGlobal, json, pretty }) =>
     Effect.gen(function* () {
       const targetDir = useGlobal
-        ? path.join(os.homedir(), '.mdm')
+        ? resolveMdmHome({ create: true })
         : process.cwd()
-
-      // Ensure target dir exists for global
-      if (useGlobal && !fs.existsSync(targetDir)) {
-        fs.mkdirSync(targetDir, { recursive: true })
-      }
 
       const filepath = path.join(targetDir, '.mdm.toml')
 
@@ -137,7 +132,9 @@ const showCommand = Command.make(
           yield* Console.log('')
           yield* Console.log('Searched for:')
           yield* Console.log('  - .mdm.toml (project-local)')
-          yield* Console.log('  - ~/.mdm/.mdm.toml (global)')
+          yield* Console.log(
+            `  - ${path.join(resolveMdmHome(), '.mdm.toml')} (active home)`,
+          )
           yield* Console.log('')
           yield* Console.log("Run 'mdm config init' to create one.")
         }

@@ -82,7 +82,10 @@ describe('mdm CLI e2e', () => {
     })
 
     await Effect.runPromise(
-      buildIndex(testFixtureDir, { force: REBUILD_TEST_INDEX }),
+      buildIndex(testFixtureDir, {
+        indexRoot: testHomeDir,
+        force: REBUILD_TEST_INDEX,
+      }),
     )
     await fs.cp(
       path.join(testHomeDir, 'indexes'),
@@ -162,6 +165,7 @@ describe('mdm CLI e2e', () => {
       expect(output).toContain('--embed')
       expect(output).toContain('--watch')
       expect(output).toContain('--force')
+      expect(output).not.toContain('--all')
     })
 
     it('search help shows keyword and limit options', async () => {
@@ -181,7 +185,7 @@ describe('mdm CLI e2e', () => {
     it('shows notes section when relevant', async () => {
       const indexHelp = await run('index --help')
       expect(indexHelp).toContain('NOTES')
-      expect(indexHelp).toContain('.mdm')
+      expect(indexHelp).toContain('MDM_HOME')
 
       const searchHelp = await run('search --help')
       expect(searchHelp).toContain('NOTES')

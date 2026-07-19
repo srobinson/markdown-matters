@@ -33,7 +33,6 @@ import {
   type IndexCorruptedError,
   WatchError,
 } from '../errors/index.js'
-import { dbIndexDir, resolveMdmHome } from '../home.js'
 import { getChokidarIgnorePatterns } from './ignore-patterns.js'
 import { buildIndex, type IndexOptions } from './indexer.js'
 import { createStorage, indexExists } from './storage.js'
@@ -79,14 +78,11 @@ const isMarkdownFile = (filePath: string): boolean =>
 
 export const watchDirectory = (
   rootPath: string,
-  options: WatcherOptions = {},
+  options: WatcherOptions,
 ): Effect.Effect<Watcher, WatchDirectoryError> =>
   Effect.gen(function* () {
     const resolvedRoot = path.resolve(rootPath)
-    const storage = createStorage(
-      resolvedRoot,
-      dbIndexDir(resolveMdmHome()),
-    )
+    const storage = createStorage(resolvedRoot, options.indexRoot)
     const debounceMs = options.debounceMs ?? 300
 
     // Ensure index exists

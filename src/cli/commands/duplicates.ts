@@ -37,7 +37,7 @@ export const duplicatesCommand = Command.make(
       const resolvedDir = path.resolve(dirPath)
 
       // Check for index
-      const indexInfo = yield* Effect.promise(() => getIndexInfo(resolvedDir))
+      const indexInfo = yield* Effect.promise(() => getIndexInfo())
 
       if (!indexInfo.exists && !json) {
         yield* Console.log('No index found.')
@@ -46,11 +46,8 @@ export const duplicatesCommand = Command.make(
         return
       }
 
-      // Determine the actual index root
-      const indexRoot = indexInfo.indexRoot ?? resolvedDir
-
       // Run duplicate detection
-      const result = yield* detectDuplicates(indexRoot, {
+      const result = yield* detectDuplicates(resolvedDir, {
         minContentLength: minLength,
         pathPattern: Option.getOrUndefined(pathPattern),
       })

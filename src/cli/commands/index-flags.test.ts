@@ -1,10 +1,9 @@
 /**
- * Index --force and --all Flag Tests
+ * Index --force Flag Tests
  *
- * ALP-1365: Tests for correct --force and --all semantics.
+ * ALP-1365: Tests for correct --force semantics.
  *
- * --force = HOW (bypass mtime/hash cache, re-process every file)
- * --all   = WHAT (all registered global sources, not just PWD)
+ * --force bypasses the mtime and hash cache.
  */
 
 import * as fs from 'node:fs'
@@ -13,7 +12,6 @@ import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 let tempDir: string
-let tempDir2: string
 let fakeHome: string
 let originalHome: string
 
@@ -21,24 +19,19 @@ beforeEach(() => {
   tempDir = fs.realpathSync(
     fs.mkdtempSync(path.join(os.tmpdir(), 'mdm-flags-test-')),
   )
-  tempDir2 = fs.realpathSync(
-    fs.mkdtempSync(path.join(os.tmpdir(), 'mdm-flags-test2-')),
-  )
   fakeHome = fs.realpathSync(
     fs.mkdtempSync(path.join(os.tmpdir(), 'mdm-flags-home-')),
   )
   originalHome = process.env.HOME ?? os.homedir()
   process.env.HOME = fakeHome
 
-  // Create markdown files in both dirs
+  // Create a markdown file to index.
   fs.writeFileSync(path.join(tempDir, 'doc.md'), '# Doc A\nContent A.\n')
-  fs.writeFileSync(path.join(tempDir2, 'doc.md'), '# Doc B\nContent B.\n')
 })
 
 afterEach(() => {
   process.env.HOME = originalHome
   fs.rmSync(tempDir, { recursive: true, force: true })
-  fs.rmSync(tempDir2, { recursive: true, force: true })
   fs.rmSync(fakeHome, { recursive: true, force: true })
 })
 
@@ -72,17 +65,6 @@ const runIndex = async (
       code: e.status ?? 1,
     }
   }
-}
-
-const writeGlobalConfig = (sources: { path: string; name?: string }[]) => {
-  const globalDir = path.join(fakeHome, '.mdm')
-  fs.mkdirSync(globalDir, { recursive: true })
-  let content = ''
-  for (const s of sources) {
-    content += `\n[[sources]]\npath = "${s.path.replace(/\\/g, '/')}"\n`
-    if (s.name) content += `name = "${s.name}"\n`
-  }
-  fs.writeFileSync(path.join(globalDir, '.mdm.toml'), content, 'utf-8')
 }
 
 describe('index --force flag', () => {
@@ -131,87 +113,11 @@ describe('index --force flag', () => {
       expect(result.stdout).toContain('unchanged')
     }
   })
-})
 
-describe('index --all flag', () => {
-  it('indexes all registered sources', async () => {
-    writeGlobalConfig([
-      { path: tempDir, name: 'source-a' },
-      { path: tempDir2, name: 'source-b' },
-    ])
-
-    const result = await runIndex(tempDir, '--all --no-embed')
-    expect(result.code).toBe(0)
-    // Should index both directories
-    expect(result.stdout).toContain(tempDir)
-    expect(result.stdout).toContain(tempDir2)
-  })
-
-  it('exits with error when no global config exists', async () => {
-    // No global config written, --all should fail
+  it('rejects the removed --all flag', async () => {
     const result = await runIndex(tempDir, '--all')
-    expect(result.stdout).toContain('No global sources registered')
-  })
 
-  it('exits with error when global config has no sources', async () => {
-    // Global config exists but empty (no [[sources]])
-    const globalDir = path.join(fakeHome, '.mdm')
-    fs.mkdirSync(globalDir, { recursive: true })
-    fs.writeFileSync(
-      path.join(globalDir, '.mdm.toml'),
-      '# empty config\n',
-      'utf-8',
-    )
-
-    const result = await runIndex(tempDir, '--all')
-    expect(result.stdout).toContain('No global sources registered')
-  })
-
-  it('--all --force re-indexes all sources bypassing cache', async () => {
-    writeGlobalConfig([{ path: tempDir }, { path: tempDir2 }])
-
-    // First run to populate indexes
-    await runIndex(tempDir, '--all --no-embed')
-
-    // Second run with --all --force: should re-process everything
-    const result = await runIndex(tempDir, '--all --force --no-embed')
-    expect(result.code).toBe(0)
-    expect(result.stdout).toContain(tempDir)
-    expect(result.stdout).toContain(tempDir2)
-    // With --force, no files should be skipped as unchanged
-    expect(result.stdout).not.toContain('unchanged')
-  })
-
-  it('--all --watch rejects with clear error', async () => {
-    writeGlobalConfig([{ path: tempDir }])
-    const result = await runIndex(tempDir, '--all --watch')
-    expect(result.stdout).toContain('Cannot combine --all and --watch')
-  })
-
-  it('--all skips non-existent source directories', async () => {
-    const missingDir = path.join(
-      fakeHome,
-      `no-such-source-${Date.now().toString(36)}`,
-    )
-    writeGlobalConfig([
-      { path: tempDir, name: 'exists' },
-      { path: missingDir, name: 'missing' },
-    ])
-    const result = await runIndex(tempDir, '--all --no-embed')
-    expect(result.code).toBe(0)
-    expect(result.stdout).toContain('not found')
-    expect(result.stdout).toContain(tempDir)
-  })
-
-  it('--all surfaces malformed TOML errors', async () => {
-    const globalDir = path.join(fakeHome, '.mdm')
-    fs.mkdirSync(globalDir, { recursive: true })
-    fs.writeFileSync(
-      path.join(globalDir, '.mdm.toml'),
-      '[[sources]\npath = broken toml',
-      'utf-8',
-    )
-    const result = await runIndex(tempDir, '--all')
-    expect(result.stdout).toContain('Failed to read global config')
+    expect(result.code).not.toBe(0)
+    expect(`${result.stdout}\n${result.stderr}`).toContain('--all')
   })
 })

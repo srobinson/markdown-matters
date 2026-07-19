@@ -12,12 +12,9 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { Effect } from 'effect'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { defaultConfig } from '../config/schema.js'
+import { dbIndexDir, resolveMdmHome } from '../home.js'
 import { buildIndex } from '../index/indexer.js'
 import { resolveAndValidatePath, startMcpServer } from './server.js'
-
-// ============================================================================
-// Fixtures
-// ============================================================================
 
 const FIXTURES_DIR = path.resolve(__dirname, '../../tests/fixtures/cli')
 
@@ -69,7 +66,10 @@ describe('MCP Server', () => {
   beforeAll(async () => {
     // Build an index for the fixture directory so search/links tools work
     await Effect.runPromise(
-      buildIndex(FIXTURES_DIR, { force: true }).pipe(
+      buildIndex(FIXTURES_DIR, {
+        indexRoot: dbIndexDir(resolveMdmHome()),
+        force: true,
+      }).pipe(
         Effect.catchAll(() =>
           Effect.succeed({
             documentsIndexed: 0,

@@ -9,6 +9,8 @@ import * as path from 'node:path'
 import { Effect } from 'effect'
 import { listNamespaces } from '../embeddings/embedding-namespace.js'
 import { DirectoryWalkError } from '../errors/index.js'
+import { dbIndexDir, resolveMdmHome } from '../home.js'
+import { getIndexPaths } from '../index/types.js'
 
 /**
  * Format object as JSON string
@@ -104,57 +106,16 @@ export const isRegexPattern = (query: string): boolean => {
 
 /**
  * Check if embeddings exist for a directory.
- * Checks for namespaced embeddings in .mdm/embeddings/<namespace>/vectors.bin
+ * Checks for namespaced embeddings in the supplied database index root.
  */
-export const hasEmbeddings = async (dir: string): Promise<boolean> => {
+export const hasEmbeddings = async (indexRoot: string): Promise<boolean> => {
   try {
     const namespaces = await Effect.runPromise(
-      listNamespaces(dir).pipe(Effect.catchAll(() => Effect.succeed([]))),
+      listNamespaces(indexRoot).pipe(Effect.catchAll(() => Effect.succeed([]))),
     )
     return namespaces.length > 0
   } catch {
     return false
-  }
-}
-
-/**
- * Find the nearest parent directory containing an mdm index.
- * Searches from the specified directory up to the filesystem root.
- *
- * @param startDir - Directory to start searching from
- * @returns The directory containing the index, or null if not found
- */
-export const findIndexRoot = async (
-  startDir: string,
-): Promise<string | null> => {
-  let currentDir = path.resolve(startDir)
-  const root = path.parse(currentDir).root
-
-  while (currentDir !== root) {
-    const sectionsPath = path.join(
-      currentDir,
-      '.mdm',
-      'indexes',
-      'sections.json',
-    )
-    try {
-      await fsPromises.access(sectionsPath)
-      return currentDir // Found an index
-    } catch {
-      // No index here, try parent
-      const parent = path.dirname(currentDir)
-      if (parent === currentDir) break // Reached root
-      currentDir = parent
-    }
-  }
-
-  // Also check root
-  const rootSectionsPath = path.join(root, '.mdm', 'indexes', 'sections.json')
-  try {
-    await fsPromises.access(rootSectionsPath)
-    return root
-  } catch {
-    return null
   }
 }
 
@@ -167,22 +128,17 @@ export interface IndexInfo {
   sectionCount?: number | undefined
   embeddingsExist: boolean
   vectorCount?: number | undefined
-  /** The actual directory where the index was found (may differ from requested dir) */
-  indexRoot?: string | undefined
 }
 
-export const getIndexInfo = async (dir: string): Promise<IndexInfo> => {
-  // First try the specified directory
-  let indexRoot = dir
-  let sectionsPath = path.join(dir, '.mdm', 'indexes', 'sections.json')
-
+export const getIndexInfo = async (): Promise<IndexInfo> => {
+  const indexRoot = dbIndexDir(resolveMdmHome())
+  const sectionsPath = getIndexPaths(indexRoot).sections
   let exists = false
   let lastUpdated: string | undefined
   let sectionCount: number | undefined
   let embeddingsExist = false
   let vectorCount: number | undefined
 
-  // Check sections index in specified directory
   try {
     const stat = await fsPromises.stat(sectionsPath)
     exists = true
@@ -191,26 +147,7 @@ export const getIndexInfo = async (dir: string): Promise<IndexInfo> => {
     const content = await fsPromises.readFile(sectionsPath, 'utf-8')
     const sections = JSON.parse(content)
     sectionCount = Object.keys(sections.sections || {}).length
-  } catch {
-    // Index doesn't exist in specified directory, try to find in parent directories
-    const foundRoot = await findIndexRoot(dir)
-    if (foundRoot) {
-      indexRoot = foundRoot
-      sectionsPath = path.join(foundRoot, '.mdm', 'indexes', 'sections.json')
-
-      try {
-        const stat = await fsPromises.stat(sectionsPath)
-        exists = true
-        lastUpdated = stat.mtime.toISOString()
-
-        const content = await fsPromises.readFile(sectionsPath, 'utf-8')
-        const sections = JSON.parse(content)
-        sectionCount = Object.keys(sections.sections || {}).length
-      } catch {
-        // Still failed
-      }
-    }
-  }
+  } catch {}
 
   // Check namespaced embeddings
   try {
@@ -244,6 +181,5 @@ export const getIndexInfo = async (dir: string): Promise<IndexInfo> => {
     sectionCount,
     embeddingsExist,
     vectorCount,
-    indexRoot: exists && indexRoot !== dir ? indexRoot : undefined,
   }
 }

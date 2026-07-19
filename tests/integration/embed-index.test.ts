@@ -1,23 +1,20 @@
-/**
- * Embed + Index Integration Tests
- *
- * Tests the full indexing and embedding pipeline on small and large corpora.
- * Verifies binary format usage, MessagePack handling, metadata creation,
- * and proper index loading after creation.
- */
-
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { Effect } from 'effect'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createVectorStore } from '../../src/embeddings/vector-store.js'
-import { buildIndex } from '../../src/index/indexer.js'
+import { buildIndex as buildIndexEffect } from '../../src/index/indexer.js'
 import {
   createStorage,
   loadDocumentIndex,
   loadSectionIndex,
 } from '../../src/index/storage.js'
+
+const buildIndex = (
+  rootPath: string,
+  options: Omit<Parameters<typeof buildIndexEffect>[1], 'indexRoot'> = {},
+) => buildIndexEffect(rootPath, { indexRoot: rootPath, ...options })
 
 // ============================================================================
 // Test Setup

@@ -68,7 +68,6 @@ interface ExecutionContext {
   readonly config: MdmConfig
   readonly indexInfo: IndexInfo
   readonly indexRoot: string
-  readonly scopedPathPattern?: string | undefined
   readonly effectiveLimit: number
   readonly effectiveThreshold: number
   readonly mode: SearchMode
@@ -103,9 +102,6 @@ const runHybridMode = (context: ExecutionContext) =>
           | undefined,
         contextBefore: context.contextBefore,
         contextAfter: context.contextAfter,
-        ...(context.scopedPathPattern && {
-          pathPattern: context.scopedPathPattern,
-        }),
       },
     )
     let results = rawResults
@@ -175,9 +171,6 @@ const runKeywordMode = (context: ExecutionContext) =>
       ? yield* search(context.indexRoot, {
           heading: input.query,
           limit: fetchLimit,
-          ...(context.scopedPathPattern && {
-            pathPattern: context.scopedPathPattern,
-          }),
         })
       : yield* searchContent(context.indexRoot, {
           content: input.query,
@@ -187,9 +180,6 @@ const runKeywordMode = (context: ExecutionContext) =>
           fuzzy: input.fuzzy,
           stem: input.stem,
           ...(fuzzyDistance !== undefined && { fuzzyDistance }),
-          ...(context.scopedPathPattern && {
-            pathPattern: context.scopedPathPattern,
-          }),
         })
     if (refineTerms.length > 0) {
       results = yield* filterResultsByRefineTerms(
@@ -255,9 +245,6 @@ const runSemanticMode = (context: ExecutionContext) =>
         hyde: input.hyde,
         contextBefore: context.contextBefore,
         contextAfter: context.contextAfter,
-        ...(context.scopedPathPattern && {
-          pathPattern: context.scopedPathPattern,
-        }),
       },
     )
     let { results } = searchResult
@@ -399,7 +386,7 @@ export const runSearchCommand = (input: SearchCommandInput) =>
       input.autoIndexThreshold,
       () => config.search.autoIndexThreshold,
     )
-    const indexInfo = yield* Effect.promise(() => getIndexInfo(resolvedDir))
+    const indexInfo = yield* Effect.promise(() => getIndexInfo())
     if (!indexInfo.exists && !input.json) {
       yield* Console.log('No index found.')
       yield* Console.log('')
@@ -407,16 +394,7 @@ export const runSearchCommand = (input: SearchCommandInput) =>
       yield* Console.log('  Add --embed for semantic search capabilities')
       return
     }
-    const indexRoot = indexInfo.indexRoot ?? resolvedDir
-    let scopedPathPattern: string | undefined
-    if (indexInfo.indexRoot && indexInfo.indexRoot !== resolvedDir) {
-      const relativePath = path.relative(indexRoot, resolvedDir)
-      scopedPathPattern = `${relativePath}/*`
-      if (!input.json) {
-        yield* Console.log(`Searching within: ${relativePath}/`)
-        yield* Console.log('')
-      }
-    }
+    const indexRoot = resolvedDir
     const resolvedMode = yield* resolveMode(
       input,
       indexRoot,
@@ -431,7 +409,6 @@ export const runSearchCommand = (input: SearchCommandInput) =>
       config,
       indexInfo,
       indexRoot,
-      scopedPathPattern,
       effectiveLimit,
       effectiveThreshold,
       mode: resolvedMode.mode,
