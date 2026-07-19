@@ -110,7 +110,7 @@ const runHybridMode = (context: ExecutionContext) =>
     let results = rawResults
     if (refineTerms.length > 0) {
       const sectionIndex = yield* loadSectionIndex(
-        createStorage(context.indexRoot),
+        createStorage(context.indexRoot, context.indexRoot),
       )
       if (sectionIndex) {
         results = yield* filterResultsByRefineTerms(
@@ -262,7 +262,7 @@ const runSemanticMode = (context: ExecutionContext) =>
     let { results } = searchResult
     if (refineTerms.length > 0) {
       const sectionIndex = yield* loadSectionIndex(
-        createStorage(context.indexRoot),
+        createStorage(context.indexRoot, context.indexRoot),
       )
       if (sectionIndex) {
         results = yield* filterResultsByRefineTerms(

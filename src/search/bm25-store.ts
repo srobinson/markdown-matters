@@ -2,15 +2,14 @@
  * BM25 Index Store for keyword search
  *
  * Uses wink-bm25-text-search for efficient keyword matching.
- * Index is persisted to .mdm/bm25.json for fast startup.
+ * Index is persisted to bm25.json under the explicit index root.
  */
 
 import * as fs from 'node:fs/promises'
-import * as path from 'node:path'
 import { Effect } from 'effect'
 import bm25 from 'wink-bm25-text-search'
 import { FileReadError, FileWriteError } from '../errors/index.js'
-import { INDEX_DIR } from '../index/types.js'
+import { getIndexPaths } from '../index/types.js'
 
 // ============================================================================
 // Types
@@ -110,10 +109,9 @@ export interface BM25Store {
 /**
  * Create a BM25 store for keyword search
  */
-export const createBM25Store = (rootPath: string): BM25Store => {
-  const resolvedRoot = path.resolve(rootPath)
-  const indexPath = path.join(resolvedRoot, INDEX_DIR, 'bm25.json')
-  const metadataPath = path.join(resolvedRoot, INDEX_DIR, 'bm25.meta.json')
+export const createBM25Store = (indexRoot: string): BM25Store => {
+  const { bm25: indexPath, bm25Metadata: metadataPath } =
+    getIndexPaths(indexRoot)
 
   // Store mapping from internal index to section info
   const sectionMap: Map<
@@ -324,18 +322,18 @@ export const createBM25Store = (rootPath: string): BM25Store => {
 /**
  * Perform BM25 keyword search over indexed sections.
  *
- * @param rootPath - Root directory containing BM25 index
+ * @param indexRoot - Root directory containing BM25 index
  * @param query - Search query text
  * @param limit - Maximum results (default: 10)
  * @returns Ranked list of matching sections by BM25 score
  */
 export const bm25Search = (
-  rootPath: string,
+  indexRoot: string,
   query: string,
   limit = 10,
 ): Effect.Effect<readonly BM25SearchResult[], FileReadError> =>
   Effect.gen(function* () {
-    const store = createBM25Store(rootPath)
+    const store = createBM25Store(indexRoot)
     const loaded = yield* store.load()
 
     if (!loaded) {
@@ -352,10 +350,9 @@ export const bm25Search = (
 /**
  * Check if BM25 index exists for a directory
  */
-export const bm25IndexExists = (rootPath: string): Effect.Effect<boolean> =>
+export const bm25IndexExists = (indexRoot: string): Effect.Effect<boolean> =>
   Effect.promise(async () => {
-    const resolvedRoot = path.resolve(rootPath)
-    const indexPath = path.join(resolvedRoot, INDEX_DIR, 'bm25.json')
+    const indexPath = getIndexPaths(indexRoot).bm25
 
     try {
       await fs.access(indexPath)

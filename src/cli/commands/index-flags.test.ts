@@ -102,19 +102,19 @@ describe('index --force flag', () => {
     expect(third.stdout).not.toContain('unchanged')
   })
 
-  it('does not delete the .mdm/ index directory', async () => {
-    // First run creates .mdm/ and index files
+  it('does not delete the explicit index directory', async () => {
+    // First run creates the index files
     await runIndex(tempDir)
-    const mdmDir = path.join(tempDir, '.mdm')
-    expect(fs.existsSync(mdmDir)).toBe(true)
-    const beforeContents = fs.readdirSync(mdmDir)
+    const indexDir = path.join(tempDir, 'indexes')
+    expect(fs.existsSync(indexDir)).toBe(true)
+    const beforeContents = fs.readdirSync(indexDir)
     expect(beforeContents.length).toBeGreaterThan(0)
 
     // --force should NOT delete the directory
     await runIndex(tempDir, '--force')
-    expect(fs.existsSync(mdmDir)).toBe(true)
+    expect(fs.existsSync(indexDir)).toBe(true)
     // Index files should still exist
-    const afterContents = fs.readdirSync(mdmDir)
+    const afterContents = fs.readdirSync(indexDir)
     expect(afterContents.length).toBeGreaterThan(0)
   })
 

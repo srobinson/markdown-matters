@@ -200,7 +200,7 @@ export const detectExactDuplicates = (
 > =>
   Effect.gen(function* () {
     const minContentLength = options.minContentLength ?? 50
-    const storage = createStorage(rootPath)
+    const storage = createStorage(rootPath, rootPath)
 
     // Load section index
     const sectionIndex = yield* loadSectionIndex(storage)

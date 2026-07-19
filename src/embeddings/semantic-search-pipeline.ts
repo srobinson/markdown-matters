@@ -447,7 +447,7 @@ export const postProcessResults = (
       options.contextBefore !== undefined ||
       options.contextAfter !== undefined
     ) {
-      const storage = createStorage(resolvedRoot)
+      const storage = createStorage(resolvedRoot, resolvedRoot)
       const sectionIndex = yield* loadSectionIndex(storage)
 
       if (sectionIndex) {

@@ -82,7 +82,7 @@ export const watchDirectory = (
 ): Effect.Effect<Watcher, WatchDirectoryError> =>
   Effect.gen(function* () {
     const resolvedRoot = path.resolve(rootPath)
-    const storage = createStorage(resolvedRoot)
+    const storage = createStorage(resolvedRoot, resolvedRoot)
     const debounceMs = options.debounceMs ?? 300
 
     // Ensure index exists

@@ -2,10 +2,12 @@
  * Tests for cross-encoder re-ranking module
  */
 
+import * as path from 'node:path'
 import { Effect, Exit } from 'effect'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   getReranker,
+  getRerankerCacheDir,
   isRerankerAvailable,
   type RerankedResult,
   RerankerError,
@@ -73,6 +75,14 @@ describe('cross-encoder', () => {
       unloadReranker()
       const reranker = getReranker('/custom/cache/dir')
       expect(reranker).toBeDefined()
+    })
+  })
+
+  describe('getRerankerCacheDir', () => {
+    it('stores models directly under the explicit index root', () => {
+      expect(getRerankerCacheDir('/db')).toBe(
+        path.join(path.resolve('/db'), 'models'),
+      )
     })
   })
 

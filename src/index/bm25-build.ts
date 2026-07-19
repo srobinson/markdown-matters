@@ -33,14 +33,14 @@ export const buildBM25Index = (
 > =>
   Effect.gen(function* () {
     const startTime = Date.now()
-    const storage = createStorage(rootPath)
+    const storage = createStorage(rootPath, rootPath)
     const documentIndex = yield* loadDocumentIndex(storage)
     const sectionIndex = yield* loadSectionIndex(storage)
     if (!documentIndex || !sectionIndex) {
       return { sectionsIndexed: 0, duration: 0 }
     }
 
-    const store = createBM25Store(storage.rootPath)
+    const store = createBM25Store(storage.indexRoot)
     if (!options.force && (yield* store.load()) && store.getStats().count > 0) {
       return { sectionsIndexed: 0, duration: Date.now() - startTime }
     }
@@ -58,7 +58,7 @@ export const buildBM25Index = (
     let sectionsIndexed = 0
     for (const [documentPath, sections] of sectionsByDocument) {
       const contentResult = yield* Effect.promise(() =>
-        fs.readFile(path.join(storage.rootPath, documentPath), 'utf-8'),
+        fs.readFile(path.join(storage.sourceRoot, documentPath), 'utf-8'),
       ).pipe(
         Effect.map((content) => ({ ok: true as const, content })),
         Effect.catchAll(() =>

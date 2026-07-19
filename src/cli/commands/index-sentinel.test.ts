@@ -105,10 +105,9 @@ describe('index sentinel detection', () => {
     expect(result.stdout).not.toContain('Created .mdm/ index directory')
   })
 
-  it('writes index files inside .mdm/', async () => {
+  it('writes index files under the explicit index root', async () => {
     await runIndex(tempDir)
-    // After indexing, there should be index files in .mdm/
-    const mdmContents = fs.readdirSync(path.join(tempDir, '.mdm'))
-    expect(mdmContents.length).toBeGreaterThan(0)
+    const indexContents = fs.readdirSync(path.join(tempDir, 'indexes'))
+    expect(indexContents.length).toBeGreaterThan(0)
   })
 })

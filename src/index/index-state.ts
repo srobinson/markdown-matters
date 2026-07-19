@@ -194,7 +194,7 @@ export const saveIndexState = (
 ) =>
   saveDocumentIndex(storage, {
     version: state.documentVersion,
-    rootPath: storage.rootPath,
+    rootPath: storage.sourceRoot,
     documents: state.documents,
   }).pipe(
     Effect.andThen(

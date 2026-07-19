@@ -82,7 +82,7 @@ export const search = (
   FileReadError | IndexCorruptedError | CliValidationError
 > =>
   Effect.gen(function* () {
-    const storage = createStorage(rootPath)
+    const storage = createStorage(rootPath, rootPath)
     const documentIndex = yield* loadDocumentIndex(storage)
     const sectionIndex = yield* loadSectionIndex(storage)
     if (!documentIndex || !sectionIndex) return []
@@ -282,7 +282,7 @@ export const searchContent = (
   FileReadError | IndexCorruptedError | CliValidationError
 > =>
   Effect.gen(function* () {
-    const storage = createStorage(rootPath)
+    const storage = createStorage(rootPath, rootPath)
     const documentIndex = yield* loadDocumentIndex(storage)
     const sectionIndex = yield* loadSectionIndex(storage)
     if (!documentIndex || !sectionIndex) return []
@@ -313,7 +313,7 @@ export const searchContent = (
         (query.useFuzzyOrStem && options.content)
       ) {
         const readResult = yield* readSearchDocument(
-          storage.rootPath,
+          storage.sourceRoot,
           documentPath,
         )
         if (Option.isNone(readResult)) continue
@@ -361,11 +361,14 @@ export const searchWithContent = (
   FileReadError | IndexCorruptedError | CliValidationError
 > =>
   Effect.gen(function* () {
-    const storage = createStorage(rootPath)
+    const storage = createStorage(rootPath, rootPath)
     const results = yield* search(rootPath, options)
     const withContent: SearchResult[] = []
     for (const result of results) {
-      const filePath = path.join(storage.rootPath, result.section.documentPath)
+      const filePath = path.join(
+        storage.sourceRoot,
+        result.section.documentPath,
+      )
       const readResult = yield* Effect.tryPromise({
         try: () => fs.readFile(filePath, 'utf-8'),
         catch: (cause) =>

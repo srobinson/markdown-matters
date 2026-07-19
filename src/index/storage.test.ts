@@ -19,11 +19,9 @@ import {
   createStorage,
   indexExists,
   initializeIndex,
-  loadConfig,
   loadDocumentIndex,
   loadLinkIndex,
   loadSectionIndex,
-  saveConfig,
   saveDocumentIndex,
   saveLinkIndex,
   saveSectionIndex,
@@ -52,6 +50,9 @@ const run = <A, E>(effect: Effect.Effect<A, E>): Promise<A> =>
 const runExit = <A, E>(effect: Effect.Effect<A, E>): Promise<Exit.Exit<A, E>> =>
   Effect.runPromise(Effect.exit(effect))
 
+const createTestStorage = (root: string): ReturnType<typeof createStorage> =>
+  createStorage(root, root)
+
 // ============================================================================
 // Setup / Teardown
 // ============================================================================
@@ -69,28 +70,34 @@ afterAll(async () => {
 // ============================================================================
 
 describe('createStorage', () => {
-  it('resolves rootPath to absolute', () => {
-    const storage = createStorage('./relative/path')
-    expect(path.isAbsolute(storage.rootPath)).toBe(true)
+  it('keeps separate absolute source and index roots', () => {
+    const storage = createStorage('./relative/source', './relative/index')
+    expect(path.isAbsolute(storage.sourceRoot)).toBe(true)
+    expect(path.isAbsolute(storage.indexRoot)).toBe(true)
+    expect(storage.sourceRoot).not.toBe(storage.indexRoot)
   })
 
-  it('returns correct index paths for given rootPath', () => {
-    const root = path.resolve('/tmp/test-root')
-    const storage = createStorage('/tmp/test-root')
-    expect(storage.paths.root).toBe(path.join(root, '.mdm'))
-    expect(storage.paths.config).toBe(path.join(root, '.mdm', 'config.json'))
+  it('returns correct paths for the explicit index root', () => {
+    const sourceRoot = path.resolve('/tmp/test-source')
+    const indexRoot = path.resolve('/tmp/test-index')
+    const storage = createStorage(sourceRoot, indexRoot)
+    expect(storage.sourceRoot).toBe(sourceRoot)
+    expect(storage.indexRoot).toBe(indexRoot)
+    expect(storage.paths.root).toBe(indexRoot)
     expect(storage.paths.documents).toBe(
-      path.join(root, '.mdm', 'indexes', 'documents.json'),
+      path.join(indexRoot, 'indexes', 'documents.json'),
     )
     expect(storage.paths.sections).toBe(
-      path.join(root, '.mdm', 'indexes', 'sections.json'),
+      path.join(indexRoot, 'indexes', 'sections.json'),
     )
     expect(storage.paths.links).toBe(
-      path.join(root, '.mdm', 'indexes', 'links.json'),
+      path.join(indexRoot, 'indexes', 'links.json'),
     )
-    expect(storage.paths.cache).toBe(path.join(root, '.mdm', 'cache'))
-    expect(storage.paths.parsed).toBe(
-      path.join(root, '.mdm', 'cache', 'parsed'),
+    expect(storage.paths.cache).toBe(path.join(indexRoot, 'cache'))
+    expect(storage.paths.parsed).toBe(path.join(indexRoot, 'cache', 'parsed'))
+    expect(storage.paths.bm25).toBe(path.join(indexRoot, 'bm25.json'))
+    expect(storage.paths.bm25Metadata).toBe(
+      path.join(indexRoot, 'bm25.meta.json'),
     )
   })
 })
@@ -131,31 +138,25 @@ describe('initializeIndex', () => {
     rootDir = await createTempDir()
   })
 
-  it('creates directory structure and default config', async () => {
-    const storage = createStorage(rootDir)
+  it('creates only index directories', async () => {
+    const storage = createTestStorage(rootDir)
     await run(initializeIndex(storage))
 
-    const config = await run(loadConfig(storage))
-    expect(config).not.toBeNull()
-    expect(config!.version).toBe(INDEX_VERSION)
-    expect(config!.rootPath).toBe(storage.rootPath)
-    expect(config!.include).toEqual(['**/*.md', '**/*.mdx'])
-    expect(config!.exclude).toEqual(['**/node_modules/**', '**/.*/**'])
+    await expect(fs.stat(storage.paths.root)).resolves.toBeDefined()
+    await expect(
+      fs.access(path.join(storage.indexRoot, 'config.json')),
+    ).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
-  it('does not overwrite existing config on re-initialization', async () => {
-    const storage = createStorage(rootDir)
+  it('is idempotent', async () => {
+    const storage = createTestStorage(rootDir)
     await run(initializeIndex(storage))
-    const firstConfig = await run(loadConfig(storage))
-
-    // Re-initialize should preserve the original config
     await run(initializeIndex(storage))
-    const secondConfig = await run(loadConfig(storage))
-    expect(secondConfig!.createdAt).toBe(firstConfig!.createdAt)
+    await expect(fs.stat(storage.paths.parsed)).resolves.toBeDefined()
   })
 
   it('creates parsed cache directory', async () => {
-    const storage = createStorage(rootDir)
+    const storage = createTestStorage(rootDir)
     await run(initializeIndex(storage))
 
     const stat = await fs.stat(storage.paths.parsed)
@@ -170,14 +171,14 @@ describe('initializeIndex', () => {
 describe('indexExists', () => {
   it('returns false when no index has been created', async () => {
     const dir = await createTempDir()
-    const storage = createStorage(dir)
+    const storage = createTestStorage(dir)
     const exists = await run(indexExists(storage))
     expect(exists).toBe(false)
   })
 
   it('returns true after initialization', async () => {
     const dir = await createTempDir()
-    const storage = createStorage(dir)
+    const storage = createTestStorage(dir)
     await run(initializeIndex(storage))
     const exists = await run(indexExists(storage))
     expect(exists).toBe(true)
@@ -193,14 +194,14 @@ describe('DocumentIndex round-trip', () => {
 
   beforeEach(async () => {
     const dir = await createTempDir()
-    storage = createStorage(dir)
+    storage = createTestStorage(dir)
     await run(initializeIndex(storage))
   })
 
   it('save then load preserves data', async () => {
     const index: DocumentIndex = {
       version: INDEX_VERSION,
-      rootPath: storage.rootPath,
+      rootPath: storage.sourceRoot,
       documents: {
         'doc-1': {
           id: 'doc-1',
@@ -230,9 +231,9 @@ describe('DocumentIndex round-trip', () => {
   })
 
   it('createEmptyDocumentIndex produces valid structure', () => {
-    const empty = createEmptyDocumentIndex(storage.rootPath)
+    const empty = createEmptyDocumentIndex(storage.sourceRoot)
     expect(empty.version).toBe(INDEX_VERSION)
-    expect(empty.rootPath).toBe(storage.rootPath)
+    expect(empty.rootPath).toBe(storage.sourceRoot)
     expect(Object.keys(empty.documents)).toHaveLength(0)
   })
 })
@@ -246,7 +247,7 @@ describe('SectionIndex round-trip', () => {
 
   beforeEach(async () => {
     const dir = await createTempDir()
-    storage = createStorage(dir)
+    storage = createTestStorage(dir)
     await run(initializeIndex(storage))
   })
 
@@ -304,7 +305,7 @@ describe('LinkIndex round-trip', () => {
 
   beforeEach(async () => {
     const dir = await createTempDir()
-    storage = createStorage(dir)
+    storage = createTestStorage(dir)
     await run(initializeIndex(storage))
   })
 
@@ -340,33 +341,6 @@ describe('LinkIndex round-trip', () => {
 })
 
 // ============================================================================
-// Config: save/load round-trip
-// ============================================================================
-
-describe('Config round-trip', () => {
-  let storage: ReturnType<typeof createStorage>
-
-  beforeEach(async () => {
-    const dir = await createTempDir()
-    storage = createStorage(dir)
-    await run(initializeIndex(storage))
-  })
-
-  it('saveConfig updates the updatedAt timestamp', async () => {
-    const config = await run(loadConfig(storage))
-    expect(config).not.toBeNull()
-
-    const originalUpdatedAt = config!.updatedAt
-    // Small delay to ensure timestamp differs
-    await new Promise((r) => setTimeout(r, 10))
-
-    await run(saveConfig(storage, config!))
-    const reloaded = await run(loadConfig(storage))
-    expect(reloaded!.updatedAt).not.toBe(originalUpdatedAt)
-  })
-})
-
-// ============================================================================
 // Error handling: malformed JSON
 // ============================================================================
 
@@ -375,7 +349,7 @@ describe('malformed JSON handling', () => {
 
   beforeEach(async () => {
     const dir = await createTempDir()
-    storage = createStorage(dir)
+    storage = createTestStorage(dir)
     await run(initializeIndex(storage))
   })
 
@@ -442,16 +416,6 @@ describe('malformed JSON handling', () => {
       expect(String(exit.cause)).toContain('IndexCorruptedError')
     }
   })
-
-  it('loadConfig returns IndexCorruptedError on malformed config', async () => {
-    await fs.writeFile(storage.paths.config, '{broken', 'utf-8')
-    const exit = await runExit(loadConfig(storage))
-
-    expect(Exit.isFailure(exit)).toBe(true)
-    if (Exit.isFailure(exit)) {
-      expect(String(exit.cause)).toContain('IndexCorruptedError')
-    }
-  })
 })
 
 // ============================================================================
@@ -461,7 +425,7 @@ describe('malformed JSON handling', () => {
 describe('large index handling', () => {
   it('serializes and deserializes 10k document entries correctly', async () => {
     const dir = await createTempDir()
-    const storage = createStorage(dir)
+    const storage = createTestStorage(dir)
     await run(initializeIndex(storage))
 
     const documents: DocumentIndex['documents'] = {}
@@ -480,7 +444,7 @@ describe('large index handling', () => {
 
     const index: DocumentIndex = {
       version: INDEX_VERSION,
-      rootPath: storage.rootPath,
+      rootPath: storage.sourceRoot,
       documents,
     }
 
@@ -500,11 +464,11 @@ describe('atomic writes', () => {
 
   beforeEach(async () => {
     const dir = await createTempDir()
-    storage = createStorage(dir)
+    storage = createTestStorage(dir)
   })
 
   it('leaves no .tmp files in the index directory after a successful save', async () => {
-    const index = createEmptyDocumentIndex(storage.rootPath)
+    const index = createEmptyDocumentIndex(storage.sourceRoot)
     await run(saveDocumentIndex(storage, index))
 
     const dir = path.dirname(storage.paths.documents)
@@ -516,7 +480,7 @@ describe('atomic writes', () => {
   it('a stale .tmp file does not affect reads or block subsequent saves', async () => {
     const v1: DocumentIndex = {
       version: INDEX_VERSION,
-      rootPath: storage.rootPath,
+      rootPath: storage.sourceRoot,
       documents: {
         'doc-1': {
           id: 'doc-1',
@@ -548,7 +512,7 @@ describe('atomic writes', () => {
     // A new save succeeds (unique tmp names — stale tmp does not collide).
     const v2: DocumentIndex = {
       version: INDEX_VERSION,
-      rootPath: storage.rootPath,
+      rootPath: storage.sourceRoot,
       documents: {
         'doc-1': v1.documents['doc-1']!,
         'doc-2': {
@@ -577,7 +541,7 @@ describe('atomic writes', () => {
     // with EISDIR (Linux) / ENOTEMPTY (macOS) / EPERM (Windows).
     await fs.mkdir(storage.paths.documents, { recursive: true })
 
-    const index = createEmptyDocumentIndex(storage.rootPath)
+    const index = createEmptyDocumentIndex(storage.sourceRoot)
     const exit = await runExit(saveDocumentIndex(storage, index))
     expect(Exit.isFailure(exit)).toBe(true)
 

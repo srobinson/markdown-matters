@@ -68,7 +68,7 @@ const loadMutableState = (
     const existingDocuments = yield* loadDocumentIndex(storage)
     const documents =
       force || !existingDocuments
-        ? createEmptyDocumentIndex(storage.rootPath)
+        ? createEmptyDocumentIndex(storage.sourceRoot)
         : existingDocuments
     const existingSections = yield* loadSectionIndex(storage)
     const existingLinks = yield* loadLinkIndex(storage)
@@ -92,7 +92,7 @@ const parseFiles = (
 ) =>
   Effect.all(
     files.map((filePath) => {
-      const relativePath = path.relative(storage.rootPath, filePath)
+      const relativePath = path.relative(storage.sourceRoot, filePath)
       return Effect.gen(function* () {
         const [content, stats] = yield* Effect.promise(() =>
           Promise.all([fs.readFile(filePath, 'utf-8'), fs.stat(filePath)]),
@@ -164,7 +164,7 @@ const mergeParsedFiles = (
 
   for (let index = 0; index < parsedFiles.length; index++) {
     const parsed = parsedFiles[index]!
-    const relativePath = path.relative(storage.rootPath, files[index]!)
+    const relativePath = path.relative(storage.sourceRoot, files[index]!)
     options.onProgress?.({
       current: index + 1,
       total: files.length,
@@ -183,7 +183,7 @@ const mergeParsedFiles = (
       document: parsed.document,
       filePath: parsed.filePath,
       relativePath: parsed.relativePath,
-      rootPath: storage.rootPath,
+      rootPath: storage.sourceRoot,
       hash: parsed.hash,
       mtime: parsed.stats.mtimeMs,
     })
@@ -207,22 +207,25 @@ export const buildIndex = (
 > =>
   Effect.gen(function* () {
     const startTime = Date.now()
-    const storage = createStorage(rootPath)
+    const storage = createStorage(rootPath, rootPath)
     const errors: FileProcessingError[] = []
     yield* initializeIndex(storage)
     const state = yield* loadMutableState(storage, options.force ?? false)
     const ignore = yield* createIgnoreFilter({
-      rootPath: storage.rootPath,
+      rootPath: storage.sourceRoot,
       cliPatterns: options.exclude,
       honorGitignore: options.honorGitignore ?? true,
       honorMdmignore: options.honorMdmignore ?? true,
     })
-    const discovery = yield* discoverFiles(storage.rootPath, ignore.filter, {
+    const discovery = yield* discoverFiles(storage.sourceRoot, ignore.filter, {
       changedPaths: options.changedPaths,
       followSymlinks: options.followSymlinks,
     })
     for (const deletedPath of discovery.deletedPaths) {
-      deleteIndexedDocument(state, path.relative(storage.rootPath, deletedPath))
+      deleteIndexedDocument(
+        state,
+        path.relative(storage.sourceRoot, deletedPath),
+      )
     }
 
     const parsed = yield* parseFiles(

@@ -201,7 +201,7 @@ export const semanticSearchWithContent = (
     const resolvedRoot = path.resolve(rootPath)
     const results = yield* semanticSearch(resolvedRoot, query, options)
 
-    const storage = createStorage(resolvedRoot)
+    const storage = createStorage(resolvedRoot, resolvedRoot)
     const sectionIndex = yield* loadSectionIndex(storage)
 
     if (!sectionIndex) {

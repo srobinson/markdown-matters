@@ -25,10 +25,13 @@ const loadLinksFor = (
   direction: 'forward' | 'backward',
 ): Effect.Effect<readonly string[], FileReadError | IndexCorruptedError> =>
   Effect.gen(function* () {
-    const storage = createStorage(rootPath)
+    const storage = createStorage(rootPath, rootPath)
     const linkIndex = yield* loadLinkIndex(storage)
     if (!linkIndex) return []
-    const relativePath = path.relative(storage.rootPath, path.resolve(filePath))
+    const relativePath = path.relative(
+      storage.sourceRoot,
+      path.resolve(filePath),
+    )
     return linkIndex[direction][relativePath] ?? []
   })
 
@@ -48,6 +51,6 @@ export const getBrokenLinks = (
   rootPath: string,
 ): Effect.Effect<readonly string[], FileReadError | IndexCorruptedError> =>
   Effect.gen(function* () {
-    const linkIndex = yield* loadLinkIndex(createStorage(rootPath))
+    const linkIndex = yield* loadLinkIndex(createStorage(rootPath, rootPath))
     return linkIndex?.broken ?? []
   })

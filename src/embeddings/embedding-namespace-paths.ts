@@ -1,5 +1,5 @@
 import * as path from 'node:path'
-import { INDEX_DIR } from '../index/types.js'
+import { dbIndexDir, legacyIndexDir } from '../home.js'
 
 const EMBEDDINGS_DIR = 'embeddings'
 const ACTIVE_PROVIDER_FILE = 'active-provider.json'
@@ -56,8 +56,8 @@ export const parseNamespace = (
   return { provider, model, dimensions }
 }
 
-export const getEmbeddingsDir = (rootPath: string): string =>
-  path.join(rootPath, INDEX_DIR, EMBEDDINGS_DIR)
+export const getEmbeddingsDir = (indexRoot: string): string =>
+  path.join(dbIndexDir(indexRoot), EMBEDDINGS_DIR)
 
 const validateNamespace = (namespace: string): void => {
   if (
@@ -73,11 +73,11 @@ const validateNamespace = (namespace: string): void => {
 }
 
 export const getNamespaceDir = (
-  rootPath: string,
+  indexRoot: string,
   namespace: string,
 ): string => {
   validateNamespace(namespace)
-  const embeddingsDir = getEmbeddingsDir(rootPath)
+  const embeddingsDir = getEmbeddingsDir(indexRoot)
   const resolved = path.join(embeddingsDir, namespace)
   const normalizedEmbeddings = path.resolve(embeddingsDir)
   const normalizedResolved = path.resolve(resolved)
@@ -87,20 +87,20 @@ export const getNamespaceDir = (
   return resolved
 }
 
-export const getVectorPath = (rootPath: string, namespace: string): string =>
-  path.join(getNamespaceDir(rootPath, namespace), VECTOR_INDEX_FILE)
+export const getVectorPath = (indexRoot: string, namespace: string): string =>
+  path.join(getNamespaceDir(indexRoot, namespace), VECTOR_INDEX_FILE)
 
-export const getMetaPath = (rootPath: string, namespace: string): string =>
-  path.join(getNamespaceDir(rootPath, namespace), VECTOR_META_FILE)
+export const getMetaPath = (indexRoot: string, namespace: string): string =>
+  path.join(getNamespaceDir(indexRoot, namespace), VECTOR_META_FILE)
 
-export const getActiveProviderPath = (rootPath: string): string =>
-  path.join(rootPath, INDEX_DIR, ACTIVE_PROVIDER_FILE)
+export const getActiveProviderPath = (indexRoot: string): string =>
+  path.join(dbIndexDir(indexRoot), ACTIVE_PROVIDER_FILE)
 
-export const getLegacyVectorPath = (rootPath: string): string =>
-  path.join(rootPath, INDEX_DIR, LEGACY_VECTOR_INDEX_FILE)
+export const getLegacyVectorPath = (sourceRoot: string): string =>
+  path.join(legacyIndexDir(sourceRoot), LEGACY_VECTOR_INDEX_FILE)
 
-export const getLegacyMetaPath = (rootPath: string): string =>
-  path.join(rootPath, INDEX_DIR, LEGACY_VECTOR_META_FILE)
+export const getLegacyMetaPath = (sourceRoot: string): string =>
+  path.join(legacyIndexDir(sourceRoot), LEGACY_VECTOR_META_FILE)
 
-export const getLegacyMetaJsonPath = (rootPath: string): string =>
-  path.join(rootPath, INDEX_DIR, LEGACY_VECTOR_META_JSON)
+export const getLegacyMetaJsonPath = (sourceRoot: string): string =>
+  path.join(legacyIndexDir(sourceRoot), LEGACY_VECTOR_META_JSON)

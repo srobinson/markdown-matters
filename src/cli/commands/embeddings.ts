@@ -6,7 +6,6 @@
  * for different providers/models.
  */
 
-import * as path from 'node:path'
 import * as p from '@clack/prompts'
 import { Args, Command, Options } from '@effect/cli'
 import { Console, Effect } from 'effect'
@@ -18,6 +17,7 @@ import {
   switchNamespace,
   writeActiveProvider,
 } from '../../embeddings/embedding-namespace.js'
+import { dbIndexDir, resolveMdmHome } from '../../home.js'
 import { jsonOption, prettyOption } from '../options.js'
 import { formatJson } from '../utils.js'
 
@@ -30,6 +30,9 @@ import { formatJson } from '../utils.js'
  */
 const isInteractiveTTY = (): boolean =>
   process.stdout.isTTY && process.stdin.isTTY
+
+const resolveEmbeddingIndexRoot = (create = false): string =>
+  dbIndexDir(resolveMdmHome({ create }))
 
 /**
  * Format a namespace for display in the picker
@@ -93,11 +96,11 @@ const listSubcommand = Command.make(
     json: jsonOption,
     pretty: prettyOption,
   },
-  ({ path: dirPath, json, pretty }) =>
+  ({ path: _dirPath, json, pretty }) =>
     Effect.gen(function* () {
-      const resolvedDir = path.resolve(dirPath)
+      const indexRoot = resolveEmbeddingIndexRoot()
 
-      const namespaces = yield* listNamespaces(resolvedDir).pipe(
+      const namespaces = yield* listNamespaces(indexRoot).pipe(
         Effect.catchAll(() => Effect.succeed([] as EmbeddingNamespace[])),
       )
 
@@ -128,7 +131,7 @@ const listSubcommand = Command.make(
 
         if (selected) {
           // Switch to the selected namespace
-          const writeResult = yield* writeActiveProvider(resolvedDir, {
+          const writeResult = yield* writeActiveProvider(indexRoot, {
             namespace: selected.namespace,
             provider: selected.provider,
             model: selected.model,
@@ -214,12 +217,12 @@ const switchSubcommand = Command.make(
     json: jsonOption,
     pretty: prettyOption,
   },
-  ({ namespace: namespaceOpt, path: dirPath, json, pretty }) =>
+  ({ namespace: namespaceOpt, path: _dirPath, json, pretty }) =>
     Effect.gen(function* () {
-      const resolvedDir = path.resolve(dirPath)
+      const indexRoot = resolveEmbeddingIndexRoot(true)
 
       // Get all available namespaces first
-      const namespaces = yield* listNamespaces(resolvedDir).pipe(
+      const namespaces = yield* listNamespaces(indexRoot).pipe(
         Effect.catchAll(() => Effect.succeed([] as EmbeddingNamespace[])),
       )
 
@@ -254,7 +257,7 @@ const switchSubcommand = Command.make(
         }
 
         // Switch to selected namespace
-        const writeResult = yield* writeActiveProvider(resolvedDir, {
+        const writeResult = yield* writeActiveProvider(indexRoot, {
           namespace: selected.namespace,
           provider: selected.provider,
           model: selected.model,
@@ -349,7 +352,7 @@ const switchSubcommand = Command.make(
         }
 
         // Switch to selected namespace
-        const writeResult = yield* writeActiveProvider(resolvedDir, {
+        const writeResult = yield* writeActiveProvider(indexRoot, {
           namespace: selected.namespace,
           provider: selected.provider,
           model: selected.model,
@@ -386,7 +389,7 @@ const switchSubcommand = Command.make(
       }
 
       // Multiple matches but not a TTY - use the existing switchNamespace logic
-      const result = yield* switchNamespace(resolvedDir, namespace).pipe(
+      const result = yield* switchNamespace(indexRoot, namespace).pipe(
         Effect.catchAll((e) => {
           if (json) {
             console.log(formatJson({ error: e.message }, pretty))
@@ -435,11 +438,11 @@ const removeSubcommand = Command.make(
     json: jsonOption,
     pretty: prettyOption,
   },
-  ({ namespace, path: dirPath, force, json, pretty }) =>
+  ({ namespace, path: _dirPath, force, json, pretty }) =>
     Effect.gen(function* () {
-      const resolvedDir = path.resolve(dirPath)
+      const indexRoot = resolveEmbeddingIndexRoot(true)
 
-      const result = yield* removeNamespace(resolvedDir, namespace, {
+      const result = yield* removeNamespace(indexRoot, namespace, {
         force,
       }).pipe(
         Effect.catchAll((e) => {
@@ -484,11 +487,11 @@ const currentSubcommand = Command.make(
     json: jsonOption,
     pretty: prettyOption,
   },
-  ({ path: dirPath, json, pretty }) =>
+  ({ path: _dirPath, json, pretty }) =>
     Effect.gen(function* () {
-      const resolvedDir = path.resolve(dirPath)
+      const indexRoot = resolveEmbeddingIndexRoot()
 
-      const active = yield* getActiveNamespace(resolvedDir).pipe(
+      const active = yield* getActiveNamespace(indexRoot).pipe(
         Effect.catchAll(() => Effect.succeed(null)),
       )
 
