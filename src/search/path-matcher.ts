@@ -8,15 +8,17 @@ import * as path from 'node:path'
 import { Effect } from 'effect'
 import {
   type DocumentKey,
-  resolveCanonicalPathOrFallback,
+  resolveCanonicalPathOrFallbackAsync,
 } from '../db/canonical.js'
 import { createStorage, loadDocumentIndex } from '../index/storage.js'
 
 export const loadIndexedSourceRoot = (indexRoot: string) =>
   loadDocumentIndex(createStorage(indexRoot, indexRoot)).pipe(
-    Effect.map((documentIndex) =>
-      resolveCanonicalPathOrFallback(
-        documentIndex?.rootPath ?? path.resolve(indexRoot),
+    Effect.flatMap((documentIndex) =>
+      Effect.promise(() =>
+        resolveCanonicalPathOrFallbackAsync(
+          documentIndex?.rootPath ?? path.resolve(indexRoot),
+        ),
       ),
     ),
   )

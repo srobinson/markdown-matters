@@ -89,6 +89,17 @@ export const resolveCanonicalPathOrFallback = (value: string): string => {
   }
 }
 
+export const resolveCanonicalPathOrFallbackAsync = async (
+  value: string,
+): Promise<string> => {
+  const declaredPath = expandDeclaredPath(value)
+  try {
+    return await resolveCanonicalFilePath(declaredPath)
+  } catch {
+    return declaredPath
+  }
+}
+
 const asciiCaseVariantInRange = (
   value: string,
   start: number,
