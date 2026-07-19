@@ -11,6 +11,8 @@ import * as path from 'node:path'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { Effect, Schema } from 'effect'
 
+import { isPathWithin } from '../db/canonical.js'
+
 // ============================================================================
 // MCP Result Constructors
 // ============================================================================
@@ -116,10 +118,7 @@ export const resolveAndValidatePath = async (
     : path.resolve(normalizedRoot, filePath)
 
   // Lexical check: catch obvious traversal without filesystem access
-  if (
-    !resolved.startsWith(normalizedRoot + path.sep) &&
-    resolved !== normalizedRoot
-  ) {
+  if (!isPathWithin(resolved, normalizedRoot, true)) {
     return pathTraversalError(filePath)
   }
 
@@ -132,10 +131,7 @@ export const resolveAndValidatePath = async (
   try {
     const canonical = await fs.realpath(resolved)
     const canonicalRoot = await fs.realpath(normalizedRoot)
-    if (
-      !canonical.startsWith(canonicalRoot + path.sep) &&
-      canonical !== canonicalRoot
-    ) {
+    if (!isPathWithin(canonical, canonicalRoot, true)) {
       return pathTraversalError(filePath)
     }
     return canonical
