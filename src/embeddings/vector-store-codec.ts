@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises'
 import * as msgpack from '@msgpack/msgpack'
 import { Effect, Schema } from 'effect'
+import { CANONICAL_SCHEMA_VERSION, DocumentKeySchema } from '../db/canonical.js'
 import { VectorStoreError } from '../errors/index.js'
 import type { VectorIndex } from './types.js'
 
@@ -9,7 +10,7 @@ const NullishString = Schema.Union(Schema.String, Schema.Null, Schema.Undefined)
 const VectorEntrySchema = Schema.Struct({
   id: Schema.String,
   sectionId: Schema.String,
-  documentPath: Schema.String,
+  documentPath: DocumentKeySchema,
   heading: Schema.String,
   embedding: Schema.Array(Schema.Number),
 })
@@ -20,7 +21,7 @@ const HnswIndexParamsSchema = Schema.Struct({
 })
 
 const VectorIndexSchema = Schema.Struct({
-  version: Schema.Number,
+  version: Schema.Literal(CANONICAL_SCHEMA_VERSION),
   provider: Schema.String,
   providerModel: Schema.optional(NullishString),
   providerBaseURL: Schema.optional(NullishString),

@@ -11,21 +11,19 @@
  * src/__tests__/fixtures/semantic-search/multi-word-corpus/
  */
 
+import * as fs from 'node:fs/promises'
+import * as os from 'node:os'
 import * as path from 'node:path'
 import { Effect } from 'effect'
-import { describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   createNamespacedVectorStore,
   createVectorStore,
   type VectorSearchResultWithStats,
 } from './vector-store.js'
+import { seedFreshVectorFixture } from './vector-store-test-fixture.js'
 
-// Path to test corpus with pre-built embeddings
-const TEST_CORPUS_PATH = path.join(
-  __dirname,
-  '../__tests__/fixtures/semantic-search/multi-word-corpus',
-)
-const TEST_INDEX_PATH = path.join(TEST_CORPUS_PATH, '.mdm')
+let testIndexPath: string
 
 // Test corpus uses 512 dimensions (text-embedding-3-small with Matryoshka reduction)
 const TEST_CORPUS_DIMENSIONS = 512
@@ -35,11 +33,27 @@ const TEST_CORPUS_MODEL = 'text-embedding-3-small'
 // Helper to create the namespaced vector store for test corpus
 const createTestVectorStore = () =>
   createNamespacedVectorStore(
-    TEST_INDEX_PATH,
+    testIndexPath,
     TEST_CORPUS_PROVIDER,
     TEST_CORPUS_MODEL,
     TEST_CORPUS_DIMENSIONS,
   )
+
+beforeAll(async () => {
+  testIndexPath = await fs.mkdtemp(
+    path.join(os.tmpdir(), 'mdm-threshold-schema-'),
+  )
+  await seedFreshVectorFixture({
+    indexRoot: testIndexPath,
+    provider: TEST_CORPUS_PROVIDER,
+    model: TEST_CORPUS_MODEL,
+    dimensions: TEST_CORPUS_DIMENSIONS,
+  })
+})
+
+afterAll(async () => {
+  await fs.rm(testIndexPath, { recursive: true, force: true })
+})
 
 describe('Semantic Search Threshold', () => {
   describe('VectorStore searchWithStats', () => {

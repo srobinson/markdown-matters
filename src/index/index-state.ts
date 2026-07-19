@@ -1,6 +1,10 @@
 import { Effect } from 'effect'
 import type { MdDocument, MdSection } from '../core/types.js'
-import { resolveInternalLink } from './link-index.js'
+import type {
+  CanonicalSource,
+  DeclaredPath,
+  DocumentKey,
+} from '../db/canonical.js'
 import {
   type IndexStorage,
   saveDocumentIndex,
@@ -16,27 +20,25 @@ import type {
 } from './types.js'
 
 export interface MutableIndexState {
-  readonly documentVersion: number
-  readonly sectionVersion: number
-  readonly linkVersion: number
-  readonly documents: Record<string, DocumentEntry>
+  readonly documentVersion: DocumentIndex['version']
+  readonly sectionVersion: SectionIndex['version']
+  readonly linkVersion: LinkIndex['version']
+  readonly documents: Record<DocumentKey, DocumentEntry>
   readonly sections: Record<string, SectionEntry>
   readonly byHeading: Record<string, string[]>
   readonly byDocument: Record<string, string[]>
-  readonly forward: Record<string, string[]>
-  readonly backward: Record<string, string[]>
-  readonly brokenLinks: Set<string>
+  readonly forward: Record<DocumentKey, DocumentKey[]>
+  readonly backward: Record<DocumentKey, DocumentKey[]>
+  readonly brokenBySource: Record<DocumentKey, DeclaredPath[]>
 }
 
-const copyArrayRecord = (
-  source: Readonly<Record<string, readonly string[]>>,
-): Record<string, string[]> =>
-  Object.assign(
-    Object.create(null),
-    Object.fromEntries(
-      Object.entries(source).map(([key, values]) => [key, [...values]]),
-    ),
-  )
+const copyArrayRecord = <Key extends string, Value>(
+  source: Readonly<Record<Key, readonly Value[]>>,
+): Record<Key, Value[]> => {
+  const copy = Object.create(null) as Record<Key, Value[]>
+  for (const key of Object.keys(source) as Key[]) copy[key] = [...source[key]]
+  return copy
+}
 
 export const createMutableIndexState = (
   documents: DocumentIndex,
@@ -52,7 +54,7 @@ export const createMutableIndexState = (
   byDocument: copyArrayRecord(sections.byDocument),
   forward: copyArrayRecord(links.forward),
   backward: copyArrayRecord(links.backward),
-  brokenLinks: new Set(links.broken),
+  brokenBySource: copyArrayRecord(links.brokenBySource),
 })
 
 const removeDocumentSections = (
@@ -72,28 +74,41 @@ const removeDocumentSections = (
   delete state.byDocument[entry.id]
 }
 
+const removeForwardEdges = (
+  state: MutableIndexState,
+  source: DocumentKey,
+): void => {
+  for (const target of state.forward[source] ?? []) {
+    const backList = state.backward[target]
+    const index = backList?.indexOf(source) ?? -1
+    if (index !== -1) backList?.splice(index, 1)
+    if (backList?.length === 0) delete state.backward[target]
+  }
+  delete state.forward[source]
+}
+
 export const deleteIndexedDocument = (
   state: MutableIndexState,
-  relativePath: string,
+  declaredPath: DeclaredPath,
 ): void => {
-  const entry = state.documents[relativePath]
+  const documentKey = Object.values(state.documents).find((document) =>
+    document.declaredPaths.includes(declaredPath),
+  )?.path
+  if (!documentKey) return
+  const entry = state.documents[documentKey]
   if (!entry) return
 
   removeDocumentSections(state, entry)
-  for (const target of state.forward[relativePath] ?? []) {
-    const backList = state.backward[target]
-    const index = backList?.indexOf(relativePath) ?? -1
-    if (index !== -1) backList?.splice(index, 1)
-  }
-  delete state.forward[relativePath]
-  delete state.backward[relativePath]
-  delete state.documents[relativePath]
+  removeForwardEdges(state, documentKey)
+  delete state.backward[documentKey]
+  delete state.brokenBySource[documentKey]
+  delete state.documents[documentKey]
 }
 
 const flattenSections = (
   sections: readonly MdSection[],
   documentId: string,
-  documentPath: string,
+  documentPath: DocumentKey,
 ): SectionEntry[] => {
   const result: SectionEntry[] = []
   const traverse = (section: MdSection): void => {
@@ -118,9 +133,9 @@ const flattenSections = (
 
 export interface ApplyDocumentInput {
   readonly document: MdDocument
-  readonly filePath: string
-  readonly relativePath: string
-  readonly rootPath: string
+  readonly source: CanonicalSource
+  readonly resolvedLinks: readonly DocumentKey[]
+  readonly brokenLinks: readonly DeclaredPath[]
   readonly hash: string
   readonly mtime: number
 }
@@ -134,16 +149,20 @@ export const applyDocument = (
   state: MutableIndexState,
   input: ApplyDocumentInput,
 ): ApplyDocumentResult => {
-  const { document, filePath, relativePath, rootPath, hash, mtime } = input
-  const existing = state.documents[relativePath]
+  const { document, source, resolvedLinks, brokenLinks, hash, mtime } = input
+  const existing = state.documents[source.key]
   if (existing) {
     removeDocumentSections(state, existing)
-    delete state.forward[relativePath]
+    removeForwardEdges(state, source.key)
   }
 
-  state.documents[relativePath] = {
+  state.documents[source.key] = {
     id: document.id,
-    path: relativePath,
+    path: source.key,
+    paths: [source.key],
+    declaredPaths: [source.declaredPath],
+    identity: source.identity,
+    comparisonKey: source.comparisonKey,
     title: document.title,
     mtime,
     hash,
@@ -151,7 +170,7 @@ export const applyDocument = (
     sectionCount: document.metadata.headingCount,
   }
 
-  const sections = flattenSections(document.sections, document.id, relativePath)
+  const sections = flattenSections(document.sections, document.id, source.key)
   state.byDocument[document.id] = []
   for (const section of sections) {
     state.sections[section.id] = section
@@ -161,38 +180,36 @@ export const applyDocument = (
     state.byHeading[headingKey]?.push(section.id)
   }
 
-  const outgoingLinks: string[] = []
-  for (const link of document.links.filter(
-    (item) => item.type === 'internal',
-  )) {
-    const target = resolveInternalLink(link.href, filePath, rootPath)
-    if (!target) continue
-    outgoingLinks.push(target)
+  for (const target of resolvedLinks) {
     state.backward[target] ??= []
-    if (!state.backward[target]?.includes(relativePath)) {
-      state.backward[target]?.push(relativePath)
+    if (!state.backward[target]?.includes(source.key)) {
+      state.backward[target]?.push(source.key)
     }
   }
-  state.forward[relativePath] = outgoingLinks
+  state.forward[source.key] = [...resolvedLinks]
+  if (brokenLinks.length > 0) {
+    state.brokenBySource[source.key] = [...new Set(brokenLinks)]
+  } else {
+    delete state.brokenBySource[source.key]
+  }
   return {
     sectionsIndexed: sections.length,
-    linksIndexed: outgoingLinks.length,
-  }
-}
-
-export const markBrokenLinks = (state: MutableIndexState): void => {
-  for (const targets of Object.values(state.forward)) {
-    for (const target of targets) {
-      if (!state.documents[target]) state.brokenLinks.add(target)
-    }
+    linksIndexed: resolvedLinks.length + brokenLinks.length,
   }
 }
 
 export const saveIndexState = (
   storage: IndexStorage,
   state: MutableIndexState,
-) =>
-  saveDocumentIndex(storage, {
+) => {
+  const broken = [
+    ...new Set(
+      (Object.keys(state.brokenBySource) as DocumentKey[])
+        .sort()
+        .flatMap((source) => state.brokenBySource[source] ?? []),
+    ),
+  ]
+  return saveDocumentIndex(storage, {
     version: state.documentVersion,
     rootPath: storage.sourceRoot,
     documents: state.documents,
@@ -210,7 +227,9 @@ export const saveIndexState = (
         version: state.linkVersion,
         forward: state.forward,
         backward: state.backward,
-        broken: [...state.brokenLinks],
+        brokenBySource: state.brokenBySource,
+        broken,
       }),
     ),
   )
+}

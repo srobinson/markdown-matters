@@ -8,21 +8,19 @@
  * These parameters control the vector index structure and require index rebuild when changed.
  */
 
+import * as fs from 'node:fs/promises'
+import * as os from 'node:os'
 import * as path from 'node:path'
 import { Effect } from 'effect'
-import { describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   createNamespacedVectorStore,
   createVectorStore,
   type HnswBuildOptions,
 } from './vector-store.js'
+import { seedFreshVectorFixture } from './vector-store-test-fixture.js'
 
-// Path to test corpus with pre-built embeddings
-const TEST_CORPUS_PATH = path.join(
-  __dirname,
-  '../__tests__/fixtures/semantic-search/multi-word-corpus',
-)
-const TEST_INDEX_PATH = path.join(TEST_CORPUS_PATH, '.mdm')
+let testIndexPath: string
 
 // Test corpus uses 512 dimensions (text-embedding-3-small with Matryoshka reduction)
 const TEST_CORPUS_DIMENSIONS = 512
@@ -32,12 +30,26 @@ const TEST_CORPUS_MODEL = 'text-embedding-3-small'
 // Helper to create the namespaced vector store for test corpus
 const createTestVectorStore = (hnswOptions?: HnswBuildOptions) =>
   createNamespacedVectorStore(
-    TEST_INDEX_PATH,
+    testIndexPath,
     TEST_CORPUS_PROVIDER,
     TEST_CORPUS_MODEL,
     TEST_CORPUS_DIMENSIONS,
     hnswOptions,
   )
+
+beforeAll(async () => {
+  testIndexPath = await fs.mkdtemp(path.join(os.tmpdir(), 'mdm-hnsw-schema-'))
+  await seedFreshVectorFixture({
+    indexRoot: testIndexPath,
+    provider: TEST_CORPUS_PROVIDER,
+    model: TEST_CORPUS_MODEL,
+    dimensions: TEST_CORPUS_DIMENSIONS,
+  })
+})
+
+afterAll(async () => {
+  await fs.rm(testIndexPath, { recursive: true, force: true })
+})
 
 describe('HNSW Build Options', () => {
   describe('HnswBuildOptions interface', () => {
@@ -67,7 +79,7 @@ describe('HNSW Build Options', () => {
   describe('createVectorStore with HNSW options', () => {
     it('should create vector store without HNSW options (defaults)', () => {
       const vectorStore = createVectorStore(
-        TEST_CORPUS_PATH,
+        testIndexPath,
         TEST_CORPUS_DIMENSIONS,
       )
       expect(vectorStore).toBeDefined()
@@ -76,7 +88,7 @@ describe('HNSW Build Options', () => {
 
     it('should create vector store with custom M parameter', () => {
       const vectorStore = createVectorStore(
-        TEST_CORPUS_PATH,
+        testIndexPath,
         TEST_CORPUS_DIMENSIONS,
         { m: 24 },
       )
@@ -86,7 +98,7 @@ describe('HNSW Build Options', () => {
 
     it('should create vector store with custom efConstruction parameter', () => {
       const vectorStore = createVectorStore(
-        TEST_CORPUS_PATH,
+        testIndexPath,
         TEST_CORPUS_DIMENSIONS,
         { efConstruction: 256 },
       )
@@ -96,7 +108,7 @@ describe('HNSW Build Options', () => {
 
     it('should create vector store with both custom parameters', () => {
       const vectorStore = createVectorStore(
-        TEST_CORPUS_PATH,
+        testIndexPath,
         TEST_CORPUS_DIMENSIONS,
         { m: 24, efConstruction: 256 },
       )
@@ -109,7 +121,7 @@ describe('HNSW Build Options', () => {
     it('should support speed-focused config (M=12, efConstruction=128)', () => {
       const speedOptions: HnswBuildOptions = { m: 12, efConstruction: 128 }
       const vectorStore = createVectorStore(
-        TEST_CORPUS_PATH,
+        testIndexPath,
         TEST_CORPUS_DIMENSIONS,
         speedOptions,
       )
@@ -119,7 +131,7 @@ describe('HNSW Build Options', () => {
     it('should support balanced config (M=16, efConstruction=200) - defaults', () => {
       // Default config - no options passed
       const vectorStore = createVectorStore(
-        TEST_CORPUS_PATH,
+        testIndexPath,
         TEST_CORPUS_DIMENSIONS,
       )
       expect(vectorStore).toBeDefined()
@@ -128,7 +140,7 @@ describe('HNSW Build Options', () => {
     it('should support quality-focused config (M=24, efConstruction=256)', () => {
       const qualityOptions: HnswBuildOptions = { m: 24, efConstruction: 256 }
       const vectorStore = createVectorStore(
-        TEST_CORPUS_PATH,
+        testIndexPath,
         TEST_CORPUS_DIMENSIONS,
         qualityOptions,
       )

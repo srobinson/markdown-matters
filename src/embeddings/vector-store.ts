@@ -12,6 +12,7 @@ import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { Effect } from 'effect'
 import HierarchicalNSW from 'hnswlib-node'
+import { CANONICAL_SCHEMA_VERSION } from '../db/canonical.js'
 import { DimensionMismatchError, VectorStoreError } from '../errors/index.js'
 import { dbIndexDir } from '../home.js'
 import {
@@ -54,7 +55,6 @@ export type {
 
 const VECTOR_INDEX_FILE = 'vectors.bin'
 const VECTOR_META_FILE = 'vectors.meta.bin'
-const INDEX_VERSION = 1
 
 // ============================================================================
 // Implementation
@@ -356,7 +356,7 @@ class HnswVectorStore implements VectorStore {
 
         // Save metadata
         const meta: VectorIndex = {
-          version: INDEX_VERSION,
+          version: CANONICAL_SCHEMA_VERSION,
           provider: this.provider,
           providerModel: this.providerModel,
           providerBaseURL: this.providerBaseURL,

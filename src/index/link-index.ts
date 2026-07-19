@@ -1,5 +1,11 @@
 import * as path from 'node:path'
 import { Effect } from 'effect'
+import {
+  canonicalizeSourceFile,
+  type DeclaredPath,
+  expandDeclaredPath,
+  isPathWithin,
+} from '../db/canonical.js'
 import type { FileReadError, IndexCorruptedError } from '../errors/index.js'
 import { dbIndexDir, resolveMdmHome } from '../home.js'
 import { createStorage, loadLinkIndex } from './storage.js'
@@ -8,16 +14,17 @@ export const resolveInternalLink = (
   href: string,
   fromPath: string,
   rootPath: string,
-): string | null => {
-  if (href.startsWith('#')) return fromPath
+  caseSensitive = true,
+): DeclaredPath | null => {
+  if (href.startsWith('#')) return expandDeclaredPath(fromPath)
   if (href.startsWith('http://') || href.startsWith('https://')) return null
 
   const linkPath = href.split('#')[0] ?? ''
   if (!linkPath) return null
 
   const resolved = path.resolve(path.dirname(fromPath), linkPath)
-  if (!resolved.startsWith(rootPath)) return null
-  return path.relative(rootPath, resolved)
+  if (!isPathWithin(resolved, rootPath, caseSensitive)) return null
+  return expandDeclaredPath(resolved)
 }
 
 const loadLinksFor = (
@@ -29,11 +36,11 @@ const loadLinksFor = (
     const storage = createStorage(rootPath, dbIndexDir(resolveMdmHome()))
     const linkIndex = yield* loadLinkIndex(storage)
     if (!linkIndex) return []
-    const relativePath = path.relative(
-      storage.sourceRoot,
-      path.resolve(filePath),
+    const source = yield* canonicalizeSourceFile(filePath).pipe(
+      Effect.map((canonical) => canonical.key),
+      Effect.catchAll(() => Effect.succeed(null)),
     )
-    return linkIndex[direction][relativePath] ?? []
+    return source ? (linkIndex[direction][source] ?? []) : []
   })
 
 export const getOutgoingLinks = (

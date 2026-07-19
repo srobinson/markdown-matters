@@ -11,6 +11,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { Effect, Exit } from 'effect'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import type { DocumentKey } from '../db/canonical.js'
 import type { VectorEntry } from './types.js'
 import { createVectorStore, type VectorStore } from './vector-store.js'
 
@@ -54,7 +55,7 @@ const makeDistantVector = (dims = DIMS): number[] => {
 const makeEntry = (id: string, seed: number): VectorEntry => ({
   id,
   sectionId: `section-${id}`,
-  documentPath: `docs/${id}.md`,
+  documentPath: path.resolve(tempRoot, 'docs', `${id}.md`) as DocumentKey,
   heading: `Heading ${id}`,
   embedding: makeVector(seed),
 })
@@ -121,7 +122,7 @@ describe('add and search', () => {
     const distant: VectorEntry = {
       id: 'distant',
       sectionId: 'section-distant',
-      documentPath: 'docs/distant.md',
+      documentPath: path.resolve(tempRoot, 'docs/distant.md') as DocumentKey,
       heading: 'Distant',
       embedding: makeDistantVector(),
     }
@@ -162,7 +163,7 @@ describe('add and search', () => {
     const distant: VectorEntry = {
       id: 'opposite',
       sectionId: 'section-opp',
-      documentPath: 'docs/opp.md',
+      documentPath: path.resolve(tempRoot, 'docs/opp.md') as DocumentKey,
       heading: 'Opposite',
       embedding: makeDistantVector(),
     }
@@ -401,6 +402,28 @@ describe('legacy JSON metadata migration', () => {
 // ============================================================================
 
 describe('corrupted metadata validation', () => {
+  it('rejects relative document paths in persisted vector metadata', async () => {
+    const dir = await createTempDir()
+    const store1 = createVectorStore(dir, DIMS)
+    await run(
+      store1.add([
+        {
+          ...makeEntry('relative', 1),
+          documentPath: 'README.md' as DocumentKey,
+        },
+      ]),
+    )
+    await run(store1.save())
+
+    const store2 = createVectorStore(dir, DIMS)
+    const exit = await runExit(store2.load())
+
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) {
+      expect(String(exit.cause)).toContain('schema validation failed')
+    }
+  })
+
   it('load fails with VectorStoreError for malformed binary metadata', async () => {
     const dir = await createTempDir()
 

@@ -1,5 +1,4 @@
 import * as fs from 'node:fs/promises'
-import * as path from 'node:path'
 import { Effect } from 'effect'
 import type {
   FileReadError,
@@ -59,7 +58,7 @@ export const buildBM25Index = (
     let sectionsIndexed = 0
     for (const [documentPath, sections] of sectionsByDocument) {
       const contentResult = yield* Effect.promise(() =>
-        fs.readFile(path.join(storage.sourceRoot, documentPath), 'utf-8'),
+        fs.readFile(documentPath, 'utf-8'),
       ).pipe(
         Effect.map((content) => ({ ok: true as const, content })),
         Effect.catchAll(() =>

@@ -5,6 +5,12 @@
 import * as path from 'node:path'
 
 import type { HeadingLevel } from '../core/types.js'
+import {
+  CANONICAL_SCHEMA_VERSION,
+  type DeclaredPath,
+  type DocumentKey,
+  type FileIdentity,
+} from '../db/canonical.js'
 import { dbIndexDir } from '../home.js'
 
 // ============================================================================
@@ -12,14 +18,18 @@ import { dbIndexDir } from '../home.js'
 // ============================================================================
 
 export interface DocumentIndex {
-  readonly version: number
+  readonly version: typeof INDEX_VERSION
   readonly rootPath: string
-  readonly documents: Record<string, DocumentEntry>
+  readonly documents: Record<DocumentKey, DocumentEntry>
 }
 
 export interface DocumentEntry {
   readonly id: string
-  readonly path: string
+  readonly path: DocumentKey
+  readonly paths: readonly DocumentKey[]
+  readonly declaredPaths: readonly DeclaredPath[]
+  readonly identity: FileIdentity
+  readonly comparisonKey: string
   readonly title: string
   readonly mtime: number
   readonly hash: string
@@ -32,7 +42,7 @@ export interface DocumentEntry {
 // ============================================================================
 
 export interface SectionIndex {
-  readonly version: number
+  readonly version: typeof INDEX_VERSION
   readonly sections: Record<string, SectionEntry>
   readonly byHeading: Record<string, readonly string[]>
   readonly byDocument: Record<string, readonly string[]>
@@ -41,7 +51,7 @@ export interface SectionIndex {
 export interface SectionEntry {
   readonly id: string
   readonly documentId: string
-  readonly documentPath: string
+  readonly documentPath: DocumentKey
   readonly heading: string
   readonly level: HeadingLevel
   readonly startLine: number
@@ -57,10 +67,11 @@ export interface SectionEntry {
 // ============================================================================
 
 export interface LinkIndex {
-  readonly version: number
-  readonly forward: Record<string, readonly string[]>
-  readonly backward: Record<string, readonly string[]>
-  readonly broken: readonly string[]
+  readonly version: typeof INDEX_VERSION
+  readonly forward: Record<DocumentKey, readonly DocumentKey[]>
+  readonly backward: Record<DocumentKey, readonly DocumentKey[]>
+  readonly brokenBySource: Record<DocumentKey, readonly DeclaredPath[]>
+  readonly broken: readonly DeclaredPath[]
 }
 
 // ============================================================================
@@ -125,7 +136,7 @@ export interface FileProcessingError {
 // Index Paths
 // ============================================================================
 
-export const INDEX_VERSION = 1
+export const INDEX_VERSION = CANONICAL_SCHEMA_VERSION
 
 export const getIndexPaths = (indexRoot: string) => {
   const root = dbIndexDir(indexRoot)

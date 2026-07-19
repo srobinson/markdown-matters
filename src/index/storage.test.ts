@@ -10,6 +10,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { Effect, Exit } from 'effect'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { type DocumentKey, expandDeclaredPath } from '../db/canonical.js'
 import {
   clearIndexCache,
   computeHash,
@@ -26,7 +27,12 @@ import {
   saveLinkIndex,
   saveSectionIndex,
 } from './storage.js'
-import type { DocumentIndex, LinkIndex, SectionIndex } from './types.js'
+import type {
+  DocumentEntry,
+  DocumentIndex,
+  LinkIndex,
+  SectionIndex,
+} from './types.js'
 import { INDEX_VERSION } from './types.js'
 
 // ============================================================================
@@ -52,6 +58,29 @@ const runExit = <A, E>(effect: Effect.Effect<A, E>): Promise<Exit.Exit<A, E>> =>
 
 const createTestStorage = (root: string): ReturnType<typeof createStorage> =>
   createStorage(root, root)
+
+const documentKey = (root: string, name: string): DocumentKey =>
+  path.resolve(root, name) as DocumentKey
+
+const makeDocumentEntry = (
+  key: DocumentKey,
+  id: string,
+  title: string,
+  overrides: Partial<DocumentEntry> = {},
+): DocumentEntry => ({
+  id,
+  path: key,
+  paths: [key],
+  declaredPaths: [expandDeclaredPath(key)],
+  identity: { device: '1', inode: id },
+  comparisonKey: key,
+  title,
+  mtime: 0,
+  hash: `hash-${id}`,
+  tokenCount: 0,
+  sectionCount: 0,
+  ...overrides,
+})
 
 // ============================================================================
 // Setup / Teardown
@@ -199,19 +228,17 @@ describe('DocumentIndex round-trip', () => {
   })
 
   it('save then load preserves data', async () => {
+    const readmeKey = documentKey(storage.sourceRoot, 'README.md')
     const index: DocumentIndex = {
       version: INDEX_VERSION,
       rootPath: storage.sourceRoot,
       documents: {
-        'doc-1': {
-          id: 'doc-1',
-          path: 'README.md',
-          title: 'README',
+        [readmeKey]: makeDocumentEntry(readmeKey, 'doc-1', 'README', {
           mtime: 1710000000000,
           hash: 'abcdef0123456789',
           tokenCount: 42,
           sectionCount: 3,
-        },
+        }),
       },
     }
 
@@ -220,7 +247,7 @@ describe('DocumentIndex round-trip', () => {
 
     expect(loaded).not.toBeNull()
     expect(loaded!.version).toBe(INDEX_VERSION)
-    const doc1 = loaded!.documents['doc-1']!
+    const doc1 = loaded!.documents[readmeKey]!
     expect(doc1.title).toBe('README')
     expect(doc1.tokenCount).toBe(42)
   })
@@ -252,13 +279,14 @@ describe('SectionIndex round-trip', () => {
   })
 
   it('save then load preserves data', async () => {
+    const readmeKey = documentKey(storage.sourceRoot, 'README.md')
     const index: SectionIndex = {
       version: INDEX_VERSION,
       sections: {
         'sec-1': {
           id: 'sec-1',
           documentId: 'doc-1',
-          documentPath: 'README.md',
+          documentPath: readmeKey,
           heading: 'Introduction',
           level: 1,
           startLine: 1,
@@ -310,20 +338,26 @@ describe('LinkIndex round-trip', () => {
   })
 
   it('save then load preserves data', async () => {
+    const a = documentKey(storage.sourceRoot, 'a.md')
+    const b = documentKey(storage.sourceRoot, 'b.md')
+    const c = documentKey(storage.sourceRoot, 'c.md')
+    const d = expandDeclaredPath(path.join(storage.sourceRoot, 'd.md'))
     const index: LinkIndex = {
       version: INDEX_VERSION,
-      forward: { 'a.md': ['b.md', 'c.md'] },
-      backward: { 'b.md': ['a.md'], 'c.md': ['a.md'] },
-      broken: ['d.md'],
+      forward: { [a]: [b, c] },
+      backward: { [b]: [a], [c]: [a] },
+      brokenBySource: { [a]: [d] },
+      broken: [d],
     }
 
     await run(saveLinkIndex(storage, index))
     const loaded = await run(loadLinkIndex(storage))
 
     expect(loaded).not.toBeNull()
-    expect(loaded!.forward['a.md']).toEqual(['b.md', 'c.md'])
-    expect(loaded!.backward['b.md']).toEqual(['a.md'])
-    expect(loaded!.broken).toEqual(['d.md'])
+    expect(loaded!.forward[a]).toEqual([b, c])
+    expect(loaded!.backward[b]).toEqual([a])
+    expect(loaded!.brokenBySource[a]).toEqual([d])
+    expect(loaded!.broken).toEqual([d])
   })
 
   it('returns null when link index does not exist', async () => {
@@ -336,6 +370,7 @@ describe('LinkIndex round-trip', () => {
     expect(empty.version).toBe(INDEX_VERSION)
     expect(Object.keys(empty.forward)).toHaveLength(0)
     expect(Object.keys(empty.backward)).toHaveLength(0)
+    expect(Object.keys(empty.brokenBySource)).toHaveLength(0)
     expect(empty.broken).toEqual([])
   })
 })
@@ -416,6 +451,50 @@ describe('malformed JSON handling', () => {
       expect(String(exit.cause)).toContain('IndexCorruptedError')
     }
   })
+
+  it('rejects a relative document identity in the canonical schema', async () => {
+    const canonical = documentKey(storage.sourceRoot, 'README.md')
+    await fs.writeFile(
+      storage.paths.documents,
+      JSON.stringify({
+        version: INDEX_VERSION,
+        rootPath: storage.sourceRoot,
+        documents: {
+          'README.md': {
+            id: 'doc-1',
+            path: canonical,
+            paths: [canonical],
+            declaredPaths: [path.join(storage.sourceRoot, 'README.md')],
+            identity: { device: '1', inode: '2' },
+            comparisonKey: canonical,
+            title: 'README',
+            mtime: 0,
+            hash: 'hash',
+            tokenCount: 0,
+            sectionCount: 0,
+          },
+        },
+      }),
+    )
+
+    expect(Exit.isFailure(await runExit(loadDocumentIndex(storage)))).toBe(true)
+  })
+
+  it('rejects a relative broken link in the canonical schema', async () => {
+    const source = path.join(storage.sourceRoot, 'README.md')
+    await fs.writeFile(
+      storage.paths.links,
+      JSON.stringify({
+        version: INDEX_VERSION,
+        forward: { [source]: [] },
+        backward: {},
+        brokenBySource: { [source]: ['missing.md'] },
+        broken: ['missing.md'],
+      }),
+    )
+
+    expect(Exit.isFailure(await runExit(loadLinkIndex(storage)))).toBe(true)
+  })
 })
 
 // ============================================================================
@@ -429,17 +508,17 @@ describe('large index handling', () => {
     await run(initializeIndex(storage))
 
     const documents: DocumentIndex['documents'] = {}
+    const keys: DocumentKey[] = []
     for (let i = 0; i < 10_000; i++) {
       const id = `doc-${i}`
-      documents[id] = {
-        id,
-        path: `folder/file-${i}.md`,
-        title: `Document ${i}`,
+      const key = documentKey(storage.sourceRoot, `folder/file-${i}.md`)
+      keys.push(key)
+      documents[key] = makeDocumentEntry(key, id, `Document ${i}`, {
         mtime: 1710000000000 + i,
         hash: computeHash(`content-${i}`),
         tokenCount: 100 + i,
         sectionCount: (i % 5) + 1,
-      }
+      })
     }
 
     const index: DocumentIndex = {
@@ -453,9 +532,9 @@ describe('large index handling', () => {
 
     expect(loaded).not.toBeNull()
     expect(Object.keys(loaded!.documents)).toHaveLength(10_000)
-    expect(loaded!.documents['doc-0']!.title).toBe('Document 0')
-    expect(loaded!.documents['doc-9999']!.title).toBe('Document 9999')
-    expect(loaded!.documents['doc-5000']!.tokenCount).toBe(5100)
+    expect(loaded!.documents[keys[0]!]!.title).toBe('Document 0')
+    expect(loaded!.documents[keys[9999]!]!.title).toBe('Document 9999')
+    expect(loaded!.documents[keys[5000]!]!.tokenCount).toBe(5100)
   })
 })
 
@@ -478,19 +557,13 @@ describe('atomic writes', () => {
   })
 
   it('a stale .tmp file does not affect reads or block subsequent saves', async () => {
+    const firstKey = documentKey(storage.sourceRoot, 'a.md')
+    const secondKey = documentKey(storage.sourceRoot, 'b.md')
     const v1: DocumentIndex = {
       version: INDEX_VERSION,
       rootPath: storage.sourceRoot,
       documents: {
-        'doc-1': {
-          id: 'doc-1',
-          path: 'a.md',
-          title: 'A',
-          mtime: 0,
-          hash: 'hash-a',
-          tokenCount: 0,
-          sectionCount: 0,
-        },
+        [firstKey]: makeDocumentEntry(firstKey, 'doc-1', 'A'),
       },
     }
     await run(saveDocumentIndex(storage, v1))
@@ -514,16 +587,8 @@ describe('atomic writes', () => {
       version: INDEX_VERSION,
       rootPath: storage.sourceRoot,
       documents: {
-        'doc-1': v1.documents['doc-1']!,
-        'doc-2': {
-          id: 'doc-2',
-          path: 'b.md',
-          title: 'B',
-          mtime: 0,
-          hash: 'hash-b',
-          tokenCount: 0,
-          sectionCount: 0,
-        },
+        [firstKey]: v1.documents[firstKey]!,
+        [secondKey]: makeDocumentEntry(secondKey, 'doc-2', 'B'),
       },
     }
     await run(saveDocumentIndex(storage, v2))

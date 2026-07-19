@@ -6,7 +6,11 @@ import * as crypto from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { Effect, Schema } from 'effect'
-
+import {
+  DeclaredPathSchema,
+  DocumentKeySchema,
+  isDocumentKey,
+} from '../db/canonical.js'
 import {
   DirectoryCreateError,
   FileReadError,
@@ -22,7 +26,14 @@ import { getIndexPaths, INDEX_VERSION } from './types.js'
 
 const DocumentEntrySchema = Schema.Struct({
   id: Schema.String,
-  path: Schema.String,
+  path: DocumentKeySchema,
+  paths: Schema.Array(DocumentKeySchema),
+  declaredPaths: Schema.Array(DeclaredPathSchema),
+  identity: Schema.Struct({
+    device: Schema.String,
+    inode: Schema.String,
+  }),
+  comparisonKey: Schema.String,
   title: Schema.String,
   mtime: Schema.Number,
   hash: Schema.String,
@@ -30,16 +41,23 @@ const DocumentEntrySchema = Schema.Struct({
   sectionCount: Schema.Number,
 })
 
+const documentKeyRecord = <A, I, R>(value: Schema.Schema<A, I, R>) =>
+  Schema.Record({ key: Schema.String, value }).pipe(
+    Schema.filter((record) => Object.keys(record).every(isDocumentKey), {
+      identifier: 'DocumentKeyRecord',
+    }),
+  )
+
 const DocumentIndexSchema = Schema.Struct({
-  version: Schema.Number,
+  version: Schema.Literal(INDEX_VERSION),
   rootPath: Schema.String,
-  documents: Schema.Record({ key: Schema.String, value: DocumentEntrySchema }),
+  documents: documentKeyRecord(DocumentEntrySchema),
 })
 
 const SectionEntrySchema = Schema.Struct({
   id: Schema.String,
   documentId: Schema.String,
-  documentPath: Schema.String,
+  documentPath: DocumentKeySchema,
   heading: Schema.String,
   level: Schema.Literal(1, 2, 3, 4, 5, 6),
   startLine: Schema.Number,
@@ -51,7 +69,7 @@ const SectionEntrySchema = Schema.Struct({
 })
 
 const SectionIndexSchema = Schema.Struct({
-  version: Schema.Number,
+  version: Schema.Literal(INDEX_VERSION),
   sections: Schema.Record({ key: Schema.String, value: SectionEntrySchema }),
   byHeading: Schema.Record({
     key: Schema.String,
@@ -64,16 +82,11 @@ const SectionIndexSchema = Schema.Struct({
 })
 
 const LinkIndexSchema = Schema.Struct({
-  version: Schema.Number,
-  forward: Schema.Record({
-    key: Schema.String,
-    value: Schema.Array(Schema.String),
-  }),
-  backward: Schema.Record({
-    key: Schema.String,
-    value: Schema.Array(Schema.String),
-  }),
-  broken: Schema.Array(Schema.String),
+  version: Schema.Literal(INDEX_VERSION),
+  forward: documentKeyRecord(Schema.Array(DocumentKeySchema)),
+  backward: documentKeyRecord(Schema.Array(DocumentKeySchema)),
+  brokenBySource: documentKeyRecord(Schema.Array(DeclaredPathSchema)),
+  broken: Schema.Array(DeclaredPathSchema),
 })
 
 // ============================================================================
@@ -357,6 +370,7 @@ export const createEmptyLinkIndex = (): LinkIndex => ({
   version: INDEX_VERSION,
   forward: Object.create(null),
   backward: Object.create(null),
+  brokenBySource: Object.create(null),
   broken: [],
 })
 
