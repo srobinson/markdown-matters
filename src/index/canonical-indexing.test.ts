@@ -7,10 +7,15 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import type { DocumentKey } from '../db/canonical.js'
 import { buildIndex } from './index-build.js'
-import { resolveInternalLink } from './link-index.js'
+import {
+  getIncomingLinks,
+  getOutgoingLinks,
+  resolveInternalLink,
+} from './link-index.js'
 import {
   createStorage,
   loadDocumentIndex,
+  loadLinkIndex,
   loadSectionIndex,
 } from './storage.js'
 
@@ -172,5 +177,65 @@ describe('canonical index construction', () => {
     ])
     expect(documents?.documents[key]?.declaredPaths).toEqual([a, z])
     expect(documents?.documents[key]?.title).toBe('Updated')
+  })
+
+  it('queries links through a non-survivor hardlink alias', async () => {
+    const { sourceRoot, indexRoot } = await makeRoots()
+    const a = path.join(sourceRoot, 'a.md')
+    const z = path.join(sourceRoot, 'z.md')
+    const inbound = path.join(sourceRoot, 'inbound.md')
+    const target = path.join(sourceRoot, 'target.md')
+    await Promise.all([
+      fs.writeFile(z, '# Shared\n\n[Target](./target.md)\n'),
+      fs.writeFile(inbound, '# Inbound\n\n[Shared](./a.md)\n'),
+      fs.writeFile(target, '# Target\n'),
+    ])
+    await fs.link(z, a)
+    await runBuild(sourceRoot, indexRoot)
+    const originalMdmHome = process.env.MDM_HOME
+    process.env.MDM_HOME = indexRoot
+
+    try {
+      const survivorOutgoing = await Effect.runPromise(
+        getOutgoingLinks(sourceRoot, a),
+      )
+      const survivorIncoming = await Effect.runPromise(
+        getIncomingLinks(sourceRoot, a),
+      )
+      expect(survivorOutgoing).toEqual([await fs.realpath(target)])
+      expect(survivorIncoming).toEqual([await fs.realpath(inbound)])
+      expect(await Effect.runPromise(getOutgoingLinks(sourceRoot, z))).toEqual(
+        survivorOutgoing,
+      )
+      expect(await Effect.runPromise(getIncomingLinks(sourceRoot, z))).toEqual(
+        survivorIncoming,
+      )
+    } finally {
+      if (originalMdmHome === undefined) delete process.env.MDM_HOME
+      else process.env.MDM_HOME = originalMdmHome
+    }
+  })
+
+  it('reconciles backlinks when an added hardlink changes the survivor', async () => {
+    const { sourceRoot, indexRoot } = await makeRoots()
+    const oldSurvivor = path.join(sourceRoot, 'm.md')
+    const newSurvivor = path.join(sourceRoot, 'a.md')
+    const inbound = path.join(sourceRoot, 'inbound.md')
+    await Promise.all([
+      fs.writeFile(oldSurvivor, '# Shared\n'),
+      fs.writeFile(inbound, '# Inbound\n\n[Shared](./m.md)\n'),
+    ])
+    await runBuild(sourceRoot, indexRoot)
+    await fs.link(oldSurvivor, newSurvivor)
+
+    await runBuild(sourceRoot, indexRoot, { changedPaths: [newSurvivor] })
+
+    const links = await Effect.runPromise(
+      loadLinkIndex(createStorage(sourceRoot, indexRoot)),
+    )
+    const newKey = (await fs.realpath(newSurvivor)) as DocumentKey
+    const inboundKey = (await fs.realpath(inbound)) as DocumentKey
+    expect(links?.forward[inboundKey]).toEqual([newKey])
+    expect(links?.backward[newKey]).toEqual([inboundKey])
   })
 })

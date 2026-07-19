@@ -159,6 +159,7 @@ const parseFiles = (
   state: MutableIndexState,
   options: IndexOptions,
   errors: FileProcessingError[],
+  reparseAliases: ReadonlySet<DeclaredPath>,
 ) => {
   const documentKeysByIdentity = new Map<string, DocumentKey>(
     Object.values(state.documents).map((entry) => [
@@ -184,6 +185,7 @@ const parseFiles = (
         const existing = state.documents[source.key]
         if (
           !options.force &&
+          !source.declaredPaths.some((alias) => reparseAliases.has(alias)) &&
           existing?.hash === hash &&
           existing.mtime === stats.mtime.getTime() &&
           sourceMatchesEntry(source, existing)
@@ -313,10 +315,26 @@ const reconcileCanonicalSources = (
   }
 }
 
+const addBacklinkSourceAliases = (
+  state: MutableIndexState,
+  target: DocumentKey,
+  aliases: Set<DeclaredPath>,
+  reparseAliases?: Set<DeclaredPath>,
+): void => {
+  for (const sourceKey of state.backward[target] ?? []) {
+    for (const declaredPath of state.documents[sourceKey]?.declaredPaths ??
+      []) {
+      aliases.add(declaredPath)
+      reparseAliases?.add(declaredPath)
+    }
+  }
+}
+
 const collectDependentAliases = (
   state: MutableIndexState,
   selections: readonly CanonicalSourceSelection[],
   includeIdentityAliases: boolean,
+  reparseAliases: Set<DeclaredPath>,
 ): DeclaredPath[] => {
   const aliases = new Set<DeclaredPath>()
   for (const selection of selections) {
@@ -326,6 +344,9 @@ const collectDependentAliases = (
       if (sameIdentity && includeIdentityAliases) {
         for (const declaredPath of entry.declaredPaths) {
           aliases.add(declaredPath)
+        }
+        if (entry.path !== selection.key) {
+          addBacklinkSourceAliases(state, entry.path, aliases, reparseAliases)
         }
         continue
       }
@@ -340,12 +361,7 @@ const collectDependentAliases = (
           aliases.add(declaredPath)
         }
       }
-      for (const sourceKey of state.backward[entry.path] ?? []) {
-        for (const declaredPath of state.documents[sourceKey]?.declaredPaths ??
-          []) {
-          aliases.add(declaredPath)
-        }
-      }
+      addBacklinkSourceAliases(state, entry.path, aliases, reparseAliases)
     }
   }
   return [...aliases]
@@ -354,6 +370,7 @@ const collectDependentAliases = (
 const collectDeletedReplacements = (
   state: MutableIndexState,
   deletedPaths: readonly string[],
+  reparseAliases: Set<DeclaredPath>,
 ): DeclaredPath[] => {
   const deleted = new Set(deletedPaths.map(expandDeclaredPath))
   const replacements = new Set<DeclaredPath>()
@@ -363,11 +380,10 @@ const collectDeletedReplacements = (
     for (const alias of entry.declaredPaths) {
       if (!deleted.has(alias)) replacements.add(alias)
     }
-    for (const sourceKey of state.backward[entry.path] ?? []) {
-      const source = state.documents[sourceKey]
-      for (const alias of source?.declaredPaths ?? []) {
-        if (!deleted.has(alias)) replacements.add(alias)
-      }
+    const backlinkAliases = new Set<DeclaredPath>()
+    addBacklinkSourceAliases(state, entry.path, backlinkAliases, reparseAliases)
+    for (const alias of backlinkAliases) {
+      if (!deleted.has(alias)) replacements.add(alias)
     }
     deleteIndexedDocument(state, declaredPath)
   }
@@ -440,9 +456,11 @@ export const buildIndex = (
         reportMissingStoredAliases(state, storage.sourceRoot, errors),
       )
     }
+    const reparseAliases = new Set<DeclaredPath>()
     const replacementAliases = collectDeletedReplacements(
       state,
       discovery.deletedPaths,
+      reparseAliases,
     )
     const existingReplacements = yield* Effect.promise(() =>
       keepExistingAliases(replacementAliases, storage.sourceRoot, errors),
@@ -455,6 +473,7 @@ export const buildIndex = (
       state,
       canonicalized.selections,
       incremental,
+      reparseAliases,
     )
     if (dependentAliases.length > 0) {
       const existingDependentAliases = yield* Effect.promise(() =>
@@ -474,6 +493,7 @@ export const buildIndex = (
       state,
       options,
       errors,
+      reparseAliases,
     )
     const counts = mergeParsedFiles(selections, parsed, storage, state, options)
     yield* saveIndexState(storage, state)

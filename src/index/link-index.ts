@@ -6,11 +6,12 @@ import {
   type DeclaredPath,
   type DocumentKey,
   expandDeclaredPath,
+  fileIdentityKey,
   isPathWithin,
 } from '../db/canonical.js'
 import type { FileReadError, IndexCorruptedError } from '../errors/index.js'
 import { dbIndexDir, resolveMdmHome } from '../home.js'
-import { createStorage, loadLinkIndex } from './storage.js'
+import { createStorage, loadDocumentIndex, loadLinkIndex } from './storage.js'
 
 export type InternalLinkResolution =
   | { readonly kind: 'resolved'; readonly path: DocumentKey }
@@ -71,13 +72,22 @@ const loadLinksFor = (
 ): Effect.Effect<readonly string[], FileReadError | IndexCorruptedError> =>
   Effect.gen(function* () {
     const storage = createStorage(rootPath, dbIndexDir(resolveMdmHome()))
-    const linkIndex = yield* loadLinkIndex(storage)
+    const [documentIndex, linkIndex] = yield* Effect.all([
+      loadDocumentIndex(storage),
+      loadLinkIndex(storage),
+    ])
     if (!linkIndex) return []
     const source = yield* canonicalizeSourceFile(filePath).pipe(
-      Effect.map((canonical) => canonical.key),
       Effect.catchAll(() => Effect.succeed(null)),
     )
-    return source ? (linkIndex[direction][source] ?? []) : []
+    if (!source) return []
+    const identity = fileIdentityKey(source.identity)
+    const survivor = Object.values(documentIndex?.documents ?? {}).find(
+      (entry) =>
+        fileIdentityKey(entry.identity) === identity ||
+        entry.paths.includes(source.key),
+    )?.path
+    return linkIndex[direction][survivor ?? source.key] ?? []
   })
 
 export const getOutgoingLinks = (
