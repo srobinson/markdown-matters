@@ -46,16 +46,13 @@ describe('canonical document identity', () => {
     const selected = selectCanonicalSource(sources)
     const realA = realpathSync(a)
     const realZ = realpathSync(z)
-    const canonicalDir = await fs.realpath(dir)
 
     expect(selected.key).toBe(realA)
     expect(selected.paths).toEqual([realA, realZ])
     expect(selected.declaredPaths).toEqual([a, z])
     expect(selected.identity.device).toMatch(/^\d+$/)
     expect(selected.identity.inode).toMatch(/^\d+$/)
-    expect(sourceBelongsToPrefix(selected, `${canonicalDir}${path.sep}`)).toBe(
-      true,
-    )
+    expect(sourceBelongsToPrefix(selected, `${dir}${path.sep}`)).toBe(true)
 
     const declared = path.join(dir, 'declared.md')
     const target = path.join(dir, 'target.md')
