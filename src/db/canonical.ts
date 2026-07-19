@@ -181,7 +181,9 @@ export const sourceBelongsToPrefix = (
   const declaredPrefix = expandDeclaredPath(prefix)
   let canonicalPrefix: string
   try {
-    canonicalPrefix = realpathSync(declaredPrefix)
+    // Match the native representation used by fs.promises.realpath for keys.
+    // This also expands Windows short path aliases consistently.
+    canonicalPrefix = realpathSync.native(declaredPrefix)
   } catch {
     canonicalPrefix = declaredPrefix
   }
