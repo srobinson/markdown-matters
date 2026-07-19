@@ -11,6 +11,7 @@
 import * as path from 'node:path'
 import { Effect } from 'effect'
 import type { ContextLine } from '../core/types.js'
+import type { DocumentKey } from '../db/canonical.js'
 import { listNamespaces } from '../embeddings/embedding-namespace.js'
 import { semanticSearch } from '../embeddings/semantic-search.js'
 import type {
@@ -69,7 +70,7 @@ export interface HybridSearchOptions {
 
 export interface HybridSearchResult {
   readonly sectionId: string
-  readonly documentPath: string
+  readonly documentPath: DocumentKey
   readonly heading: string
   /** Combined RRF score (higher is better) */
   readonly score: number
@@ -132,7 +133,7 @@ const fusionRRF = (
   const scoreMap = new Map<
     string,
     {
-      documentPath: string
+      documentPath: DocumentKey
       heading: string
       rrfScore: number
       similarity?: number
@@ -159,7 +160,7 @@ const fusionRRF = (
       }
     } else {
       const entry: {
-        documentPath: string
+        documentPath: DocumentKey
         heading: string
         rrfScore: number
         similarity?: number

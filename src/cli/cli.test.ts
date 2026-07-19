@@ -65,6 +65,10 @@ describe('mdm CLI e2e', () => {
     originalMdmHome = process.env.MDM_HOME
     process.env.MDM_HOME = testHomeDir
     await fs.cp(FIXTURE_SOURCE_DIR, testFixtureDir, { recursive: true })
+    await fs.link(
+      path.join(testFixtureDir, 'README.md'),
+      path.join(testFixtureDir, 'readme-alias.md'),
+    )
 
     const legacyFixtureDir = path.join(testFixtureDir, '.mdm')
     await fs.copyFile(
@@ -384,9 +388,15 @@ describe('mdm CLI e2e', () => {
   })
 
   describe('links command', () => {
-    it('shows outgoing links from file', async () => {
-      const output = await run('links README.md')
+    it('shows outgoing links under the canonical hardlink survivor key', async () => {
+      const output = await run('links readme-alias.md')
       expect(output).toContain('Outgoing links')
+      expect(output).toContain(
+        await fs.realpath(path.join(testFixtureDir, 'README.md')),
+      )
+      expect(output).not.toContain(
+        await fs.realpath(path.join(testFixtureDir, 'readme-alias.md')),
+      )
       expect(output).toContain('Total:')
     })
   })
@@ -395,6 +405,9 @@ describe('mdm CLI e2e', () => {
     it('shows incoming links to file', async () => {
       const output = await run('backlinks getting-started.md')
       expect(output).toContain('Incoming links')
+      expect(output).toContain(
+        await fs.realpath(path.join(testFixtureDir, 'getting-started.md')),
+      )
       expect(output).toContain('Total:')
     })
   })

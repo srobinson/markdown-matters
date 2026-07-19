@@ -111,7 +111,6 @@ const runHybridMode = (context: ExecutionContext) =>
       )
       if (sectionIndex) {
         results = yield* filterResultsByRefineTerms(
-          context.indexRoot,
           rawResults,
           refineTerms,
           context.effectiveLimit,
@@ -183,7 +182,6 @@ const runKeywordMode = (context: ExecutionContext) =>
         })
     if (refineTerms.length > 0) {
       results = yield* filterResultsByRefineTerms(
-        context.indexRoot,
         results,
         refineTerms,
         context.effectiveLimit,
@@ -254,7 +252,6 @@ const runSemanticMode = (context: ExecutionContext) =>
       )
       if (sectionIndex) {
         results = yield* filterResultsByRefineTerms(
-          context.indexRoot,
           results,
           refineTerms,
           context.effectiveLimit,

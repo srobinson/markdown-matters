@@ -10,6 +10,7 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { Effect } from 'effect'
+import { resolveSourceFile } from '../db/canonical.js'
 import type {
   ApiKeyInvalidError,
   ApiKeyMissingError,
@@ -202,10 +203,7 @@ export const semanticSearchWithContent = (
     const resolvedRoot = path.resolve(rootPath)
     const results = yield* semanticSearch(resolvedRoot, query, options)
 
-    const storage = createStorage(
-      resolvedRoot,
-      dbIndexDir(resolveMdmHome()),
-    )
+    const storage = createStorage(resolvedRoot, dbIndexDir(resolveMdmHome()))
     const sectionIndex = yield* loadSectionIndex(storage)
 
     if (!sectionIndex) {
@@ -221,7 +219,7 @@ export const semanticSearchWithContent = (
         continue
       }
 
-      const filePath = path.join(resolvedRoot, result.documentPath)
+      const filePath = resolveSourceFile(result.documentPath)
 
       // Note: catchAll is intentional - file read failures during search result
       // enrichment should skip content loading with a warning, not fail the search.

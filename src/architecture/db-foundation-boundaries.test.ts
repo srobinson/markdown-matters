@@ -50,6 +50,24 @@ const sizedFiles = groups.flatMap(({ owner, modules }) =>
     : [],
 )
 
+const sourceReaders = [
+  'index/bm25-build.ts',
+  'search/content-search.ts',
+  'duplicates/detector.ts',
+  'embeddings/semantic-search-build.ts',
+  'embeddings/semantic-search.ts',
+  'embeddings/semantic-search-pipeline.ts',
+  'cli/commands/search-refine.ts',
+] as const
+
 it.each(sizedFiles)('%s is at most 700 lines', (file) => {
   expect(lines(file)).toBeLessThanOrEqual(700)
+})
+
+it.each(sourceReaders)('%s uses resolveSourceFile', (file) => {
+  const source = fs.readFileSync(path.join(root, file), 'utf-8')
+  expect(source).toContain('resolveSourceFile')
+  expect(source).not.toMatch(
+    /path\.join\([\s\S]{0,120}(documentPath|docPath|r\.documentPath)/,
+  )
 })

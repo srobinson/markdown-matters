@@ -7,7 +7,10 @@
 import * as path from 'node:path'
 import { Args, Command, Options } from '@effect/cli'
 import { Console, Effect } from 'effect'
-import { getIncomingLinks } from '../../index/indexer.js'
+import {
+  getIncomingLinks,
+  resolveIndexedDocumentKey,
+} from '../../index/indexer.js'
 import { jsonOption, prettyOption } from '../options.js'
 import { formatJson } from '../utils.js'
 
@@ -29,16 +32,18 @@ export const backlinksCommand = Command.make(
     Effect.gen(function* () {
       const resolvedRoot = path.resolve(root)
       const resolvedFile = path.resolve(file)
-      const relativePath = path.relative(resolvedRoot, resolvedFile)
 
       const links = yield* getIncomingLinks(resolvedRoot, resolvedFile)
+      const documentKey =
+        (yield* resolveIndexedDocumentKey(resolvedRoot, resolvedFile)) ??
+        resolvedFile
 
       if (json) {
         yield* Console.log(
-          formatJson({ file: relativePath, backlinks: links }, pretty),
+          formatJson({ file: documentKey, backlinks: links }, pretty),
         )
       } else {
-        yield* Console.log(`Incoming links to ${relativePath}:`)
+        yield* Console.log(`Incoming links to ${documentKey}:`)
         yield* Console.log('')
         if (links.length === 0) {
           yield* Console.log('  (none)')

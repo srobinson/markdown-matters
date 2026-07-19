@@ -9,7 +9,7 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { Effect } from 'effect'
-import type { DocumentKey } from '../db/canonical.js'
+import { type DocumentKey, resolveSourceFile } from '../db/canonical.js'
 import {
   type ApiKeyInvalidError,
   type ApiKeyMissingError,
@@ -261,7 +261,7 @@ const readSectionsToEmbed = (
         })
       }
 
-      const filePath = docPath
+      const filePath = resolveSourceFile(docPath)
 
       // Note: catchAll is intentional - file read failures during embedding
       // should skip the file with a warning rather than abort the entire

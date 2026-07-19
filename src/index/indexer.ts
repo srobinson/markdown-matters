@@ -8,4 +8,5 @@ export {
   getBrokenLinks,
   getIncomingLinks,
   getOutgoingLinks,
+  resolveIndexedDocumentKey,
 } from './link-index.js'

@@ -1,5 +1,6 @@
 import * as fs from 'node:fs/promises'
 import { Effect } from 'effect'
+import { type DocumentKey, resolveSourceFile } from '../db/canonical.js'
 import type {
   FileReadError,
   FileWriteError,
@@ -46,7 +47,7 @@ export const buildBM25Index = (
     }
     store.clear()
 
-    const sectionsByDocument = new Map<string, SectionEntry[]>()
+    const sectionsByDocument = new Map<DocumentKey, SectionEntry[]>()
     for (const section of Object.values(sectionIndex.sections)) {
       if (section.tokenCount < 10) continue
       const existing = sectionsByDocument.get(section.documentPath)
@@ -57,8 +58,9 @@ export const buildBM25Index = (
     let processedDocuments = 0
     let sectionsIndexed = 0
     for (const [documentPath, sections] of sectionsByDocument) {
+      const filePath = resolveSourceFile(documentPath)
       const contentResult = yield* Effect.promise(() =>
-        fs.readFile(documentPath, 'utf-8'),
+        fs.readFile(filePath, 'utf-8'),
       ).pipe(
         Effect.map((content) => ({ ok: true as const, content })),
         Effect.catchAll(() =>

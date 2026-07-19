@@ -11,6 +11,7 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { Effect } from 'effect'
+import { type DocumentKey, resolveSourceFile } from '../db/canonical.js'
 import {
   type ApiKeyInvalidError,
   type ApiKeyMissingError,
@@ -312,7 +313,6 @@ export const prepareSearchPipeline = (
 const addContextLinesToResults = (
   limitedResults: readonly VectorSearchResult[],
   sectionIndex: { sections: Record<string, SectionEntry> },
-  resolvedRoot: string,
   options: {
     contextBefore?: number | undefined
     contextAfter?: number | undefined
@@ -323,7 +323,7 @@ const addContextLinesToResults = (
     const contextAfter = options.contextAfter ?? 0
 
     const resultsWithContext: SemanticSearchResult[] = []
-    const fileCache = new Map<string, string>()
+    const fileCache = new Map<DocumentKey, string>()
 
     for (const r of limitedResults) {
       const section = sectionIndex.sections[r.sectionId]
@@ -339,7 +339,7 @@ const addContextLinesToResults = (
 
       let fileContent = fileCache.get(r.documentPath)
       if (!fileContent) {
-        const filePath = path.join(resolvedRoot, r.documentPath)
+        const filePath = resolveSourceFile(r.documentPath)
         const contentResult = yield* Effect.promise(() =>
           fs.readFile(filePath, 'utf-8'),
         ).pipe(
@@ -448,17 +448,13 @@ export const postProcessResults = (
       options.contextBefore !== undefined ||
       options.contextAfter !== undefined
     ) {
-      const storage = createStorage(
-        resolvedRoot,
-        dbIndexDir(resolveMdmHome()),
-      )
+      const storage = createStorage(resolvedRoot, dbIndexDir(resolveMdmHome()))
       const sectionIndex = yield* loadSectionIndex(storage)
 
       if (sectionIndex) {
         results = yield* addContextLinesToResults(
           limitedResults,
           sectionIndex,
-          resolvedRoot,
           options,
         )
       } else {

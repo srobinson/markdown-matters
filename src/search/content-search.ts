@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { Effect, Option } from 'effect'
 import type { ContextLine } from '../core/types.js'
-import type { DocumentKey } from '../db/canonical.js'
+import { type DocumentKey, resolveSourceFile } from '../db/canonical.js'
 import {
   type CliValidationError,
   FileReadError,
@@ -188,7 +188,7 @@ const groupSections = (
 const readSearchDocument = (
   documentPath: DocumentKey,
 ): Effect.Effect<Option.Option<string>, never> => {
-  const filePath = documentPath
+  const filePath = resolveSourceFile(documentPath)
   return Effect.tryPromise({
     try: () => fs.readFile(filePath, 'utf-8'),
     catch: (cause) =>
@@ -377,7 +377,7 @@ export const searchWithContent = (
     const results = yield* search(rootPath, options)
     const withContent: SearchResult[] = []
     for (const result of results) {
-      const filePath = result.section.documentPath
+      const filePath = resolveSourceFile(result.section.documentPath)
       const readResult = yield* Effect.tryPromise({
         try: () => fs.readFile(filePath, 'utf-8'),
         catch: (cause) =>
