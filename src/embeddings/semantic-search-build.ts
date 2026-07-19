@@ -19,6 +19,7 @@ import {
   IndexNotFoundError,
   type VectorStoreError,
 } from '../errors/index.js'
+import { dbIndexDir, resolveMdmHome } from '../home.js'
 import {
   createStorage,
   loadDocumentIndex,
@@ -343,7 +344,10 @@ export const buildEmbeddings = (
   Effect.gen(function* () {
     const startTime = Date.now()
     const resolvedRoot = path.resolve(rootPath)
-    const storage = createStorage(resolvedRoot, resolvedRoot)
+    const storage = createStorage(
+      resolvedRoot,
+      dbIndexDir(resolveMdmHome()),
+    )
 
     const docIndex = yield* loadDocumentIndex(storage)
     const sectionIndex = yield* loadSectionIndex(storage)

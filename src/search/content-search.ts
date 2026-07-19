@@ -7,6 +7,7 @@ import {
   FileReadError,
   type IndexCorruptedError,
 } from '../errors/index.js'
+import { dbIndexDir, resolveMdmHome } from '../home.js'
 import {
   createStorage,
   loadDocumentIndex,
@@ -82,7 +83,7 @@ export const search = (
   FileReadError | IndexCorruptedError | CliValidationError
 > =>
   Effect.gen(function* () {
-    const storage = createStorage(rootPath, rootPath)
+    const storage = createStorage(rootPath, dbIndexDir(resolveMdmHome()))
     const documentIndex = yield* loadDocumentIndex(storage)
     const sectionIndex = yield* loadSectionIndex(storage)
     if (!documentIndex || !sectionIndex) return []
@@ -282,7 +283,7 @@ export const searchContent = (
   FileReadError | IndexCorruptedError | CliValidationError
 > =>
   Effect.gen(function* () {
-    const storage = createStorage(rootPath, rootPath)
+    const storage = createStorage(rootPath, dbIndexDir(resolveMdmHome()))
     const documentIndex = yield* loadDocumentIndex(storage)
     const sectionIndex = yield* loadSectionIndex(storage)
     if (!documentIndex || !sectionIndex) return []
@@ -361,7 +362,7 @@ export const searchWithContent = (
   FileReadError | IndexCorruptedError | CliValidationError
 > =>
   Effect.gen(function* () {
-    const storage = createStorage(rootPath, rootPath)
+    const storage = createStorage(rootPath, dbIndexDir(resolveMdmHome()))
     const results = yield* search(rootPath, options)
     const withContent: SearchResult[] = []
     for (const result of results) {

@@ -10,6 +10,7 @@ import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { Effect, Option } from 'effect'
 import { FileReadError, type IndexCorruptedError } from '../errors/index.js'
+import { dbIndexDir, resolveMdmHome } from '../home.js'
 import { createStorage, loadSectionIndex } from '../index/storage.js'
 import { matchPath } from '../search/path-matcher.js'
 
@@ -200,7 +201,7 @@ export const detectExactDuplicates = (
 > =>
   Effect.gen(function* () {
     const minContentLength = options.minContentLength ?? 50
-    const storage = createStorage(rootPath, rootPath)
+    const storage = createStorage(rootPath, dbIndexDir(resolveMdmHome()))
 
     // Load section index
     const sectionIndex = yield* loadSectionIndex(storage)

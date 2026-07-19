@@ -21,7 +21,10 @@ import * as path from 'node:path'
 import { promisify } from 'node:util'
 import { Effect } from 'effect'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { buildEmbeddings } from '../embeddings/semantic-search.js'
+import {
+  buildEmbeddings,
+  estimateEmbeddingCost,
+} from '../embeddings/semantic-search.js'
 import { buildIndex } from '../index/indexer.js'
 import { freeEncoder } from '../utils/tokens.js'
 
@@ -32,6 +35,8 @@ const INCLUDE_EMBED_TESTS = process.env.INCLUDE_EMBED_TESTS === 'true'
 const FIXTURE_SOURCE_DIR = path.join(process.cwd(), 'tests', 'fixtures', 'cli')
 const CLI = `node ${path.join(process.cwd(), 'dist', 'cli', 'main.js')}`
 let testFixtureDir = ''
+let testHomeDir = ''
+let originalMdmHome: string | undefined
 
 const run = async (
   args: string,
@@ -56,16 +61,19 @@ const run = async (
 describe('mdm CLI e2e', () => {
   beforeAll(async () => {
     testFixtureDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mdm-cli-e2e-'))
+    testHomeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mdm-cli-home-'))
+    originalMdmHome = process.env.MDM_HOME
+    process.env.MDM_HOME = testHomeDir
     await fs.cp(FIXTURE_SOURCE_DIR, testFixtureDir, { recursive: true })
 
     const legacyFixtureDir = path.join(testFixtureDir, '.mdm')
     await fs.copyFile(
       path.join(legacyFixtureDir, 'active-provider.json'),
-      path.join(testFixtureDir, 'active-provider.json'),
+      path.join(testHomeDir, 'active-provider.json'),
     )
     await fs.cp(
       path.join(legacyFixtureDir, 'embeddings'),
-      path.join(testFixtureDir, 'embeddings'),
+      path.join(testHomeDir, 'embeddings'),
       { recursive: true },
     )
     await fs.rm(path.join(legacyFixtureDir, 'indexes'), {
@@ -77,7 +85,7 @@ describe('mdm CLI e2e', () => {
       buildIndex(testFixtureDir, { force: REBUILD_TEST_INDEX }),
     )
     await fs.cp(
-      path.join(testFixtureDir, 'indexes'),
+      path.join(testHomeDir, 'indexes'),
       path.join(legacyFixtureDir, 'indexes'),
       { recursive: true },
     )
@@ -99,6 +107,9 @@ describe('mdm CLI e2e', () => {
     // Free tiktoken encoder to prevent process hang
     freeEncoder()
     await fs.rm(testFixtureDir, { recursive: true, force: true })
+    await fs.rm(testHomeDir, { recursive: true, force: true })
+    if (originalMdmHome === undefined) delete process.env.MDM_HOME
+    else process.env.MDM_HOME = originalMdmHome
   })
 
   describe('--version', () => {
@@ -196,6 +207,16 @@ describe('mdm CLI e2e', () => {
     it('defaults to current directory', async () => {
       const output = await run('tree')
       expect(output).toContain('Markdown files')
+    })
+  })
+
+  describe('index command', () => {
+    it('writes the corpus index to MDM_HOME', async () => {
+      const output = await run('index --force --no-embed')
+      expect(output).toContain('Indexed 3 documents')
+      await expect(
+        fs.access(path.join(testHomeDir, 'indexes', 'documents.json')),
+      ).resolves.toBeUndefined()
     })
   })
 
@@ -375,9 +396,35 @@ describe('mdm CLI e2e', () => {
   })
 
   describe('stats command', () => {
-    it('shows index statistics', async () => {
-      const output = await run('stats')
-      expect(output.length).toBeGreaterThan(0)
+    it('reads real index statistics from MDM_HOME', async () => {
+      const output = await run('stats --json')
+      const stats = JSON.parse(output)
+      expect(stats.documentCount).toBe(3)
+      expect(stats.totalSections).toBeGreaterThan(3)
+      expect(stats.totalTokens).toBeGreaterThan(0)
+    })
+
+    it('stores indexes and reads cost inputs from MDM_HOME', async () => {
+      const raw = await fs.readFile(
+        path.join(testHomeDir, 'indexes', 'documents.json'),
+        'utf-8',
+      )
+      const documentIndex = JSON.parse(raw)
+      expect(Object.keys(documentIndex.documents).sort()).toEqual([
+        'README.md',
+        'api-reference.md',
+        'getting-started.md',
+      ])
+      await expect(
+        fs.access(path.join(testFixtureDir, 'indexes', 'documents.json')),
+      ).rejects.toThrow()
+
+      const estimate = await Effect.runPromise(
+        estimateEmbeddingCost(testFixtureDir),
+      )
+      expect(estimate.totalFiles).toBe(3)
+      expect(estimate.totalSections).toBeGreaterThan(0)
+      expect(estimate.totalTokens).toBeGreaterThan(0)
     })
   })
 

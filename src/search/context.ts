@@ -7,6 +7,7 @@ import {
   type IndexCorruptedError,
   IndexNotFoundError,
 } from '../errors/index.js'
+import { dbIndexDir, resolveMdmHome } from '../home.js'
 import {
   createStorage,
   loadDocumentIndex,
@@ -49,7 +50,7 @@ export const getContext = (
   | IndexCorruptedError
 > =>
   Effect.gen(function* () {
-    const storage = createStorage(rootPath, rootPath)
+    const storage = createStorage(rootPath, dbIndexDir(resolveMdmHome()))
     const resolvedFile = path.resolve(filePath)
     const relativePath = path.relative(storage.sourceRoot, resolvedFile)
     const documentIndex = yield* loadDocumentIndex(storage)

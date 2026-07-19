@@ -32,7 +32,9 @@ describe('Embed + Index Integration Tests', () => {
 
     // Save and mock API key for tests
     savedEnv.OPENAI_API_KEY = process.env.OPENAI_API_KEY
+    savedEnv.MDM_HOME = process.env.MDM_HOME
     process.env.OPENAI_API_KEY = 'sk-test-mock-key-for-testing'
+    process.env.MDM_HOME = tempDir
   })
 
   afterEach(() => {

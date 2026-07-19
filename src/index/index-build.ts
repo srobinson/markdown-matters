@@ -10,6 +10,7 @@ import {
   type IndexCorruptedError,
   ParseError,
 } from '../errors/index.js'
+import { dbIndexDir, resolveMdmHome } from '../home.js'
 import { parse } from '../parser/parser.js'
 import { discoverFiles } from './file-discovery.js'
 import { createIgnoreFilter } from './ignore-patterns.js'
@@ -207,7 +208,7 @@ export const buildIndex = (
 > =>
   Effect.gen(function* () {
     const startTime = Date.now()
-    const storage = createStorage(rootPath, rootPath)
+    const storage = createStorage(rootPath, dbIndexDir(resolveMdmHome()))
     const errors: FileProcessingError[] = []
     yield* initializeIndex(storage)
     const state = yield* loadMutableState(storage, options.force ?? false)

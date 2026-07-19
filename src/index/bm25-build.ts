@@ -6,6 +6,7 @@ import type {
   FileWriteError,
   IndexCorruptedError,
 } from '../errors/index.js'
+import { dbIndexDir, resolveMdmHome } from '../home.js'
 import { type BM25Document, createBM25Store } from '../search/bm25-store.js'
 import {
   createStorage,
@@ -33,7 +34,7 @@ export const buildBM25Index = (
 > =>
   Effect.gen(function* () {
     const startTime = Date.now()
-    const storage = createStorage(rootPath, rootPath)
+    const storage = createStorage(rootPath, dbIndexDir(resolveMdmHome()))
     const documentIndex = yield* loadDocumentIndex(storage)
     const sectionIndex = yield* loadSectionIndex(storage)
     if (!documentIndex || !sectionIndex) {

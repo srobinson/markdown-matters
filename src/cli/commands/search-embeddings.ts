@@ -18,9 +18,7 @@ import {
 } from '../shared-error-handling.js'
 import { promptUser } from './search-output.js'
 
-export const initializeSearchReranker = (
-  _sourceRoot: string,
-): Effect.Effect<void, Error> =>
+export const initializeSearchReranker = (): Effect.Effect<void, Error> =>
   Effect.gen(function* () {
     yield* Console.log('Initializing cross-encoder model (~90MB download)...')
     const available = yield* initializeReranker(

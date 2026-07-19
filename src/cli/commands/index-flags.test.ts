@@ -54,6 +54,7 @@ const runIndex = async (
       env: {
         ...process.env,
         HOME: fakeHome,
+        MDM_HOME: path.join(fakeHome, '.mdm'),
         // Windows: os.homedir() reads USERPROFILE (and HOMEDRIVE+HOMEPATH),
         // not HOME. Set all three so the subprocess is fully isolated.
         USERPROFILE: fakeHome,
@@ -105,7 +106,7 @@ describe('index --force flag', () => {
   it('does not delete the explicit index directory', async () => {
     // First run creates the index files
     await runIndex(tempDir)
-    const indexDir = path.join(tempDir, 'indexes')
+    const indexDir = path.join(fakeHome, '.mdm', 'indexes')
     expect(fs.existsSync(indexDir)).toBe(true)
     const beforeContents = fs.readdirSync(indexDir)
     expect(beforeContents.length).toBeGreaterThan(0)

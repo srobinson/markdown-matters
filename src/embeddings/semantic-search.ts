@@ -20,6 +20,7 @@ import type {
   IndexCorruptedError,
   VectorStoreError,
 } from '../errors/index.js'
+import { dbIndexDir, resolveMdmHome } from '../home.js'
 import { createStorage, loadSectionIndex } from '../index/storage.js'
 import type {
   CapabilityNotSupported,
@@ -201,7 +202,10 @@ export const semanticSearchWithContent = (
     const resolvedRoot = path.resolve(rootPath)
     const results = yield* semanticSearch(resolvedRoot, query, options)
 
-    const storage = createStorage(resolvedRoot, resolvedRoot)
+    const storage = createStorage(
+      resolvedRoot,
+      dbIndexDir(resolveMdmHome()),
+    )
     const sectionIndex = yield* loadSectionIndex(storage)
 
     if (!sectionIndex) {
