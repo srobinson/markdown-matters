@@ -190,6 +190,55 @@ describe('collapseDuplicates', () => {
 })
 
 describe('detectExactDuplicates', () => {
+  it('filters duplicate detection by source relative path', async () => {
+    const parent = await fs.mkdtemp(path.join(os.tmpdir(), 'mdm-duplicates-'))
+    const sourceRoot = path.join(parent, 'source')
+    const indexRoot = path.join(parent, 'index')
+    const docsRoot = path.join(sourceRoot, 'docs')
+    const previousHome = process.env.MDM_HOME
+
+    try {
+      await Promise.all([
+        fs.mkdir(docsRoot, { recursive: true }),
+        fs.mkdir(indexRoot, { recursive: true }),
+      ])
+      const content =
+        '# Shared\n\nThis repeated section has enough content for exact duplicate detection inside the docs directory.\n'
+      await Promise.all([
+        fs.writeFile(path.join(docsRoot, 'first.md'), content),
+        fs.writeFile(path.join(docsRoot, 'second.md'), content),
+        fs.writeFile(path.join(sourceRoot, 'outside.md'), content),
+      ])
+      process.env.MDM_HOME = indexRoot
+
+      await Effect.runPromise(buildIndex(sourceRoot, { indexRoot }))
+      const result = await Effect.runPromise(
+        detectExactDuplicates(sourceRoot, {
+          minContentLength: 20,
+          pathPattern: 'docs/*.md',
+        }),
+      )
+      const paths = result.groups.flatMap(({ primary, duplicates }) => [
+        primary.documentPath,
+        ...duplicates.map(({ documentPath }) => documentPath),
+      ])
+      const canonicalDocsRoot = await fs.realpath(docsRoot)
+
+      expect(result.groups).toHaveLength(1)
+      expect(result.sectionsAnalyzed).toBe(2)
+      expect(paths).toHaveLength(2)
+      expect(
+        paths.every((documentPath) =>
+          documentPath.startsWith(`${canonicalDocsRoot}${path.sep}`),
+        ),
+      ).toBe(true)
+    } finally {
+      if (previousHome === undefined) delete process.env.MDM_HOME
+      else process.env.MDM_HOME = previousHome
+      await fs.rm(parent, { recursive: true, force: true })
+    }
+  })
+
   it('reads canonical hardlink survivors without joining them to the source root', async () => {
     const parent = await fs.mkdtemp(path.join(os.tmpdir(), 'mdm-duplicates-'))
     const sourceRoot = path.join(parent, 'source')

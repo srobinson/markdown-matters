@@ -12,7 +12,10 @@ import { type DocumentKey, resolveSourceFile } from '../db/canonical.js'
 import { FileReadError, type IndexCorruptedError } from '../errors/index.js'
 import { dbIndexDir, resolveMdmHome } from '../home.js'
 import { createStorage, loadSectionIndex } from '../index/storage.js'
-import { matchPath } from '../search/path-matcher.js'
+import {
+  matchesDocumentPath,
+  resolveCanonicalSourceRoot,
+} from '../search/path-matcher.js'
 
 // ============================================================================
 // Types
@@ -198,7 +201,8 @@ export const detectExactDuplicates = (
 > =>
   Effect.gen(function* () {
     const minContentLength = options.minContentLength ?? 50
-    const storage = createStorage(rootPath, dbIndexDir(resolveMdmHome()))
+    const sourceRoot = yield* resolveCanonicalSourceRoot(rootPath)
+    const storage = createStorage(sourceRoot, dbIndexDir(resolveMdmHome()))
 
     // Load section index
     const sectionIndex = yield* loadSectionIndex(storage)
@@ -215,7 +219,13 @@ export const detectExactDuplicates = (
 
     // Filter sections by path pattern if specified
     const filteredSections = options.pathPattern
-      ? sections.filter((s) => matchPath(s.documentPath, options.pathPattern!))
+      ? sections.filter((section) =>
+          matchesDocumentPath(
+            sourceRoot,
+            section.documentPath,
+            options.pathPattern,
+          ),
+        )
       : sections
 
     // Map: hash -> list of sections with that hash

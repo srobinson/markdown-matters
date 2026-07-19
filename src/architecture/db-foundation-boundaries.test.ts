@@ -89,3 +89,15 @@ it('never joins a source root to a stored document path', () => {
 
   expect(offenders).toEqual([])
 })
+
+it('never applies raw path matchers to stored document paths', () => {
+  const directDocumentPathMatch =
+    /\b(?:matchPath|matchesPathPattern)\(\s*(?:[A-Za-z_$][\w$]*\.)?(?:documentPath|docPath)\b/
+  const offenders = productionSourceFiles(root)
+    .filter((file) =>
+      directDocumentPathMatch.test(fs.readFileSync(file, 'utf-8')),
+    )
+    .map((file) => path.relative(root, file))
+
+  expect(offenders).toEqual([])
+})

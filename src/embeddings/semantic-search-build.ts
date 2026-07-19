@@ -7,7 +7,6 @@
  */
 
 import * as fs from 'node:fs/promises'
-import * as path from 'node:path'
 import { Effect } from 'effect'
 import { type DocumentKey, resolveSourceFile } from '../db/canonical.js'
 import {
@@ -39,7 +38,10 @@ import {
   type ProviderNotFound,
 } from '../providers/index.js'
 import { lookupPricing } from '../providers/pricing.js'
-import { matchPath } from '../search/path-matcher.js'
+import {
+  matchesDocumentPath,
+  resolveCanonicalSourceRoot,
+} from '../search/path-matcher.js'
 import { getRecommendedDimensions, supportsMatryoshka } from './dimensions.js'
 import { createEmbeddingClient, embedInBatches } from './embed-batched.js'
 import {
@@ -170,13 +172,16 @@ interface EligibleSectionGroups {
  * for each section (for context in the embedding text).
  */
 const groupEligibleSections = (
+  sourceRoot: string,
   sectionIndex: SectionIndex,
   docIndex: DocumentIndex,
   excludePatterns: readonly string[] | undefined,
 ): EligibleSectionGroups => {
-  const isExcluded = (docPath: string): boolean => {
+  const isExcluded = (documentPath: DocumentKey): boolean => {
     if (!excludePatterns?.length) return false
-    return excludePatterns.some((pattern) => matchPath(docPath, pattern))
+    return excludePatterns.some((pattern) =>
+      matchesDocumentPath(sourceRoot, documentPath, pattern),
+    )
   }
 
   const sectionsByDoc = new Map<DocumentKey, DocSections[]>()
@@ -343,7 +348,7 @@ export const buildEmbeddings = (
 > =>
   Effect.gen(function* () {
     const startTime = Date.now()
-    const resolvedRoot = path.resolve(rootPath)
+    const resolvedRoot = yield* resolveCanonicalSourceRoot(rootPath)
     const storage = createStorage(resolvedRoot, dbIndexDir(resolveMdmHome()))
 
     const docIndex = yield* loadDocumentIndex(storage)
@@ -397,6 +402,7 @@ export const buildEmbeddings = (
     }
 
     const { sectionsByDoc, currentSectionIds } = groupEligibleSections(
+      resolvedRoot,
       sectionIndex,
       docIndex,
       options.excludePatterns,

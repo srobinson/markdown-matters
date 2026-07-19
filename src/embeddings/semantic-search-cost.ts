@@ -17,7 +17,10 @@ import {
   loadSectionIndex,
 } from '../index/storage.js'
 import { lookupPricing } from '../providers/pricing.js'
-import { matchPath } from '../search/path-matcher.js'
+import {
+  matchesDocumentPath,
+  resolveCanonicalSourceRoot,
+} from '../search/path-matcher.js'
 
 /**
  * Price per 1M tokens for text-embedding-3-small (canonical estimator model).
@@ -65,7 +68,7 @@ export const estimateEmbeddingCost = (
   IndexNotFoundError | FileReadError | IndexCorruptedError
 > =>
   Effect.gen(function* () {
-    const resolvedRoot = path.resolve(rootPath)
+    const resolvedRoot = yield* resolveCanonicalSourceRoot(rootPath)
     const storage = createStorage(resolvedRoot, dbIndexDir(resolveMdmHome()))
 
     const docIndex = yield* loadDocumentIndex(storage)
@@ -88,7 +91,7 @@ export const estimateEmbeddingCost = (
       // Check exclude patterns
       if (options.excludePatterns?.length) {
         const excluded = options.excludePatterns.some((pattern) =>
-          matchPath(section.documentPath, pattern),
+          matchesDocumentPath(resolvedRoot, section.documentPath, pattern),
         )
         if (excluded) continue
       }

@@ -12,13 +12,14 @@ import {
 } from '../db/canonical.js'
 import { createStorage, loadDocumentIndex } from '../index/storage.js'
 
+export const resolveCanonicalSourceRoot = (sourceRoot: string) =>
+  Effect.promise(() => resolveCanonicalPathOrFallbackAsync(sourceRoot))
+
 export const loadIndexedSourceRoot = (indexRoot: string) =>
   loadDocumentIndex(createStorage(indexRoot, indexRoot)).pipe(
     Effect.flatMap((documentIndex) =>
-      Effect.promise(() =>
-        resolveCanonicalPathOrFallbackAsync(
-          documentIndex?.rootPath ?? path.resolve(indexRoot),
-        ),
+      resolveCanonicalSourceRoot(
+        documentIndex?.rootPath ?? path.resolve(indexRoot),
       ),
     ),
   )
