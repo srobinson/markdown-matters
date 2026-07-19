@@ -23,6 +23,7 @@ import type {
   ApiKeyMissingError,
   EmbeddingError,
   FileReadError,
+  IndexCorruptedError,
   VectorStoreError,
 } from '../errors/index.js'
 import {
@@ -35,7 +36,7 @@ import {
   type RerankerError,
   rerankResults,
 } from './cross-encoder.js'
-import { matchPath } from './path-matcher.js'
+import { loadIndexedSourceRoot, matchesDocumentPath } from './path-matcher.js'
 
 // ============================================================================
 // Types
@@ -260,6 +261,7 @@ export const hybridSearch = (
 ): Effect.Effect<
   { results: readonly HybridSearchResult[]; stats: HybridSearchStats },
   | FileReadError
+  | IndexCorruptedError
   | ApiKeyMissingError
   | ApiKeyInvalidError
   | EmbeddingError
@@ -273,6 +275,9 @@ export const hybridSearch = (
     const bm25Weight = options.bm25Weight ?? 1.0
     const semanticWeight = options.semanticWeight ?? 1.0
     const rrfK = options.rrfK ?? 60
+    const sourceRoot = options.pathPattern
+      ? yield* loadIndexedSourceRoot(resolvedRoot)
+      : resolvedRoot
 
     // Check index availability
     const hasBM25 = yield* bm25IndexExists(resolvedRoot)
@@ -306,7 +311,11 @@ export const hybridSearch = (
       // Apply path pattern filter if specified
       keywordResults = options.pathPattern
         ? rawResults.filter((r) =>
-            matchPath(r.documentPath, options.pathPattern!),
+            matchesDocumentPath(
+              sourceRoot,
+              r.documentPath,
+              options.pathPattern,
+            ),
           )
         : rawResults
     }

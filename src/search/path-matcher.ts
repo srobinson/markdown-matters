@@ -4,6 +4,23 @@
  * Simple glob-like pattern matching for document paths.
  */
 
+import * as path from 'node:path'
+import { Effect } from 'effect'
+import {
+  type DocumentKey,
+  resolveCanonicalPathOrFallback,
+} from '../db/canonical.js'
+import { createStorage, loadDocumentIndex } from '../index/storage.js'
+
+export const loadIndexedSourceRoot = (indexRoot: string) =>
+  loadDocumentIndex(createStorage(indexRoot, indexRoot)).pipe(
+    Effect.map((documentIndex) =>
+      resolveCanonicalPathOrFallback(
+        documentIndex?.rootPath ?? path.resolve(indexRoot),
+      ),
+    ),
+  )
+
 /**
  * Match a file path against a glob-like pattern.
  *
@@ -30,4 +47,17 @@ export const matchPath = (filePath: string, pattern: string): boolean => {
 
   const regex = new RegExp(`^${regexPattern}$`, 'i')
   return regex.test(filePath)
+}
+
+export const matchesDocumentPath = (
+  sourceRoot: string,
+  documentPath: DocumentKey,
+  pattern: string | undefined,
+): boolean => {
+  if (pattern === undefined) return true
+  const relativePath = path
+    .relative(sourceRoot, documentPath)
+    .split(path.sep)
+    .join('/')
+  return matchPath(relativePath, pattern)
 }

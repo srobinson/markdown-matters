@@ -30,7 +30,10 @@ import type {
   ProviderId,
   ProviderNotFound,
 } from '../providers/index.js'
-import { matchPath } from '../search/path-matcher.js'
+import {
+  loadIndexedSourceRoot,
+  matchesDocumentPath,
+} from '../search/path-matcher.js'
 import { getRecommendedDimensions, supportsMatryoshka } from './dimensions.js'
 import { createEmbeddingClient } from './embed-batched.js'
 import {
@@ -413,8 +416,9 @@ export const postProcessResults = (
     // Apply path filter if specified
     let filteredResults = rawResults
     if (options.pathPattern) {
+      const sourceRoot = yield* loadIndexedSourceRoot(resolvedRoot)
       filteredResults = rawResults.filter((r) =>
-        matchPath(r.documentPath, options.pathPattern!),
+        matchesDocumentPath(sourceRoot, r.documentPath, options.pathPattern),
       )
     }
 

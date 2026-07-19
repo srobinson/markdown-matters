@@ -25,24 +25,35 @@ import {
   type SearchMode,
 } from '../hybrid-search.js'
 
-const TEST_CORPUS_PATH = path.join(
+const FIXTURE_CORPUS_PATH = path.join(
   __dirname,
   '../../__tests__/fixtures/semantic-search/multi-word-corpus',
 )
+let TEST_SOURCE_PATH: string
 let TEST_INDEX_PATH: string
 
 describe('Hybrid Search Integration', () => {
   beforeAll(async () => {
+    TEST_SOURCE_PATH = await fs.mkdtemp(
+      path.join(os.tmpdir(), 'mdm-hybrid-source-'),
+    )
     TEST_INDEX_PATH = await fs.mkdtemp(
       path.join(os.tmpdir(), 'mdm-hybrid-schema-'),
     )
+    await fs.cp(FIXTURE_CORPUS_PATH, TEST_SOURCE_PATH, { recursive: true })
+    const docsPath = path.join(TEST_SOURCE_PATH, 'docs')
+    await fs.mkdir(docsPath)
+    await fs.rename(
+      path.join(TEST_SOURCE_PATH, 'error-handling.md'),
+      path.join(docsPath, 'error-handling.md'),
+    )
     await Effect.runPromise(
-      buildIndex(TEST_CORPUS_PATH, {
+      buildIndex(TEST_SOURCE_PATH, {
         indexRoot: TEST_INDEX_PATH,
         force: true,
       }),
     )
-    const storage = createStorage(TEST_CORPUS_PATH, TEST_INDEX_PATH)
+    const storage = createStorage(TEST_SOURCE_PATH, TEST_INDEX_PATH)
     const sectionIndex = await Effect.runPromise(loadSectionIndex(storage))
     const docs = await Promise.all(
       Object.values(sectionIndex?.sections ?? {}).map(async (section) => {
@@ -72,7 +83,10 @@ describe('Hybrid Search Integration', () => {
   })
 
   afterAll(async () => {
-    await fs.rm(TEST_INDEX_PATH, { recursive: true, force: true })
+    await Promise.all([
+      fs.rm(TEST_SOURCE_PATH, { recursive: true, force: true }),
+      fs.rm(TEST_INDEX_PATH, { recursive: true, force: true }),
+    ])
   })
 
   describe('Index Detection', () => {
@@ -455,18 +469,22 @@ describe('Hybrid Search Integration', () => {
       expect(result.results.length).toBeGreaterThan(0)
     })
 
-    it('should support path pattern filtering', async () => {
+    it('filters hybrid results with a source relative path pattern', async () => {
       const result = await Effect.runPromise(
         hybridSearch(TEST_INDEX_PATH, 'error', {
           limit: 10,
           threshold: 0.3,
           mode: 'hybrid',
-          pathPattern: 'error-*.md',
+          pathPattern: 'docs/*.md',
         }),
       )
 
+      expect(result.results.length).toBeGreaterThan(0)
+      const canonicalSourceRoot = await fs.realpath(TEST_SOURCE_PATH)
       for (const r of result.results) {
-        expect(r.documentPath).toMatch(/error-.*\.md/)
+        expect(path.relative(canonicalSourceRoot, r.documentPath)).toMatch(
+          /^docs[/\\][^/\\]+\.md$/,
+        )
       }
     })
 

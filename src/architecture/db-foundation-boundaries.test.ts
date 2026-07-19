@@ -60,6 +60,17 @@ const sourceReaders = [
   'cli/commands/search-refine.ts',
 ] as const
 
+const productionSourceFiles = (directory: string): string[] =>
+  fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const file = path.join(directory, entry.name)
+    if (entry.isDirectory()) {
+      return entry.name === '__tests__' ? [] : productionSourceFiles(file)
+    }
+    const isTestSupport =
+      entry.name.endsWith('.test.ts') || entry.name.endsWith('-test-fixture.ts')
+    return entry.name.endsWith('.ts') && !isTestSupport ? [file] : []
+  })
+
 it.each(sizedFiles)('%s is at most 700 lines', (file) => {
   expect(lines(file)).toBeLessThanOrEqual(700)
 })
@@ -67,7 +78,14 @@ it.each(sizedFiles)('%s is at most 700 lines', (file) => {
 it.each(sourceReaders)('%s uses resolveSourceFile', (file) => {
   const source = fs.readFileSync(path.join(root, file), 'utf-8')
   expect(source).toContain('resolveSourceFile')
-  expect(source).not.toMatch(
-    /path\.join\([\s\S]{0,120}(documentPath|docPath|r\.documentPath)/,
-  )
+})
+
+it('never joins a source root to a stored document path', () => {
+  const directJoin =
+    /path\.join\([\s\S]{0,120}(documentPath|docPath|(?:section|r)\.documentPath)/
+  const offenders = productionSourceFiles(root)
+    .filter((file) => directJoin.test(fs.readFileSync(file, 'utf-8')))
+    .map((file) => path.relative(root, file))
+
+  expect(offenders).toEqual([])
 })
