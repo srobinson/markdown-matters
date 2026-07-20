@@ -1,12 +1,5 @@
-/**
- * MCP Server Test Suite
- *
- * Tests the MCP server through the protocol layer using InMemoryTransport.
- * Covers all 7 tools, input validation, path traversal security, and
- * ReDoS protection.
- */
-
 import * as fs from 'node:fs/promises'
+import * as os from 'node:os'
 import * as path from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
@@ -15,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { defaultConfig } from '../config/schema.js'
 import { dbIndexDir, resolveMdmHome } from '../home.js'
 import { buildIndex } from '../index/indexer.js'
+import { appendManifestDirectory } from '../manifest.js'
 import { resolveAndValidatePath, startMcpServer } from './server.js'
 
 const FIXTURES_DIR = path.resolve(__dirname, '../../tests/fixtures/cli')
@@ -25,9 +19,12 @@ const getText = (result: Record<string, unknown>): string => {
   return items[0]!.text
 }
 
-// ============================================================================
-// Test Helpers
-// ============================================================================
+const readIndexedDocumentKeys = async (home: string): Promise<string[]> => {
+  const value = JSON.parse(
+    await fs.readFile(path.join(home, 'indexes', 'documents.json'), 'utf-8'),
+  ) as { documents: Record<string, unknown> }
+  return Object.keys(value.documents)
+}
 
 /**
  * Create a connected MCP client/server pair for testing. Uses
@@ -56,15 +53,26 @@ const createTestClientServer = async (rootPath: string) => {
   }
 }
 
-// ============================================================================
-// Tests
-// ============================================================================
-
 describe('MCP Server', () => {
   let client: Client
   let cleanup: () => Promise<void>
+  let externalDir: string
+  let testHome: string
+  let originalMdmHome: string | undefined
 
   beforeAll(async () => {
+    originalMdmHome = process.env.MDM_HOME
+    testHome = await fs.mkdtemp(path.join(os.tmpdir(), 'mdm-mcp-home-'))
+    externalDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mdm-mcp-source-'))
+    await fs.writeFile(
+      path.join(externalDir, 'external.md'),
+      '# External\nManifest source.\n',
+    )
+    process.env.MDM_HOME = testHome
+    await Effect.runPromise(
+      appendManifestDirectory(testHome, { path: externalDir }),
+    )
+
     // Build an index for the fixture directory so search/links tools work
     await Effect.runPromise(
       buildIndex(FIXTURES_DIR, {
@@ -89,11 +97,11 @@ describe('MCP Server', () => {
 
   afterAll(async () => {
     await cleanup()
+    await fs.rm(testHome, { recursive: true, force: true })
+    await fs.rm(externalDir, { recursive: true, force: true })
+    if (originalMdmHome === undefined) delete process.env.MDM_HOME
+    else process.env.MDM_HOME = originalMdmHome
   })
-
-  // ==========================================================================
-  // Tool Listing
-  // ==========================================================================
 
   describe('listTools', () => {
     it('should return all 7 tools', async () => {
@@ -123,10 +131,6 @@ describe('MCP Server', () => {
     })
   })
 
-  // ==========================================================================
-  // md_structure - Happy Path
-  // ==========================================================================
-
   describe('md_structure', () => {
     it('should return structure for a valid file', async () => {
       const result = await client.callTool({
@@ -151,10 +155,6 @@ describe('MCP Server', () => {
       expect(text).toContain('Error')
     })
   })
-
-  // ==========================================================================
-  // md_context - Happy Path
-  // ==========================================================================
 
   describe('md_context', () => {
     it('should return context at summary level', async () => {
@@ -196,10 +196,6 @@ describe('MCP Server', () => {
       expect(result.isError).toBe(true)
     })
   })
-
-  // ==========================================================================
-  // md_keyword_search - Happy Path
-  // ==========================================================================
 
   describe('md_keyword_search', () => {
     it('should search by heading pattern', async () => {
@@ -246,12 +242,20 @@ describe('MCP Server', () => {
     })
   })
 
-  // ==========================================================================
-  // md_index - Happy Path
-  // ==========================================================================
-
   describe('md_index', () => {
-    it('should build index for current directory', async () => {
+    it('refreshes the existing manifest when path is omitted', async () => {
+      const result = await client.callTool({
+        name: 'md_index',
+        arguments: {},
+      })
+
+      expect(result.isError).toBeFalsy()
+      expect(await readIndexedDocumentKeys(testHome)).toEqual([
+        await fs.realpath(path.join(externalDir, 'external.md')),
+      ])
+    })
+
+    it('appends the requested path and refreshes every manifest directory', async () => {
       const result = await client.callTool({
         name: 'md_index',
         arguments: { path: '.', force: true },
@@ -261,15 +265,10 @@ describe('MCP Server', () => {
       const text = getText(result)
       expect(text).toContain('Indexed')
       expect(text).toContain('documents')
-    })
 
-    it('should default path to current directory', async () => {
-      const result = await client.callTool({
-        name: 'md_index',
-        arguments: {},
-      })
-
-      expect(result.isError).toBeFalsy()
+      expect(await readIndexedDocumentKeys(testHome)).toContain(
+        await fs.realpath(path.join(externalDir, 'external.md')),
+      )
     })
   })
 
@@ -328,10 +327,6 @@ describe('MCP Server', () => {
       expect(text).toContain('No incoming links')
     })
   })
-
-  // ==========================================================================
-  // md_search (Semantic) - Basic Behavior
-  // ==========================================================================
 
   describe('md_search', () => {
     it('does not surface the "(none registered)" registry-empty regression (ALP-1713)', async () => {

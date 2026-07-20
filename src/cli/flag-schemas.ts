@@ -125,7 +125,7 @@ export const indexSchema: CommandSchema = {
       name: 'watch',
       type: 'boolean',
       alias: 'w',
-      description: 'Watch for changes',
+      description: 'Deferred until multi-root manifest watching is available',
     },
     forceFlag,
     jsonFlag,

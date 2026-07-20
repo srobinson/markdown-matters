@@ -113,14 +113,14 @@ export const tools: Tool[] = [
   {
     name: 'md_index',
     description:
-      'Build or rebuild the active database index for a directory. Required before using search tools. Indexes the directory the MCP server was launched in.',
+      'Refresh the active database from every manifest directory. An optional path is appended to the manifest before the full refresh.',
     inputSchema: {
       type: 'object',
       properties: {
         path: {
           type: 'string',
-          description: 'Directory to index (default: current directory)',
-          default: '.',
+          description:
+            'Directory to append before refreshing. Omit to refresh the existing manifest.',
         },
         force: {
           type: 'boolean',
