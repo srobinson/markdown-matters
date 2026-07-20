@@ -1,12 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import * as fs from 'node:fs/promises'
-import { Effect, Either, Exit } from 'effect'
-import {
-  discardPreparedRecord,
-  linkPreparedRecord,
-  prepareDurableRecord,
-  syncDirectory,
-} from './fs-durability.js'
+import { Effect, Exit } from 'effect'
+import { createDurableRecordLink, syncDirectory } from './fs-durability.js'
 import {
   type ProcessIdentityError,
   type WriterLockOperation,
@@ -67,13 +62,6 @@ const causeCode = (cause: unknown): string | undefined => {
     return undefined
   }
   return typeof cause.code === 'string' ? cause.code : undefined
-}
-
-const durabilityCauseCode = (cause: unknown): string | undefined => {
-  if (typeof cause !== 'object' || cause === null || !('cause' in cause)) {
-    return undefined
-  }
-  return causeCode(cause.cause)
 }
 
 const isMissing = (cause: unknown): boolean => causeCode(cause) === 'ENOENT'
@@ -157,29 +145,21 @@ const tryLinkRecord = (
   operation: 'acquire' | 'reclaim',
 ): Effect.Effect<boolean, WriterLockError> =>
   Effect.gen(function* () {
-    const prepared = yield* prepareDurableRecord(
+    const result = yield* createDurableRecordLink(
       home,
+      targetPath,
       encodeRecord(record),
     ).pipe(
       Effect.mapError((cause) => writerLockError(operation, targetPath, cause)),
     )
-    const linked = yield* Effect.either(
-      linkPreparedRecord(prepared, targetPath),
-    )
-    const discarded = yield* Effect.either(discardPreparedRecord(prepared))
-
-    if (Either.isLeft(discarded)) {
-      if (Either.isRight(linked)) {
-        yield* releaseMatching(home, targetPath, record.token, 'release')
-      }
-      return yield* Effect.fail(
-        writerLockError(operation, prepared.path, discarded.left),
-      )
-    }
-    if (Either.isRight(linked)) return true
-    if (durabilityCauseCode(linked.left) === 'EEXIST') return false
+    if (result === 'linked') return true
+    if (result === 'exists') return false
     return yield* Effect.fail(
-      writerLockError(operation, targetPath, linked.left),
+      writerLockError(
+        operation,
+        targetPath,
+        new Error('Writer lock parent directory disappeared'),
+      ),
     )
   })
 

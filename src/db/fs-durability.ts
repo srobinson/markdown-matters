@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { Dirent } from 'node:fs'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
-import { Effect } from 'effect'
+import { Effect, Either } from 'effect'
 import {
   GenerationDurabilityError,
   type GenerationDurabilityOperation,
@@ -42,6 +42,8 @@ export interface DurabilityFileSystem {
 export interface PreparedRecord {
   readonly path: string
 }
+
+export type DurableRecordLinkResult = 'exists' | 'linked' | 'missing-parent'
 
 const directoryEntry = (entry: Dirent): DurabilityDirectoryEntry => ({
   name: entry.name,
@@ -227,4 +229,52 @@ export const discardPreparedRecord = (
   Effect.gen(function* () {
     yield* attempt('unlink', record.path, () => fileSystem.unlink(record.path))
     yield* syncDirectory(path.dirname(record.path), fileSystem)
+  })
+
+const durabilityCauseCode = (
+  error: GenerationDurabilityError,
+): string | undefined => {
+  if (
+    typeof error.cause !== 'object' ||
+    error.cause === null ||
+    !('code' in error.cause)
+  ) {
+    return undefined
+  }
+  return typeof error.cause.code === 'string' ? error.cause.code : undefined
+}
+
+export const createDurableRecordLink = (
+  directoryPath: string,
+  targetPath: string,
+  contents: Uint8Array,
+  fileSystem: DurabilityFileSystem = nodeDurabilityFileSystem,
+): Effect.Effect<DurableRecordLinkResult, GenerationDurabilityError> =>
+  Effect.gen(function* () {
+    const prepared = yield* prepareDurableRecord(
+      directoryPath,
+      contents,
+      fileSystem,
+    )
+    const linked = yield* Effect.either(
+      linkPreparedRecord(prepared, targetPath, fileSystem),
+    )
+    const discarded = yield* Effect.either(
+      discardPreparedRecord(prepared, fileSystem),
+    )
+
+    if (Either.isLeft(discarded)) {
+      if (Either.isRight(linked)) {
+        yield* attempt('unlink', targetPath, () =>
+          fileSystem.unlink(targetPath),
+        )
+        yield* syncDirectory(path.dirname(targetPath), fileSystem)
+      }
+      return yield* Effect.fail(discarded.left)
+    }
+    if (Either.isRight(linked)) return 'linked'
+    const code = durabilityCauseCode(linked.left)
+    if (code === 'EEXIST') return 'exists'
+    if (code === 'ENOENT') return 'missing-parent'
+    return yield* Effect.fail(linked.left)
   })
