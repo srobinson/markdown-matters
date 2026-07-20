@@ -196,6 +196,10 @@ describe('platform process sources', () => {
     })
     expect(source.commands).toHaveLength(1)
     expect(source.commands[0]?.[0]).toBe('powershell.exe')
+    expect(source.commands[0]?.[1].at(-2)).toMatch(
+      /^& \{ param\(\[uint32\]\$targetPid\)/,
+    )
+    expect(source.commands[0]?.[1].at(-2)).toMatch(/\}$/)
     expect(source.commands[0]?.[1].at(-1)).toBe('71')
   })
 

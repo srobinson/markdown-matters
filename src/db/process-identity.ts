@@ -10,13 +10,14 @@ const COMMAND_TIMEOUT_MS = 30_000
 const WINDOWS_DEAD_PROCESS_EXIT_CODE = 3
 
 const WINDOWS_INSPECT_SCRIPT = [
+  '& { param([uint32]$targetPid)',
   "$ErrorActionPreference = 'Stop'",
-  '$targetPid = [uint32]$args[0]',
   "$target = Get-CimInstance Win32_Process -Filter ('ProcessId = {0}' -f $targetPid)",
   'if ($null -eq $target) { exit 3 }',
   '$system = Get-CimInstance Win32_OperatingSystem',
   "$identity = [pscustomobject]@{ startedAt = $target.CreationDate.ToUniversalTime().ToString('O'); bootId = $system.LastBootUpTime.ToUniversalTime().ToString('O') }",
   '$identity | ConvertTo-Json -Compress',
+  '}',
 ].join('; ')
 
 export interface ProcessIdentity {
