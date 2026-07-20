@@ -30,6 +30,7 @@ import {
   initializeLeaseGate,
   nodeGenerationReaderFileSystem,
 } from './generation-reader.js'
+import { scheduleGenerationReap } from './generation-reaper.js'
 import type {
   GenerationBuildContext,
   GenerationName,
@@ -337,6 +338,7 @@ const transactGeneration = <A, E, V>(
           homeLayout.home,
           syncDirectory(homeLayout.home, fileSystem),
         )
+        yield* Effect.sync(() => scheduleGenerationReap(homeLayout.home))
       }),
     )
 

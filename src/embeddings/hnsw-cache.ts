@@ -8,6 +8,7 @@
  * `clearHnswCache` from tests.
  */
 
+import * as path from 'node:path'
 import { Effect } from 'effect'
 import type { HnswMismatchWarning, VectorStore } from './vector-store.js'
 
@@ -32,6 +33,13 @@ export const invalidateHnswCache = (
   namespace: string,
 ): void => {
   hnswCache.delete(hnswCacheKey(indexRoot, namespace))
+}
+
+export const evictHnswIndexRoot = (indexRoot: string): void => {
+  const prefix = `${path.resolve(indexRoot)}::`
+  for (const key of hnswCache.keys()) {
+    if (key.startsWith(prefix)) hnswCache.delete(key)
+  }
 }
 
 /**

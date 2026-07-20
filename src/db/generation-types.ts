@@ -52,3 +52,15 @@ export interface PublishedGeneration<A> {
   readonly indexRoot: string
   readonly value: A
 }
+
+export interface GenerationReaperOptions {
+  readonly graceMs: number
+  readonly inspector?: import('./process-identity.js').ProcessInspector
+  readonly now?: () => number
+  readonly onReaped?: (layout: GenerationLayout) => void
+}
+
+export interface ReapResult {
+  readonly generation: GenerationName
+  readonly status: 'current' | 'leased' | 'grace' | 'reaped'
+}

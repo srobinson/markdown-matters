@@ -88,3 +88,19 @@ export class GenerationWriteError extends Data.TaggedError(
   readonly message: string
   readonly cause?: unknown
 }> {}
+
+export type GenerationReaperOperation =
+  | 'close-gate'
+  | 'delete-generation'
+  | 'inspect-generation'
+  | 'inspect-lease'
+  | 'remove-lease'
+
+export class GenerationReaperError extends Data.TaggedError(
+  'GenerationReaperError',
+)<{
+  readonly operation: GenerationReaperOperation
+  readonly path: string
+  readonly message: string
+  readonly cause?: unknown
+}> {}

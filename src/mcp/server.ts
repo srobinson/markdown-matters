@@ -20,6 +20,8 @@ import { Effect } from 'effect'
 import { load } from '../config/loader.js'
 import type { MdmConfig } from '../config/schema.js'
 import { defaultConfig } from '../config/schema.js'
+import { scheduleGenerationReap } from '../db/generation-reaper.js'
+import { resolveMdmHome } from '../home.js'
 import { registerDefaultProviders } from '../providers/index.js'
 
 import {
@@ -63,6 +65,7 @@ export const startMcpServer = async (
   rootPath: string,
   config: MdmConfig,
 ): Promise<Server> => {
+  scheduleGenerationReap(resolveMdmHome())
   await Effect.runPromise(registerDefaultProviders())
   return createServer(rootPath, config)
 }

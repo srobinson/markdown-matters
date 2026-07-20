@@ -531,6 +531,48 @@ describe('large index handling', () => {
   })
 })
 
+describe('selective cache eviction', () => {
+  it('clears one generation root while retaining another root', async () => {
+    const first = createTestStorage(await createTempDir())
+    const second = createTestStorage(await createTempDir())
+    const fixedTime = new Date('2026-01-01T00:00:00.000Z')
+    const indexWithTitle = (
+      storage: ReturnType<typeof createStorage>,
+      title: string,
+    ): DocumentIndex => {
+      const key = documentKey(storage.sourceRoot, 'document.md')
+      return {
+        version: INDEX_VERSION,
+        documents: { [key]: makeDocumentEntry(key, title, title) },
+      }
+    }
+    for (const storage of [first, second]) {
+      await run(saveDocumentIndex(storage, indexWithTitle(storage, 'old')))
+      await fs.utimes(storage.paths.documents, fixedTime, fixedTime)
+      expect(
+        Object.values((await run(loadDocumentIndex(storage)))!.documents)[0]!
+          .title,
+      ).toBe('old')
+      await fs.writeFile(
+        storage.paths.documents,
+        JSON.stringify(indexWithTitle(storage, 'new')),
+      )
+      await fs.utimes(storage.paths.documents, fixedTime, fixedTime)
+    }
+
+    clearIndexCache(first.indexRoot)
+
+    expect(
+      Object.values((await run(loadDocumentIndex(first)))!.documents)[0]!.title,
+    ).toBe('new')
+    expect(
+      Object.values((await run(loadDocumentIndex(second)))!.documents)[0]!
+        .title,
+    ).toBe('old')
+    clearIndexCache()
+  })
+})
+
 describe('atomic writes', () => {
   let storage: ReturnType<typeof createStorage>
 
