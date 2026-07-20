@@ -68,3 +68,11 @@ export class GenerationReadError extends Data.TaggedError(
   readonly message: string
   readonly cause?: unknown
 }> {}
+
+export class GenerationValidationError extends Data.TaggedError(
+  'GenerationValidationError',
+)<{
+  readonly path: string
+  readonly message: string
+  readonly cause?: unknown
+}> {}
