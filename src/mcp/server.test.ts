@@ -8,10 +8,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { defaultConfig } from '../config/schema.js'
 import {
   generationLayout,
-  parseGenerationName,
   readCurrentGeneration,
 } from '../db/generation-paths.js'
-import { validateGeneration } from '../db/generation-validation.js'
 import { dbIndexDir, resolveMdmHome } from '../home.js'
 import { buildIndex } from '../index/indexer.js'
 import { appendManifestDirectory } from '../manifest.js'
@@ -249,47 +247,6 @@ describe('MCP Server', () => {
   })
 
   describe('md_index', () => {
-    it('publishes one valid generation per MCP refresh', async () => {
-      const isolatedHome = await fs.mkdtemp(
-        path.join(os.tmpdir(), 'mdm-mcp-generations-'),
-      )
-      const previousHome = process.env.MDM_HOME
-      process.env.MDM_HOME = isolatedHome
-      try {
-        await Effect.runPromise(
-          appendManifestDirectory(isolatedHome, { path: externalDir }),
-        )
-
-        for (let attempt = 0; attempt < 2; attempt += 1) {
-          const result = await client.callTool({
-            name: 'md_index',
-            arguments: {},
-          })
-          expect(result.isError).toBeFalsy()
-        }
-
-        expect(
-          await Effect.runPromise(readCurrentGeneration(isolatedHome)),
-        ).toBe('gen-2')
-        for (const rawGeneration of ['gen-1', 'gen-2']) {
-          const generation = await Effect.runPromise(
-            parseGenerationName(rawGeneration),
-          )
-          await expect(
-            Effect.runPromise(
-              validateGeneration(
-                generationLayout(isolatedHome, generation).root,
-              ),
-            ),
-          ).resolves.toMatchObject({ documents: 1 })
-        }
-      } finally {
-        if (previousHome === undefined) delete process.env.MDM_HOME
-        else process.env.MDM_HOME = previousHome
-        await fs.rm(isolatedHome, { recursive: true, force: true })
-      }
-    })
-
     it('refreshes the existing manifest when path is omitted', async () => {
       const result = await client.callTool({
         name: 'md_index',

@@ -6,11 +6,12 @@ export {
   resolveIndexedDocumentKey,
 } from './link-index.js'
 export {
-  type ManifestRefreshContext,
   type ManifestRefreshError,
   type ManifestRefreshOptions,
+  type ManifestRefreshResult,
   refreshManifestIndex,
 } from './manifest-refresh.js'
+export type { SemanticRefreshOptions } from './semantic-refresh.js'
 export * from './types.js'
 export {
   type WatchDirectoryError,

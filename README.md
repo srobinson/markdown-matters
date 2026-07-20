@@ -68,10 +68,10 @@ Config resolution: Local `.mdm.toml` takes precedence over `~/.mdm/.mdm.toml`, w
 Refresh the active manifest for fast searching.
 
 ```bash
-mdm index                       # Refresh all manifest directories (prompts for semantic)
+mdm index                       # Refresh all manifest directories and active embeddings
 mdm index ./docs                # Append path, then refresh all directories
 mdm index --embed               # Build embeddings for semantic search
-mdm index --no-embed            # Skip the semantic search prompt
+mdm index --no-embed            # Leave semantic vectors unchanged
 mdm index --watch               # Show guidance; multi-root watch is deferred
 mdm index --force               # Bypass cache, re-process all files
 mdm index --exclude "*.draft.md,research/**"  # Exclude patterns (comma-separated)

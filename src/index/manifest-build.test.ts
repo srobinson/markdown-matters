@@ -7,13 +7,10 @@ import { afterEach, expect, it } from 'vitest'
 
 import { type DocumentKey, expandDeclaredPath } from '../db/canonical.js'
 import { readCurrentGeneration } from '../db/generation-paths.js'
-import {
-  getActiveProviderPath,
-  writeActiveProvider,
-} from '../embeddings/embedding-namespace.js'
 import type { VectorEntry } from '../embeddings/types.js'
 import { createNamespacedVectorStore } from '../embeddings/vector-store.js'
 import { appendManifestDirectory, type MdmManifest } from '../manifest.js'
+import { EmbeddingError, type EmbeddingClient } from '../providers/index.js'
 import { bm25Search } from '../search/bm25-store.js'
 import { buildManifestIndex } from './manifest-build.js'
 import { refreshManifestIndex } from './manifest-refresh.js'
@@ -40,11 +37,11 @@ const makeManifestRoots = async () => {
   await Promise.all([
     fs.writeFile(
       path.join(first, 'first.md'),
-      '# first\n\nalpha corpus words repeated for keyword index coverage',
+      '# first\n\nalpha corpus words repeated for keyword index coverage with enough additional semantic terms',
     ),
     fs.writeFile(
       path.join(second, 'second.md'),
-      '# second\n\nbetasecond corpus words repeated for keyword index coverage',
+      '# second\n\nbetasecond corpus words repeated for keyword index coverage with enough additional semantic terms',
     ),
   ])
   const manifest: MdmManifest = {
@@ -120,6 +117,29 @@ it('prunes a root removed from the complete manifest', async () => {
   expect(
     await Effect.runPromise(bm25Search(fixture.home, 'betasecond')),
   ).toEqual([])
+})
+
+it('limits changed path builds to affected manifest roots', async () => {
+  const fixture = await makeManifestRoots()
+  await Effect.runPromise(
+    buildManifestIndex(fixture.manifest, { indexRoot: fixture.home }),
+  )
+  const changed = path.join(fixture.first, 'first.md')
+  await fs.writeFile(
+    changed,
+    '# first\n\nupdated alpha corpus with enough additional words for incremental indexing coverage',
+  )
+
+  const result = await Effect.runPromise(
+    buildManifestIndex(fixture.manifest, {
+      indexRoot: fixture.home,
+      changedPaths: [changed],
+    }),
+  )
+
+  expect(result.documentsIndexed).toBe(1)
+  expect(result.totalDocuments).toBe(2)
+  expect(result.skipped.unchanged).toBe(0)
 })
 
 it('resolves cross-root links only when the target is discovered', async () => {
@@ -278,7 +298,131 @@ it('removes a vector when its section survives with a changed document hash', as
   expect(reloaded.getEmbeddedIds().has(section.id)).toBe(false)
 })
 
-it('keeps current unchanged when staged active-provider persistence fails', async () => {
+it('preserves vectors when an incremental build produces an empty corpus', async () => {
+  const fixture = await makeManifestRoots()
+  const source = path.join(fixture.first, 'first.md')
+  const manifest = { directories: [fixture.manifest.directories[0]!] }
+  await Effect.runPromise(
+    buildManifestIndex(manifest, { indexRoot: fixture.home }),
+  )
+  const storage = createStorage(fixture.home, fixture.home)
+  const [documents, sections] = await Promise.all([
+    Effect.runPromise(loadDocumentIndex(storage)),
+    Effect.runPromise(loadSectionIndex(storage)),
+  ])
+  const section = Object.values(sections?.sections ?? {})[0]
+  if (section === undefined) throw new Error('Expected an indexed section')
+  const documentHash = documents?.documents[section.documentPath]?.hash
+  if (documentHash === undefined)
+    throw new Error('Expected an indexed document')
+  const store = createNamespacedVectorStore(
+    fixture.home,
+    'openai',
+    'test-model',
+    2,
+  )
+  await Effect.runPromise(
+    store.add([
+      {
+        id: section.id,
+        sectionId: section.id,
+        documentPath: section.documentPath,
+        documentHash,
+        heading: section.heading,
+        embedding: [1, 0],
+      },
+    ]),
+  )
+  await Effect.runPromise(store.save())
+  await fs.rm(source)
+
+  await Effect.runPromise(
+    buildManifestIndex(manifest, {
+      indexRoot: fixture.home,
+      changedPaths: [source],
+    }),
+  )
+
+  const reloaded = createNamespacedVectorStore(
+    fixture.home,
+    'openai',
+    'test-model',
+    2,
+  )
+  expect((await Effect.runPromise(reloaded.load())).loaded).toBe(true)
+  expect(reloaded.getEmbeddedIds()).toEqual(new Set([section.id]))
+})
+
+it('leaves semantic vectors unchanged when semantic refresh is skipped', async () => {
+  const fixture = await makeManifestRoots()
+  await Effect.runPromise(
+    appendManifestDirectory(fixture.home, { path: fixture.first }),
+  )
+  const client: EmbeddingClient = {
+    embed: (texts) =>
+      Effect.succeed({
+        embeddings: texts.map(() => [1, 0]),
+        model: 'test-model',
+        usage: { inputTokens: texts.length * 20 },
+      }),
+  }
+  const first = await Effect.runPromise(
+    refreshManifestIndex(fixture.home, undefined, {
+      semantic: {
+        mode: 'build',
+        options: {
+          client,
+          providerConfig: {
+            provider: 'openai',
+            model: 'test-model',
+            dimensions: 2,
+          },
+        },
+      },
+    }),
+  )
+  const firstStore = createNamespacedVectorStore(
+    first.indexRoot,
+    'openai',
+    'test-model',
+    2,
+  )
+  await Effect.runPromise(firstStore.load())
+  const [sectionId] = [...firstStore.getEmbeddedIds()]
+  if (sectionId === undefined) throw new Error('Expected an embedded section')
+  const previousHash = firstStore.getEmbeddedDocumentHashes().get(sectionId)
+  if (previousHash === undefined) throw new Error('Expected an embedded hash')
+
+  const source = path.join(fixture.first, 'first.md')
+  await fs.writeFile(
+    source,
+    '# first\n\nchanged content has enough words to produce a different indexed document hash',
+  )
+  const second = await Effect.runPromise(
+    refreshManifestIndex(fixture.home, undefined, {
+      semantic: { mode: 'skip' },
+    }),
+  )
+  const secondStore = createNamespacedVectorStore(
+    second.indexRoot,
+    'openai',
+    'test-model',
+    2,
+  )
+  await Effect.runPromise(secondStore.load())
+  const documents = await Effect.runPromise(
+    loadDocumentIndex(createStorage(second.indexRoot, second.indexRoot)),
+  )
+  const currentHash = Object.values(documents?.documents ?? {})[0]?.hash
+  if (currentHash === undefined) throw new Error('Expected a current hash')
+
+  expect(currentHash).not.toBe(previousHash)
+  expect(secondStore.getEmbeddedDocumentHashes().get(sectionId)).toBe(
+    previousHash,
+  )
+})
+
+it('keeps current unchanged when staged semantic refresh fails', async () => {
   const fixture = await makeManifestRoots()
   await Effect.runPromise(
     appendManifestDirectory(fixture.home, { path: fixture.first }),
@@ -290,24 +434,28 @@ it('keeps current unchanged when staged active-provider persistence fails', asyn
   await expect(
     Effect.runPromise(
       refreshManifestIndex(fixture.home, undefined, {
-        complete: (context) =>
-          Effect.gen(function* () {
-            yield* Effect.promise(() =>
-              fs.mkdir(getActiveProviderPath(context.indexRoot), {
-                recursive: true,
-              }),
-            )
-            yield* writeActiveProvider(context.indexRoot, {
-              namespace: 'openai_test-model_2',
+        semantic: {
+          mode: 'build',
+          options: {
+            client: {
+              embed: () =>
+                Effect.fail(
+                  new EmbeddingError({
+                    provider: 'openai',
+                    message: 'simulated embedding failure',
+                  }),
+                ),
+            } satisfies EmbeddingClient,
+            providerConfig: {
               provider: 'openai',
               model: 'test-model',
               dimensions: 2,
-              activatedAt: new Date().toISOString(),
-            })
-          }),
+            },
+          },
+        },
       }),
     ),
-  ).rejects.toThrow('Failed to write active provider')
+  ).rejects.toThrow('simulated embedding failure')
 
   expect(await Effect.runPromise(readCurrentGeneration(fixture.home))).toBe(
     first.generation,

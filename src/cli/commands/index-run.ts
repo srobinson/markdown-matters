@@ -6,7 +6,8 @@ import { refreshManifestIndex } from '../../index/manifest-refresh.js'
 import { ManifestError, manifestPath } from '../../manifest.js'
 import {
   type EmbeddingRefreshInput,
-  runEmbeddingRefresh,
+  renderSemanticRefresh,
+  semanticRefreshOptions,
 } from './index-embeddings.js'
 import { clearIndexProgress, renderIndexResult } from './index-output.js'
 
@@ -58,16 +59,12 @@ export const runIndexCommand = (input: IndexCommandInput) =>
           )
         }
       },
-      complete: (context) =>
-        runEmbeddingRefresh(input, {
-          sourceRoot: context.sourceRoot,
-          indexRoot: context.indexRoot,
-          showProgress,
-        }),
+      semantic: semanticRefreshOptions(input, showProgress),
     })
     const result = published.value
 
     clearIndexProgress(!input.json && showProgress)
+    yield* renderSemanticRefresh(published.semantic, input, showProgress)
     if (!input.json) {
       yield* renderIndexResult(result, {
         json: false,

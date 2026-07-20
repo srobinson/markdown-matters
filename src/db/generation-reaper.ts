@@ -3,7 +3,11 @@ import * as path from 'node:path'
 import { Effect, Either } from 'effect'
 import { evictHnswIndexRoot } from '../embeddings/hnsw-cache.js'
 import { clearIndexCache } from '../index/storage.js'
-import { syncDirectory, syncFile } from './fs-durability.js'
+import {
+  removeFileSystemPath,
+  syncDirectory,
+  syncFile,
+} from './fs-durability.js'
 import {
   errorCode,
   GenerationReaperError,
@@ -64,9 +68,7 @@ export const nodeGenerationReaperFileSystem: GenerationReaperFileSystem = {
     const timestamp = new Date(timestampMs)
     await fs.utimes(directoryPath, timestamp, timestamp)
   },
-  remove: async (targetPath, recursive) => {
-    await fs.rm(targetPath, { recursive, force: true })
-  },
+  remove: removeFileSystemPath,
 }
 
 const reaperError = (

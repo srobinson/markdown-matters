@@ -34,9 +34,8 @@ export const reusableVectorIds = (
 
 export const pruneStaleVectorEntries = (
   vectorStore: VectorStore,
-  currentSectionHashes: ReadonlyMap<string, string>,
+  reusableIds: ReadonlySet<string>,
 ) => {
-  const reusableIds = reusableVectorIds(vectorStore, currentSectionHashes)
   const staleIds = [...vectorStore.getEmbeddedIds()].filter(
     (id) => !reusableIds.has(id),
   )
@@ -62,10 +61,8 @@ export const pruneVectorNamespaces = (
           )
           const loaded = yield* store.load()
           if (!loaded.loaded) return 0
-          const removed = yield* pruneStaleVectorEntries(
-            store,
-            currentSectionHashes,
-          )
+          const reusableIds = reusableVectorIds(store, currentSectionHashes)
+          const removed = yield* pruneStaleVectorEntries(store, reusableIds)
           if (removed === 0) return 0
           yield* store.save()
           invalidateHnswCache(indexRoot, namespace.namespace)

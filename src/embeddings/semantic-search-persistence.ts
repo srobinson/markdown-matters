@@ -10,7 +10,7 @@ import {
   getActiveProviderPath,
   getEmbeddingsDir,
 } from './embedding-namespace-paths.js'
-import { invalidateHnswCache } from './hnsw-cache.js'
+import { evictHnswIndexRoot, invalidateHnswCache } from './hnsw-cache.js'
 import type { VectorStore } from './vector-store.js'
 
 export interface EmbeddingPersistenceInput {
@@ -63,7 +63,6 @@ export const persistEmbeddingRuntime = (
 
 export const clearSemanticGeneration = (
   indexRoot: string,
-  namespace: string,
 ): Effect.Effect<void, VectorStoreError | EmbeddingNamespaceError> =>
   Effect.gen(function* () {
     const embeddingsDir = getEmbeddingsDir(indexRoot)
@@ -76,7 +75,7 @@ export const clearSemanticGeneration = (
           cause,
         }),
     })
-    invalidateHnswCache(indexRoot, namespace)
+    evictHnswIndexRoot(indexRoot)
 
     const activeProviderPath = getActiveProviderPath(indexRoot)
     yield* Effect.tryPromise({

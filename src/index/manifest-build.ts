@@ -1,12 +1,17 @@
 import { Effect } from 'effect'
 
+import { isPathWithin } from '../db/canonical.js'
 import {
   pruneVectorNamespaces,
   sectionDocumentHashes,
 } from '../embeddings/vector-prune.js'
 import type { ManifestDirectory, MdmManifest } from '../manifest.js'
 import { buildBM25Index } from './bm25-build.js'
-import { canonicalizeDiscoveredFiles, discoverFiles } from './file-discovery.js'
+import {
+  canonicalizeDiscoveredFiles,
+  discoverFiles,
+  type FileDiscoveryResult,
+} from './file-discovery.js'
 import { createIgnoreFilter } from './ignore-patterns.js'
 import { buildDiscoveredIndex, type IndexOptions } from './index-build.js'
 import {
@@ -15,11 +20,30 @@ import {
   loadSectionIndex,
 } from './storage.js'
 
+export interface ManifestBuildOptions extends IndexOptions {
+  readonly reconcileVectors?: boolean | undefined
+}
+
+const emptyDiscovery = (): FileDiscoveryResult => ({
+  files: [],
+  deletedPaths: [],
+  skipped: { hidden: 0, excluded: 0 },
+})
+
 const discoverManifestDirectory = (
   directory: ManifestDirectory,
-  options: IndexOptions,
-) =>
-  createIgnoreFilter({
+  options: ManifestBuildOptions,
+) => {
+  const incremental = (options.changedPaths?.length ?? 0) > 0
+  const changedPaths = incremental
+    ? options.changedPaths?.filter((changedPath) =>
+        isPathWithin(changedPath, directory.path, true),
+      )
+    : undefined
+  if (incremental && changedPaths?.length === 0) {
+    return Effect.succeed(emptyDiscovery())
+  }
+  return createIgnoreFilter({
     rootPath: directory.path,
     cliPatterns: options.exclude,
     honorGitignore: options.honorGitignore ?? true,
@@ -30,13 +54,15 @@ const discoverManifestDirectory = (
         recurse: directory.recurse,
         depth: directory.depth,
         followSymlinks: options.followSymlinks,
+        changedPaths,
       }),
     ),
   )
+}
 
 export const buildManifestIndex = (
   manifest: MdmManifest,
-  options: IndexOptions,
+  options: ManifestBuildOptions,
 ) =>
   Effect.gen(function* () {
     const roots = manifest.directories.map((directory) => directory.path)
@@ -47,6 +73,9 @@ export const buildManifestIndex = (
       { concurrency: 8 },
     )
     const files = [...new Set(results.flatMap((result) => result.files))]
+    const deletedPaths = [
+      ...new Set(results.flatMap((result) => result.deletedPaths)),
+    ]
     const discovery = yield* canonicalizeDiscoveredFiles(files)
     const skipped = results.reduce(
       (sum, result) => ({
@@ -59,9 +88,9 @@ export const buildManifestIndex = (
       {
         roots,
         discovery,
-        deletedPaths: [],
+        deletedPaths,
         skipped,
-        complete: true,
+        complete: (options.changedPaths?.length ?? 0) === 0,
       },
       options,
     )
@@ -70,12 +99,17 @@ export const buildManifestIndex = (
       loadDocumentIndex(storage),
       loadSectionIndex(storage),
     ])
-    yield* pruneVectorNamespaces(
-      options.indexRoot,
-      documentIndex && sectionIndex
-        ? sectionDocumentHashes(sectionIndex, documentIndex)
-        : new Map(),
-    )
+    const corpusKnown =
+      documentIndex !== null &&
+      sectionIndex !== null &&
+      Object.keys(documentIndex.documents).length > 0 &&
+      Object.keys(sectionIndex.sections).length > 0
+    if (options.reconcileVectors !== false && corpusKnown) {
+      yield* pruneVectorNamespaces(
+        options.indexRoot,
+        sectionDocumentHashes(sectionIndex, documentIndex),
+      )
+    }
     yield* buildBM25Index(options.indexRoot, { force: true })
     return result
   })

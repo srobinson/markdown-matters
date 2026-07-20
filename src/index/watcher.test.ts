@@ -388,7 +388,12 @@ describe('generation publication', () => {
       }
       watcher.stop()
     } finally {
-      await fs.rm(parent, { recursive: true, force: true })
+      await fs.rm(parent, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 100,
+      })
     }
   }, 20_000)
 })
