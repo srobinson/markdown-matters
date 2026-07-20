@@ -16,7 +16,7 @@ const embedOption = Options.boolean('embed').pipe(
 )
 
 const noEmbedOption = Options.boolean('no-embed').pipe(
-  Options.withDescription('Skip semantic search prompt'),
+  Options.withDescription('Skip semantic vector pruning and refresh'),
   Options.withDefault(false),
 )
 

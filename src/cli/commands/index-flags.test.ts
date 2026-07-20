@@ -85,20 +85,27 @@ describe('index --force flag', () => {
     expect(third.stdout).not.toContain('unchanged')
   })
 
-  it('does not delete the explicit index directory', async () => {
-    // First run creates the index files
-    await runIndex(tempDir)
-    const indexDir = path.join(fakeHome, '.mdm', 'indexes')
-    expect(fs.existsSync(indexDir)).toBe(true)
-    const beforeContents = fs.readdirSync(indexDir)
-    expect(beforeContents.length).toBeGreaterThan(0)
+  it('publishes a forced rebuild without mutating the prior generation', async () => {
+    const home = path.join(fakeHome, '.mdm')
+    const first = await runIndex(tempDir)
+    expect(first.code).toBe(0)
+    const firstGeneration = fs.readFileSync(path.join(home, 'current'), 'utf-8')
+    const firstIndexDir = path.join(home, firstGeneration, 'indexes')
+    const firstContents = fs.readdirSync(firstIndexDir)
 
-    // --force should NOT delete the directory
-    await runIndex(tempDir, '--force')
-    expect(fs.existsSync(indexDir)).toBe(true)
-    // Index files should still exist
-    const afterContents = fs.readdirSync(indexDir)
-    expect(afterContents.length).toBeGreaterThan(0)
+    const forced = await runIndex(tempDir, '--force')
+    expect(forced.code).toBe(0)
+    const secondGeneration = fs.readFileSync(
+      path.join(home, 'current'),
+      'utf-8',
+    )
+    const secondIndexDir = path.join(home, secondGeneration, 'indexes')
+
+    expect(firstGeneration).toBe('gen-1')
+    expect(secondGeneration).toBe('gen-2')
+    expect(fs.readdirSync(firstIndexDir)).toEqual(firstContents)
+    expect(fs.readdirSync(secondIndexDir).length).toBeGreaterThan(0)
+    expect(fs.existsSync(path.join(home, 'indexes'))).toBe(false)
   })
 
   it('incremental run skips unchanged files', async () => {

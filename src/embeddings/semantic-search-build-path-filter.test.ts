@@ -10,6 +10,11 @@ import {
   loadSectionIndex,
 } from '../index/storage.js'
 import type { EmbeddingClient } from '../providers/index.js'
+import {
+  getActiveProviderPath,
+  getMetaPath,
+  getVectorPath,
+} from './embedding-namespace-paths.js'
 import { buildEmbeddings } from './semantic-search-build.js'
 import { createNamespacedVectorStore } from './vector-store.js'
 
@@ -207,6 +212,53 @@ it('reuses an embedded section when its document hash is unchanged', async () =>
     expect(result.sectionsEmbedded).toBe(0)
     expect(result.cacheHit).toBe(true)
     expect(result.existingVectors).toBe(1)
+  } finally {
+    await fs.rm(fixture.parent, { recursive: true, force: true })
+  }
+})
+
+it('publishes no semantic artifacts after a forced build has zero eligible sections', async () => {
+  const content =
+    '# Title\n\nbody has enough words to remain eligible for semantic embedding coverage'
+  const fixture = await makeEmbeddingFixture(content)
+  const namespace = 'openai_text-embedding-3-small_512'
+
+  try {
+    await Effect.runPromise(
+      buildIndex(fixture.sourceRoot, { indexRoot: fixture.indexRoot }),
+    )
+    await Effect.runPromise(
+      buildEmbeddings(fixture.sourceRoot, {
+        indexRoot: fixture.indexRoot,
+        client: fixture.client,
+        providerConfig,
+      }),
+    )
+
+    await Effect.runPromise(
+      buildEmbeddings(fixture.sourceRoot, {
+        indexRoot: fixture.indexRoot,
+        client: fixture.client,
+        providerConfig,
+        excludePatterns: ['README.md'],
+        force: true,
+      }),
+    )
+
+    const semanticPaths = [
+      getActiveProviderPath(fixture.indexRoot),
+      getVectorPath(fixture.indexRoot, namespace),
+      getMetaPath(fixture.indexRoot, namespace),
+    ]
+    const existing = await Promise.all(
+      semanticPaths.map((filePath) =>
+        fs.access(filePath).then(
+          () => filePath,
+          () => null,
+        ),
+      ),
+    )
+    expect(existing.filter((filePath) => filePath !== null)).toEqual([])
   } finally {
     await fs.rm(fixture.parent, { recursive: true, force: true })
   }

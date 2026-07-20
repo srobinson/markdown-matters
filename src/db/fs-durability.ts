@@ -54,6 +54,18 @@ export interface DurableRecordLinkOptions {
   readonly movedTargetPath?: string
 }
 
+export const removeFileSystemPath = async (
+  targetPath: string,
+  recursive: boolean,
+): Promise<void> => {
+  await fs.rm(targetPath, {
+    recursive,
+    force: true,
+    maxRetries: recursive ? 5 : 0,
+    retryDelay: recursive ? 100 : 0,
+  })
+}
+
 const directoryEntry = (entry: Dirent): DurabilityDirectoryEntry => ({
   name: entry.name,
   kind: entry.isDirectory()

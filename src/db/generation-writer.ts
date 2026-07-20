@@ -9,7 +9,12 @@ import {
   getVectorPath,
 } from '../embeddings/embedding-namespace-paths.js'
 import { getIndexPaths } from '../index/types.js'
-import { durableReplaceText, syncDirectory, syncTree } from './fs-durability.js'
+import {
+  durableReplaceText,
+  removeFileSystemPath,
+  syncDirectory,
+  syncTree,
+} from './fs-durability.js'
 import {
   type GenerationCommitState,
   GenerationWriteError,
@@ -68,9 +73,7 @@ export interface GenerationWriterRuntime {
 export const nodeGenerationWriterFileSystem: GenerationWriterFileSystem = {
   ...nodeGenerationReaderFileSystem,
   copyFile: (sourcePath, targetPath) => fs.copyFile(sourcePath, targetPath),
-  remove: async (targetPath, recursive) => {
-    await fs.rm(targetPath, { recursive, force: true })
-  },
+  remove: removeFileSystemPath,
 }
 
 interface WriteState {

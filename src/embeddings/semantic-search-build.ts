@@ -49,9 +49,16 @@ import {
   generateNamespace,
 } from './embedding-namespace.js'
 import { EMBEDDING_PRICE_PER_MILLION } from './semantic-search-cost.js'
-import { persistEmbeddingRuntime } from './semantic-search-persistence.js'
+import {
+  clearSemanticGeneration,
+  persistEmbeddingRuntime,
+} from './semantic-search-persistence.js'
 import type { VectorEntry } from './types.js'
-import { pruneStaleVectorEntries } from './vector-prune.js'
+import {
+  pruneStaleVectorEntries,
+  reusableVectorIds,
+  sectionDocumentHashes,
+} from './vector-prune.js'
 import {
   createNamespacedVectorStore,
   type HnswBuildOptions,
@@ -361,20 +368,6 @@ const prepareEmbeddingRuntime = (
     } satisfies EmbeddingRuntime
   })
 
-const reusableSectionIds = (
-  sections: SectionIndex,
-  documents: DocumentIndex,
-  embeddedHashes: ReadonlyMap<string, string>,
-): Set<string> =>
-  new Set(
-    Object.values(sections.sections).flatMap((section) => {
-      const hash = documents.documents[section.documentPath]?.hash
-      return hash !== undefined && embeddedHashes.get(section.id) === hash
-        ? [section.id]
-        : []
-    }),
-  )
-
 interface VectorReconciliation {
   readonly reusableIds: Set<string>
   readonly removedVectorCount: number
@@ -403,15 +396,12 @@ const reconcileExistingVectors = (
       } satisfies VectorReconciliation
     }
 
-    const embeddedHashes = vectorStore.getEmbeddedDocumentHashes()
-    const matchingIds = reusableSectionIds(
+    const currentSectionHashes = sectionDocumentHashes(
       sectionIndex,
       docIndex,
-      embeddedHashes,
+      currentSectionIds,
     )
-    const reusableIds = new Set(
-      [...matchingIds].filter((id) => currentSectionIds.has(id)),
-    )
+    const reusableIds = reusableVectorIds(vectorStore, currentSectionHashes)
     const removedVectorCount = yield* pruneStaleVectorEntries(
       vectorStore,
       reusableIds,
@@ -540,15 +530,26 @@ export const buildEmbeddings = (
       docIndex,
       options.excludePatterns,
     )
-    const reconciliation = yield* reconcileExistingVectors(
-      runtime.vectorStore,
-      sectionIndex,
-      docIndex,
-      currentSectionIds,
-      options.force ?? false,
-    )
+    const corpusKnown =
+      Object.keys(docIndex.documents).length > 0 &&
+      Object.keys(sectionIndex.sections).length > 0
+    const reconciliation = corpusKnown
+      ? yield* reconcileExistingVectors(
+          runtime.vectorStore,
+          sectionIndex,
+          docIndex,
+          currentSectionIds,
+          options.force ?? false,
+        )
+      : {
+          reusableIds: new Set<string>(),
+          removedVectorCount: 0,
+        }
 
     if (sectionsByDoc.size === 0) {
+      if (options.force) {
+        yield* clearSemanticGeneration(storage.indexRoot)
+      }
       if (reconciliation.removedVectorCount > 0) {
         yield* persistEmbeddingRuntime(storage.indexRoot, runtime, false)
       }

@@ -35,8 +35,11 @@ import {
 } from '../errors/index.js'
 import { isMarkdownFile } from './file-discovery.js'
 import { getChokidarIgnorePatterns } from './ignore-patterns.js'
-import { buildIndex, type IndexOptions } from './indexer.js'
-import { createStorage, indexExists } from './storage.js'
+import type { IndexOptions } from './index-build.js'
+import {
+  type ManifestRefreshError,
+  refreshManifestIndex,
+} from './manifest-refresh.js'
 
 /**
  * Union of errors that can occur during watch operations
@@ -48,6 +51,7 @@ export type WatchDirectoryError =
   | FileReadError
   | FileWriteError
   | IndexCorruptedError
+  | ManifestRefreshError
 
 // ============================================================================
 // Watcher Types
@@ -70,6 +74,22 @@ export interface Watcher {
   readonly stop: () => void
 }
 
+const refreshWatchedManifest = (
+  home: string,
+  sourceRoot: string,
+  options: WatcherOptions,
+  changedPaths?: readonly string[],
+) =>
+  refreshManifestIndex(home, sourceRoot, {
+    force: options.force,
+    exclude: options.exclude,
+    honorGitignore: options.honorGitignore,
+    honorMdmignore: options.honorMdmignore,
+    followSymlinks: options.followSymlinks,
+    onProgress: options.onProgress,
+    changedPaths,
+  }).pipe(Effect.map((published) => published.value))
+
 // ============================================================================
 // Watcher Implementation
 // ============================================================================
@@ -80,19 +100,14 @@ export const watchDirectory = (
 ): Effect.Effect<Watcher, WatchDirectoryError> =>
   Effect.gen(function* () {
     const resolvedRoot = path.resolve(rootPath)
-    const storage = createStorage(resolvedRoot, options.indexRoot)
+    const home = path.resolve(options.indexRoot)
     const debounceMs = options.debounceMs ?? 300
 
-    // Ensure index exists
-    const exists = yield* indexExists(storage)
-    if (!exists) {
-      // Build initial index
-      const result = yield* buildIndex(resolvedRoot, options)
-      options.onIndex?.({
-        documentsIndexed: result.documentsIndexed,
-        duration: result.duration,
-      })
-    }
+    const initial = yield* refreshWatchedManifest(home, resolvedRoot, options)
+    options.onIndex?.({
+      documentsIndexed: initial.documentsIndexed,
+      duration: initial.duration,
+    })
 
     // Create a debounce queue
     const pendingPaths = new Set<string>()
@@ -112,7 +127,7 @@ export const watchDirectory = (
 
         try {
           const result = await Effect.runPromise(
-            buildIndex(resolvedRoot, { ...options, changedPaths }),
+            refreshWatchedManifest(home, resolvedRoot, options, changedPaths),
           )
           options.onIndex?.({
             documentsIndexed: result.documentsIndexed,

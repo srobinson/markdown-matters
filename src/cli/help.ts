@@ -71,7 +71,7 @@ export const helpContent: Record<string, CommandHelp> = {
       },
       {
         name: '--no-embed',
-        description: 'Skip the prompt to enable semantic search',
+        description: 'Skip semantic vector pruning and refresh',
       },
       {
         name: '--provider <name>',
@@ -106,7 +106,7 @@ export const helpContent: Record<string, CommandHelp> = {
       'With no path, index refreshes every directory in manifest.toml.',
       'With a path, index appends its absolute declared path before refreshing.',
       'An empty manifest requires mdm index <dir>; the current directory is never implicit.',
-      'After indexing, prompts to enable semantic search (use --no-embed to skip).',
+      'Existing semantic embeddings refresh atomically; use --embed to create them or --no-embed to leave them unchanged.',
       'Providers: openai (default), ollama (free/local), lm-studio, openrouter, voyage.',
       'Set API keys: OPENAI_API_KEY, OPENROUTER_API_KEY, or use local providers.',
       'Manifest and index state are stored in the active MDM_HOME.',

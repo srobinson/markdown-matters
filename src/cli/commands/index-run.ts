@@ -1,12 +1,13 @@
 import { Console, Effect } from 'effect'
 
 import { getConfigValue } from '../../config/service.js'
-import { dbIndexDir, resolveMdmHome } from '../../home.js'
+import { resolveMdmHome } from '../../home.js'
 import { refreshManifestIndex } from '../../index/manifest-refresh.js'
 import { ManifestError, manifestPath } from '../../manifest.js'
 import {
   type EmbeddingRefreshInput,
-  runEmbeddingRefresh,
+  renderSemanticRefresh,
+  semanticRefreshOptions,
 } from './index-embeddings.js'
 import { clearIndexProgress, renderIndexResult } from './index-output.js'
 
@@ -37,7 +38,6 @@ export const runIndexCommand = (input: IndexCommandInput) =>
     const home = resolveMdmHome({ create: true })
     if (input.watch) return yield* rejectManifestWatch(home)
 
-    const indexRoot = dbIndexDir(home)
     const colorEnabled = yield* getConfigValue('output', 'color')
     const showProgress = Boolean(process.stdout.isTTY && colorEnabled)
     const exclude = parseExcludePatterns(input.exclude)
@@ -48,7 +48,7 @@ export const runIndexCommand = (input: IndexCommandInput) =>
         : `Adding ${input.path} and refreshing manifest index...`,
     )
 
-    const result = yield* refreshManifestIndex(home, input.path, {
+    const published = yield* refreshManifestIndex(home, input.path, {
       force: input.force,
       exclude,
       honorGitignore: !input.noGitignore,
@@ -59,21 +59,18 @@ export const runIndexCommand = (input: IndexCommandInput) =>
           )
         }
       },
+      semantic: semanticRefreshOptions(input, showProgress),
     })
+    const result = published.value
 
     clearIndexProgress(!input.json && showProgress)
+    yield* renderSemanticRefresh(published.semantic, input, showProgress)
     if (!input.json) {
       yield* renderIndexResult(result, {
         json: false,
         pretty: input.pretty,
       })
     }
-
-    yield* runEmbeddingRefresh(input, {
-      sourceRoot: home,
-      indexRoot,
-      showProgress,
-    })
 
     if (input.json) {
       yield* renderIndexResult(result, {

@@ -126,6 +126,30 @@ describe('filesystem durability primitives', () => {
     expect(fileSystem.events).toEqual(['sync-file:index.json', 'sync-dir:gen'])
   })
 
+  it('closes a lease durability handle when sync fails', async () => {
+    const base = recordingFileSystem()
+    let closed = 0
+    const fileSystem: DurabilityFileSystem = {
+      ...base,
+      openFile: async () => ({
+        sync: async () => {
+          throw failure('sync-file', '/home/gen/leases/lease-1')
+        },
+        close: async () => {
+          closed += 1
+        },
+      }),
+    }
+
+    await expectDurabilityFailure(
+      syncFile('/home/gen/leases/lease-1', fileSystem),
+      'sync-file',
+      '/home/gen/leases/lease-1',
+    )
+
+    expect(closed).toBe(1)
+  })
+
   it('skips directory sync on Windows without opening a handle', async () => {
     const fileSystem = recordingFileSystem(new Map(), 'win32')
     fileSystem.failAt = 'sync-directory'

@@ -229,9 +229,9 @@ export const handleMdIndex = async (
     refreshManifestIndex(home, requestedPath, {
       force,
     }),
-    (result) =>
+    (published) =>
       mcpText(
-        `Indexed ${result.documentsIndexed} documents, ${result.sectionsIndexed} sections, ${result.linksIndexed} links in ${result.duration}ms`,
+        `Indexed ${published.value.documentsIndexed} documents, ${published.value.sectionsIndexed} sections, ${published.value.linksIndexed} links in ${published.value.duration}ms`,
       ),
   )
 }

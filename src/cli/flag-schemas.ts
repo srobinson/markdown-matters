@@ -82,7 +82,7 @@ export const indexSchema: CommandSchema = {
     {
       name: 'no-embed',
       type: 'boolean',
-      description: 'Skip semantic search prompt',
+      description: 'Skip semantic vector pruning and refresh',
     },
     {
       name: 'exclude',
