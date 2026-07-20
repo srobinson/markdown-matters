@@ -3,7 +3,7 @@ import * as path from 'node:path'
 import { Effect } from 'effect'
 import { FileReadError } from '../errors/index.js'
 import { resolveMdmHome } from '../home.js'
-import { GenerationPathError } from './generation-errors.js'
+import { errorCode, GenerationPathError } from './generation-errors.js'
 import type {
   GenerationHomeLayout,
   GenerationLayout,
@@ -32,6 +32,9 @@ const assertGenerationName = (raw: string): GenerationName => {
   }
   return raw as GenerationName
 }
+
+export const isGenerationName = (raw: string): raw is GenerationName =>
+  GENERATION_NAME_PATTERN.test(raw)
 
 const containedPath = (
   home: string,
@@ -92,17 +95,14 @@ export const parseGenerationName = (
     ? Effect.succeed(raw as GenerationName)
     : Effect.fail(invalidGenerationName(raw))
 
-export const generationLayout = (
+const generationLayoutAtRoot = (
   home: string,
   name: GenerationName,
+  rootPath: string,
 ): GenerationLayout => {
   const normalizedName = assertGenerationName(name)
   const normalizedHome = normalizeHome(home)
-  const root = containedPath(
-    normalizedHome,
-    path.join(normalizedHome, normalizedName),
-    'Generation root',
-  )
+  const root = containedPath(normalizedHome, rootPath, 'Generation root')
   const leasesRoot = containedPath(
     normalizedHome,
     path.join(root, 'leases'),
@@ -127,6 +127,18 @@ export const generationLayout = (
   }
 }
 
+export const generationLayout = (
+  home: string,
+  name: GenerationName,
+): GenerationLayout => {
+  const normalizedHome = normalizeHome(home)
+  return generationLayoutAtRoot(
+    normalizedHome,
+    name,
+    path.join(normalizedHome, name),
+  )
+}
+
 export const stagingGenerationPath = (
   home: string,
   name: GenerationName,
@@ -149,6 +161,13 @@ export const stagingGenerationPath = (
   )
 }
 
+export const stagingGenerationLayout = (
+  home: string,
+  name: GenerationName,
+  token: string,
+): GenerationLayout =>
+  generationLayoutAtRoot(home, name, stagingGenerationPath(home, name, token))
+
 export const readCurrentGeneration = (
   home: string,
 ): Effect.Effect<GenerationName | null, FileReadError | GenerationPathError> =>
@@ -159,12 +178,7 @@ export const readCurrentGeneration = (
         try {
           return await fs.lstat(layout.current)
         } catch (error) {
-          if (
-            error &&
-            typeof error === 'object' &&
-            'code' in error &&
-            error.code === 'ENOENT'
-          ) {
+          if (errorCode(error) === 'ENOENT') {
             return null
           }
           throw error
@@ -197,7 +211,6 @@ export const readCurrentGeneration = (
         }),
     })
     const name = yield* parseGenerationName(contents)
-    generationLayout(layout.home, name)
     return name
   })
 

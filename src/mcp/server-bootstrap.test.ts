@@ -24,8 +24,9 @@
 
 import * as path from 'node:path'
 import { Effect } from 'effect'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defaultConfig } from '../config/schema.js'
+import { resolveMdmHome } from '../home.js'
 import {
   clearRegistry,
   getProvider,
@@ -34,9 +35,24 @@ import {
 } from '../providers/index.js'
 import { startMcpServer } from './server.js'
 
+const scheduleGenerationReap = vi.hoisted(() => vi.fn())
+
+vi.mock('../db/generation-reaper.js', () => ({ scheduleGenerationReap }))
+
 const FIXTURES_DIR = path.resolve(__dirname, '../../tests/fixtures/cli')
 
 describe('startMcpServer provider runtime bootstrap (ALP-1713/1714)', () => {
+  beforeEach(() => {
+    scheduleGenerationReap.mockClear()
+  })
+
+  it('schedules one nonblocking generation sweep', async () => {
+    await startMcpServer(FIXTURES_DIR, defaultConfig)
+
+    expect(scheduleGenerationReap).toHaveBeenCalledTimes(1)
+    expect(scheduleGenerationReap).toHaveBeenCalledWith(resolveMdmHome())
+  })
+
   it('populates the registry before returning the server', async () => {
     clearRegistry()
 

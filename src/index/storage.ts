@@ -100,11 +100,24 @@ const LinkIndexSchema = Schema.Struct({
 type CacheEntry<T> = { mtimeMs: number; data: T }
 const indexCache = new Map<string, CacheEntry<unknown>>()
 
-/**
- * Clear the entire index cache. Useful for testing.
- */
-export const clearIndexCache = (): void => {
-  indexCache.clear()
+/** Clear one index root, or the entire in-memory cache when omitted. */
+export const clearIndexCache = (indexRoot?: string): void => {
+  if (indexRoot === undefined) {
+    indexCache.clear()
+    return
+  }
+  const root = path.resolve(indexRoot)
+  for (const filePath of indexCache.keys()) {
+    const relative = path.relative(root, filePath)
+    if (
+      relative === '' ||
+      (!path.isAbsolute(relative) &&
+        relative !== '..' &&
+        !relative.startsWith(`..${path.sep}`))
+    ) {
+      indexCache.delete(filePath)
+    }
+  }
 }
 
 /**

@@ -2,8 +2,9 @@ import { randomUUID } from 'node:crypto'
 import type { Dirent } from 'node:fs'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
-import { Effect } from 'effect'
+import { Effect, Either } from 'effect'
 import {
+  errorCode,
   GenerationDurabilityError,
   type GenerationDurabilityOperation,
 } from './generation-errors.js'
@@ -36,10 +37,21 @@ export interface DurabilityFileSystem {
   ) => Promise<void>
   readonly rename: (sourcePath: string, targetPath: string) => Promise<void>
   readonly link: (sourcePath: string, targetPath: string) => Promise<void>
+  readonly unlink: (filePath: string) => Promise<void>
 }
 
 export interface PreparedRecord {
   readonly path: string
+}
+
+export interface DurableReplaceOptions {
+  readonly afterRename?: () => void
+}
+
+export type DurableRecordLinkResult = 'exists' | 'linked' | 'missing-parent'
+
+export interface DurableRecordLinkOptions {
+  readonly movedTargetPath?: string
 }
 
 const directoryEntry = (entry: Dirent): DurabilityDirectoryEntry => ({
@@ -67,6 +79,7 @@ export const nodeDurabilityFileSystem: DurabilityFileSystem = {
   },
   rename: (sourcePath, targetPath) => fs.rename(sourcePath, targetPath),
   link: (sourcePath, targetPath) => fs.link(sourcePath, targetPath),
+  unlink: (filePath) => fs.unlink(filePath),
 }
 
 const durabilityError = (
@@ -117,6 +130,7 @@ export const syncDirectory = (
   directoryPath: string,
   fileSystem: DurabilityFileSystem = nodeDurabilityFileSystem,
 ): Effect.Effect<void, GenerationDurabilityError> => {
+  // Windows deliberately relies on atomic rename because Node cannot fsync directories.
   if (fileSystem.platform === 'win32') return Effect.void
   if (fileSystem.platform === 'linux' || fileSystem.platform === 'darwin') {
     return syncPath(directoryPath, 'sync-directory', () =>
@@ -175,6 +189,7 @@ export const durableReplaceText = (
   targetPath: string,
   contents: string,
   fileSystem: DurabilityFileSystem = nodeDurabilityFileSystem,
+  options: DurableReplaceOptions = {},
 ): Effect.Effect<void, GenerationDurabilityError> =>
   Effect.gen(function* () {
     const directoryPath = path.dirname(targetPath)
@@ -189,6 +204,7 @@ export const durableReplaceText = (
     yield* attempt('rename', targetPath, () =>
       fileSystem.rename(temporaryPath, targetPath),
     )
+    options.afterRename?.()
     yield* syncDirectory(directoryPath, fileSystem)
   })
 
@@ -216,4 +232,93 @@ export const linkPreparedRecord = (
       fileSystem.link(record.path, targetPath),
     )
     yield* syncDirectory(path.dirname(targetPath), fileSystem)
+  })
+
+export const discardPreparedRecord = (
+  record: PreparedRecord,
+  fileSystem: DurabilityFileSystem = nodeDurabilityFileSystem,
+): Effect.Effect<void, GenerationDurabilityError> =>
+  Effect.gen(function* () {
+    yield* attempt('unlink', record.path, () => fileSystem.unlink(record.path))
+    yield* syncDirectory(path.dirname(record.path), fileSystem)
+  })
+
+const rollbackLinkedTarget = (
+  targetPaths: readonly string[],
+  fileSystem: DurabilityFileSystem,
+): Effect.Effect<void, GenerationDurabilityError> =>
+  Effect.gen(function* () {
+    for (const targetPath of targetPaths) {
+      const removed = yield* attempt('unlink', targetPath, async () => {
+        try {
+          await fileSystem.unlink(targetPath)
+          return true
+        } catch (cause) {
+          if (errorCode(cause) === 'ENOENT') return false
+          throw cause
+        }
+      })
+      if (removed) {
+        yield* syncDirectory(path.dirname(targetPath), fileSystem)
+        return
+      }
+    }
+  })
+
+export const createDurableRecordLink = (
+  directoryPath: string,
+  targetPath: string,
+  contents: Uint8Array,
+  fileSystem: DurabilityFileSystem = nodeDurabilityFileSystem,
+  options: DurableRecordLinkOptions = {},
+): Effect.Effect<DurableRecordLinkResult, GenerationDurabilityError> =>
+  Effect.gen(function* () {
+    const prepared = yield* prepareDurableRecord(
+      directoryPath,
+      contents,
+      fileSystem,
+    )
+    const linked = yield* Effect.either(
+      attempt('link', targetPath, () =>
+        fileSystem.link(prepared.path, targetPath),
+      ),
+    )
+    if (Either.isLeft(linked)) {
+      const discarded = yield* Effect.either(
+        discardPreparedRecord(prepared, fileSystem),
+      )
+      if (Either.isLeft(discarded)) return yield* Effect.fail(discarded.left)
+      const code = errorCode(linked.left)
+      if (code === 'EEXIST') return 'exists'
+      if (code === 'ENOENT') return 'missing-parent'
+      return yield* Effect.fail(linked.left)
+    }
+
+    const synced = yield* Effect.either(
+      syncDirectory(path.dirname(targetPath), fileSystem),
+    )
+    const discarded = yield* Effect.either(
+      discardPreparedRecord(prepared, fileSystem),
+    )
+    const rollbackPaths = [
+      targetPath,
+      ...(options.movedTargetPath === undefined
+        ? []
+        : [options.movedTargetPath]),
+    ]
+    if (Either.isLeft(discarded)) {
+      yield* rollbackLinkedTarget(rollbackPaths, fileSystem)
+      return yield* Effect.fail(discarded.left)
+    }
+    if (
+      Either.isLeft(synced) &&
+      !(
+        options.movedTargetPath !== undefined &&
+        errorCode(synced.left) === 'ENOENT'
+      )
+    ) {
+      yield* rollbackLinkedTarget(rollbackPaths, fileSystem)
+      return yield* Effect.fail(synced.left)
+    }
+    return 'linked'
   })

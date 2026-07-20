@@ -32,6 +32,8 @@ import { CliConfig, Command } from '@effect/cli'
 import { NodeContext, NodeRuntime } from '@effect/platform-node'
 import { Effect, Layer } from 'effect'
 import type { ConfigService } from '../config/service.js'
+import { scheduleGenerationReap } from '../db/generation-reaper.js'
+import { resolveMdmHome } from '../home.js'
 import { registerDefaultProviders } from '../providers/index.js'
 import { preprocessArgv } from './argv-preprocessor.js'
 import {
@@ -120,6 +122,7 @@ const appLayers = Layer.mergeAll(NodeContext.layer, cliConfigLayer, configLayer)
 
 Effect.suspend(() =>
   Effect.gen(function* () {
+    yield* Effect.sync(() => scheduleGenerationReap(resolveMdmHome()))
     yield* registerDefaultProviders()
     return yield* cli(filteredArgv)
   }),
