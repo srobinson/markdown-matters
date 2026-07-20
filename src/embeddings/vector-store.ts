@@ -1,11 +1,9 @@
 /**
  * Vector store using hnswlib-node
  *
- * Supports both flat and namespaced database storage layouts:
+ * Supports flat and namespaced database storage layouts:
  * - Flat: vectors.bin, vectors.meta.bin
  * - Namespaced: embeddings/{namespace}/vectors.bin, vectors.meta.bin
- *
- * Legacy per-source imports remain isolated in embedding-namespace-migration.
  */
 
 import * as fs from 'node:fs/promises'
@@ -22,11 +20,7 @@ import {
   getVectorPath as getNamespacedVectorPath,
 } from './embedding-namespace.js'
 import type { VectorEntry, VectorIndex } from './types.js'
-import {
-  loadVectorIndex,
-  migrateJsonVectorIndex,
-  writeVectorIndex,
-} from './vector-store-codec.js'
+import { loadVectorIndex, writeVectorIndex } from './vector-store-codec.js'
 import type {
   HnswBuildOptions,
   HnswMismatchWarning,
@@ -411,20 +405,12 @@ class HnswVectorStore implements VectorStore {
         const vectorPath = this.getVectorPath()
         const metaPath = this.getMetaPath()
 
-        // Check if files exist - catch file not found gracefully
-        // For metadata, check both binary (.bin) and JSON (.json) for migration
+        // Check if files exist and treat an absent index as empty.
         const filesExist = yield* Effect.tryPromise({
           try: async () => {
             await fs.access(vectorPath)
-            // Check if either binary or JSON metadata exists
-            try {
-              await fs.access(metaPath)
-              return true
-            } catch {
-              const jsonPath = metaPath.replace('.bin', '.json')
-              await fs.access(jsonPath)
-              return true
-            }
+            await fs.access(metaPath)
+            return true
           },
           catch: () =>
             new VectorStoreError({
@@ -439,10 +425,7 @@ class HnswVectorStore implements VectorStore {
           return { loaded: false }
         }
 
-        const { meta, source } = yield* loadVectorIndex(metaPath)
-
-        // Auto-migrate JSON metadata to binary format
-        if (source === 'json') yield* migrateJsonVectorIndex(metaPath, meta)
+        const meta = yield* loadVectorIndex(metaPath)
 
         // Verify dimensions match - fail with clear error if mismatch
         if (meta.dimensions !== this.dimensions) {

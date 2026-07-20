@@ -10,7 +10,7 @@ const lines = (file: string): number =>
 const groups = [
   {
     owner: 'embeddings/embedding-namespace.ts',
-    modules: ['types', 'paths', 'catalog', 'migration'].map(
+    modules: ['types', 'paths', 'catalog'].map(
       (name) => `embeddings/embedding-namespace-${name}.ts`,
     ),
   },
@@ -100,4 +100,25 @@ it('never applies raw path matchers to stored document paths', () => {
     .map((file) => path.relative(root, file))
 
   expect(offenders).toEqual([])
+})
+
+it('contains no index compatibility implementation', () => {
+  const production = productionSourceFiles(root)
+    .map((file) => fs.readFileSync(file, 'utf-8'))
+    .join('\n')
+  const forbiddenSymbols = [
+    ['has', 'LegacyEmbeddings'].join(''),
+    ['migrate', 'LegacyEmbeddings'].join(''),
+    ['migrate', 'JsonVectorIndex'].join(''),
+    ['get', 'LegacyVectorPath'].join(''),
+    ['get', 'LegacyMetaPath'].join(''),
+    ['get', 'LegacyMetaJsonPath'].join(''),
+    ['legacy', 'IndexDir'].join(''),
+    ['vectors', 'meta', 'json'].join('.'),
+    `${'[['}${'sources'}${']]'}`,
+  ]
+
+  for (const symbol of forbiddenSymbols) {
+    expect(production).not.toContain(symbol)
+  }
 })

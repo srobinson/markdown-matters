@@ -29,6 +29,3 @@ export const resolveMdmHome = (options: ResolveMdmHomeOptions = {}): string => {
 }
 
 export const dbIndexDir = (home: string): string => path.resolve(home)
-
-export const legacyIndexDir = (sourceRoot: string): string =>
-  path.join(path.resolve(sourceRoot), '.mdm')

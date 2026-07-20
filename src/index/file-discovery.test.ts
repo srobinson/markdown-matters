@@ -68,6 +68,19 @@ it('does not read an ignore file below an ignored directory', async () => {
   ).toEqual([])
 })
 
+it('ignores a .mdm index directory under a walked root', async () => {
+  const root = await makeTree({
+    'visible.md': '# visible',
+    '.mdm/stale.md': '# stale index content',
+  })
+  const filter = await Effect.runPromise(createIgnoreFilter({ rootPath: root }))
+  const result = await Effect.runPromise(
+    discoverFiles(root, filter, { recurse: true }),
+  )
+
+  expect(result.files).toEqual([path.join(root, 'visible.md')])
+})
+
 it.each([
   [{ recurse: false }, ['root.md']],
   [{ recurse: true, depth: 0 }, ['root.md']],
