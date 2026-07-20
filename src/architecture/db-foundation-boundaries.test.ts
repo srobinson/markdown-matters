@@ -164,3 +164,13 @@ it('contains no index compatibility implementation', () => {
     expect(production).not.toContain(symbol)
   }
 })
+
+it('uses only fixed namespaced vector stores', () => {
+  const production = productionSourceFiles(root)
+    .map((file) => fs.readFileSync(file, 'utf-8'))
+    .join('\n')
+
+  expect(production).not.toMatch(
+    /createVectorStore\(|\.setNamespace\(|\.setProvider\(|private get(?:Vector|Meta)Path/,
+  )
+})

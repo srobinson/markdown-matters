@@ -12,8 +12,20 @@ import * as path from 'node:path'
 import { Effect, Exit } from 'effect'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { DocumentKey } from '../db/canonical.js'
+import {
+  generateNamespace,
+  getMetaPath,
+  getVectorPath,
+  switchNamespace,
+} from './embedding-namespace.js'
 import type { VectorEntry } from './types.js'
-import { createVectorStore, type VectorStore } from './vector-store.js'
+import { pruneVectorNamespaces } from './vector-prune.js'
+import {
+  createNamespacedVectorStore,
+  type VectorStore,
+} from './vector-store.js'
+import { loadVectorIndex } from './vector-store-codec.js'
+import { createTestVectorStore } from './vector-store-test-fixture.js'
 
 // ============================================================================
 // Test Helpers
@@ -22,6 +34,14 @@ import { createVectorStore, type VectorStore } from './vector-store.js'
 let tempRoot: string
 
 const DIMS = 32
+const TEST_PROVIDER = 'test-provider'
+const TEST_MODEL = 'test-model'
+
+const testMetaPath = (indexRoot: string, dimensions = DIMS): string =>
+  getMetaPath(
+    indexRoot,
+    generateNamespace(TEST_PROVIDER, TEST_MODEL, dimensions),
+  )
 
 const createTempDir = async (): Promise<string> => {
   const dir = path.join(
@@ -82,7 +102,7 @@ describe('add and search', () => {
 
   beforeEach(async () => {
     const dir = await createTempDir()
-    store = createVectorStore(dir, DIMS)
+    store = createTestVectorStore(dir, DIMS)
   })
 
   it('add inserts vectors and search returns them', async () => {
@@ -185,30 +205,87 @@ describe('add and search', () => {
 // ============================================================================
 
 describe('save and load round-trip', () => {
-  it('writes vectors directly under the explicit index root', async () => {
+  it('preserves raw identity while pruning a sanitized namespace', async () => {
     const indexRoot = await createTempDir()
-    const store = createVectorStore(indexRoot, DIMS)
+    const provider = 'ollama'
+    const model = 'nomic-embed-text:latest'
+    const namespace = generateNamespace(provider, model, DIMS)
+    expect(namespace).toBe('ollama_nomic-embed-text_latest_32')
+    const store = createNamespacedVectorStore(indexRoot, provider, model, DIMS)
+    await run(
+      store.add([
+        makeEntry('current-section', 1),
+        makeEntry('stale-section', 2),
+      ]),
+    )
+    await run(store.save())
+
+    const metaPath = getMetaPath(indexRoot, namespace)
+    const beforePrune = await run(loadVectorIndex(metaPath))
+
+    await run(pruneVectorNamespaces(indexRoot, new Set(['current-section'])))
+    const afterPrune = await run(loadVectorIndex(metaPath))
+    expect(afterPrune.provider).toBe(beforePrune.provider)
+    expect(afterPrune.providerModel).toBe(beforePrune.providerModel)
+    expect(afterPrune).toMatchObject({ provider, providerModel: model })
+
+    const reloaded = createNamespacedVectorStore(
+      indexRoot,
+      provider,
+      model,
+      DIMS,
+    )
+    await run(reloaded.load())
+    expect([...reloaded.getEmbeddedIds()]).toEqual(['current-section'])
+
+    const switched = await run(switchNamespace(indexRoot, model))
+    expect(switched).toMatchObject({ namespace, provider, model })
+  })
+
+  it('writes vectors only in the fixed namespace', async () => {
+    const indexRoot = await createTempDir()
+    const store = createTestVectorStore(indexRoot, DIMS)
     await run(store.add([makeEntry('direct', 1)]))
     await run(store.save())
 
-    await expect(fs.access(path.join(indexRoot, 'vectors.bin'))).resolves.toBe(
+    const namespace = generateNamespace(TEST_PROVIDER, TEST_MODEL, DIMS)
+    await expect(fs.access(getVectorPath(indexRoot, namespace))).resolves.toBe(
       undefined,
     )
     await expect(
-      fs.access(path.join(indexRoot, '.mdm', 'vectors.bin')),
+      fs.access(path.join(indexRoot, 'vectors.bin')),
     ).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(
+      fs.access(path.join(indexRoot, 'vectors.meta.bin')),
+    ).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('preserves provider metadata across save/load', async () => {
+    const dir = await createTempDir()
+    const provider = 'voyage'
+    const model = 'voyage-3-lite'
+    const store1 = createNamespacedVectorStore(dir, provider, model, DIMS)
+    await run(store1.add([makeEntry('p', 1)]))
+    await run(store1.save())
+
+    const store2 = createNamespacedVectorStore(dir, provider, model, DIMS)
+    await run(store2.load())
+
+    const stats = store2.getStats()
+    expect(stats.provider).toBe(provider)
+    expect(stats.providerModel).toBe(model)
   })
 
   it('preserves all vectors and metadata after save/load', async () => {
     const dir = await createTempDir()
-    const store1 = createVectorStore(dir, DIMS)
+    const store1 = createTestVectorStore(dir, DIMS)
 
     const entries = [makeEntry('x', 10), makeEntry('y', 20), makeEntry('z', 30)]
     await run(store1.add(entries))
     await run(store1.save())
 
     // Create a new store instance and load
-    const store2 = createVectorStore(dir, DIMS)
+    const store2 = createTestVectorStore(dir, DIMS)
     const loadResult = await run(store2.load())
 
     expect(loadResult.loaded).toBe(true)
@@ -223,30 +300,10 @@ describe('save and load round-trip', () => {
 
   it('load returns { loaded: false } when no index files exist', async () => {
     const dir = await createTempDir()
-    const store = createVectorStore(dir, DIMS)
+    const store = createTestVectorStore(dir, DIMS)
     const result = await run(store.load())
 
     expect(result.loaded).toBe(false)
-  })
-
-  it('preserves provider metadata across save/load', async () => {
-    const dir = await createTempDir()
-    const store1 = createVectorStore(dir, DIMS)
-
-    // Add vectors so save writes metadata
-    await run(store1.add([makeEntry('p', 1)]))
-    // setProvider is on the concrete class, cast to access it
-    ;(
-      store1 as unknown as { setProvider: (p: string, m: string) => void }
-    ).setProvider('voyage', 'voyage-3-lite')
-    await run(store1.save())
-
-    const store2 = createVectorStore(dir, DIMS)
-    await run(store2.load())
-
-    const stats = store2.getStats()
-    expect(stats.provider).toBe('voyage')
-    expect(stats.providerModel).toBe('voyage-3-lite')
   })
 })
 
@@ -259,12 +316,17 @@ describe('dimension mismatch', () => {
     const dir = await createTempDir()
 
     // Save with DIMS (32)
-    const store1 = createVectorStore(dir, DIMS)
+    const store1 = createTestVectorStore(dir, DIMS)
     await run(store1.add([makeEntry('d', 1)]))
     await run(store1.save())
 
-    // Load with different dimensions should fail with DimensionMismatchError
-    const store2 = createVectorStore(dir, 64)
+    const { decode, encode } = await import('@msgpack/msgpack')
+    const metaPath = testMetaPath(dir)
+    const meta = decode(await fs.readFile(metaPath)) as Record<string, unknown>
+    meta.dimensions = 64
+    await fs.writeFile(metaPath, encode(meta))
+
+    const store2 = createTestVectorStore(dir, DIMS)
     const exit = await runExit(store2.load())
 
     expect(Exit.isFailure(exit)).toBe(true)
@@ -283,14 +345,13 @@ describe('HNSW parameter mismatch', () => {
     const dir = await createTempDir()
 
     // Save with m=16, efConstruction=200 (defaults)
-    const store1 = createVectorStore(dir, DIMS)
+    const store1 = createTestVectorStore(dir, DIMS)
     await run(store1.add([makeEntry('h', 1)]))
     await run(store1.save())
 
     // Load with different HNSW params
-    const store2 = createVectorStore(dir, DIMS, {
-      m: 32,
-      efConstruction: 400,
+    const store2 = createTestVectorStore(dir, DIMS, {
+      hnswOptions: { m: 32, efConstruction: 400 },
     })
     const result = await run(store2.load())
 
@@ -310,11 +371,11 @@ describe('HNSW parameter mismatch', () => {
     const dir = await createTempDir()
     const opts = { m: 24, efConstruction: 300 }
 
-    const store1 = createVectorStore(dir, DIMS, opts)
+    const store1 = createTestVectorStore(dir, DIMS, { hnswOptions: opts })
     await run(store1.add([makeEntry('h', 1)]))
     await run(store1.save())
 
-    const store2 = createVectorStore(dir, DIMS, opts)
+    const store2 = createTestVectorStore(dir, DIMS, { hnswOptions: opts })
     const result = await run(store2.load())
 
     expect(result.loaded).toBe(true)
@@ -331,7 +392,7 @@ describe('auto-resize', () => {
     const dir = await createTempDir()
     // Default initial capacity is 10000. We won't add that many,
     // but we can verify the store handles growth gracefully.
-    const store = createVectorStore(dir, DIMS)
+    const store = createTestVectorStore(dir, DIMS)
 
     // Add 50 entries in batches to exercise the growth path
     const batch1 = Array.from({ length: 25 }, (_, i) =>
@@ -359,7 +420,7 @@ describe('auto-resize', () => {
 describe('corrupted metadata validation', () => {
   it('rejects relative document paths in persisted vector metadata', async () => {
     const dir = await createTempDir()
-    const store1 = createVectorStore(dir, DIMS)
+    const store1 = createTestVectorStore(dir, DIMS)
     await run(
       store1.add([
         {
@@ -370,7 +431,7 @@ describe('corrupted metadata validation', () => {
     )
     await run(store1.save())
 
-    const store2 = createVectorStore(dir, DIMS)
+    const store2 = createTestVectorStore(dir, DIMS)
     const exit = await runExit(store2.load())
 
     expect(Exit.isFailure(exit)).toBe(true)
@@ -383,17 +444,16 @@ describe('corrupted metadata validation', () => {
     const dir = await createTempDir()
 
     // Save a valid index first so we have a vectors.bin file
-    const store1 = createVectorStore(dir, DIMS)
+    const store1 = createTestVectorStore(dir, DIMS)
     await run(store1.add([makeEntry('c1', 1)]))
     await run(store1.save())
 
     // Overwrite metadata with invalid structure
-    const indexDir = dir
-    const metaPath = path.join(indexDir, 'vectors.meta.bin')
+    const metaPath = testMetaPath(dir)
     const { encode } = await import('@msgpack/msgpack')
     await fs.writeFile(metaPath, encode({ bad: 'data', version: 'wrong' }))
 
-    const store2 = createVectorStore(dir, DIMS)
+    const store2 = createTestVectorStore(dir, DIMS)
     const exit = await runExit(store2.load())
 
     expect(Exit.isFailure(exit)).toBe(true)
@@ -405,11 +465,11 @@ describe('corrupted metadata validation', () => {
 
   it('rejects vector metadata without document hashes', async () => {
     const dir = await createTempDir()
-    const store1 = createVectorStore(dir, DIMS)
+    const store1 = createTestVectorStore(dir, DIMS)
     await run(store1.add([makeEntry('old', 1)]))
     await run(store1.save())
 
-    const metaPath = path.join(dir, 'vectors.meta.bin')
+    const metaPath = testMetaPath(dir)
     const { decode, encode } = await import('@msgpack/msgpack')
     const meta = decode(await fs.readFile(metaPath)) as {
       entries: Record<string, Record<string, unknown>>
@@ -418,7 +478,7 @@ describe('corrupted metadata validation', () => {
     if (entry) delete entry.documentHash
     await fs.writeFile(metaPath, encode(meta))
 
-    const store2 = createVectorStore(dir, DIMS)
+    const store2 = createTestVectorStore(dir, DIMS)
     const exit = await runExit(store2.load())
 
     expect(Exit.isFailure(exit)).toBe(true)
@@ -435,7 +495,7 @@ describe('corrupted metadata validation', () => {
 describe('removeEntries', () => {
   it('removes a vector from search results', async () => {
     const dir = await createTempDir()
-    const store = createVectorStore(dir, DIMS)
+    const store = createTestVectorStore(dir, DIMS)
 
     await run(store.add([makeEntry('keep', 1), makeEntry('remove', 2)]))
 
@@ -457,7 +517,7 @@ describe('removeEntries', () => {
 
   it('updates getEmbeddedIds after removal', async () => {
     const dir = await createTempDir()
-    const store = createVectorStore(dir, DIMS)
+    const store = createTestVectorStore(dir, DIMS)
 
     await run(store.add([makeEntry('x', 1), makeEntry('y', 2)]))
     expect(store.getEmbeddedIds()).toContain('x')
@@ -470,7 +530,7 @@ describe('removeEntries', () => {
 
   it('exposes document hashes by embedded section id', async () => {
     const dir = await createTempDir()
-    const store = createVectorStore(dir, DIMS)
+    const store = createTestVectorStore(dir, DIMS)
 
     await run(store.add([makeEntry('x', 1), makeEntry('y', 2)]))
 
@@ -489,7 +549,7 @@ describe('removeEntries', () => {
 
   it('is a no-op for non-existent IDs', async () => {
     const dir = await createTempDir()
-    const store = createVectorStore(dir, DIMS)
+    const store = createTestVectorStore(dir, DIMS)
 
     await run(store.add([makeEntry('only', 1)]))
     await run(store.removeEntries(['nonexistent']))
@@ -505,7 +565,7 @@ describe('removeEntries', () => {
 describe('getStats', () => {
   it('reports correct count and dimensions', async () => {
     const dir = await createTempDir()
-    const store = createVectorStore(dir, DIMS)
+    const store = createTestVectorStore(dir, DIMS)
 
     expect(store.getStats().count).toBe(0)
     expect(store.getStats().dimensions).toBe(DIMS)

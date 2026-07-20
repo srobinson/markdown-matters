@@ -1,13 +1,10 @@
 /**
  * Vector store using hnswlib-node
  *
- * Supports flat and namespaced database storage layouts:
- * - Flat: vectors.bin, vectors.meta.bin
- * - Namespaced: embeddings/{namespace}/vectors.bin, vectors.meta.bin
+ * Stores each provider and model in its own immutable namespace path.
  */
 
 import * as fs from 'node:fs/promises'
-import * as path from 'node:path'
 import { Effect } from 'effect'
 import HierarchicalNSW from 'hnswlib-node'
 import { CANONICAL_SCHEMA_VERSION } from '../db/canonical.js'
@@ -15,9 +12,9 @@ import { DimensionMismatchError, VectorStoreError } from '../errors/index.js'
 import { dbIndexDir } from '../home.js'
 import {
   generateNamespace,
+  getMetaPath,
   getNamespaceDir,
-  getMetaPath as getNamespacedMetaPath,
-  getVectorPath as getNamespacedVectorPath,
+  getVectorPath,
 } from './embedding-namespace.js'
 import type { VectorEntry, VectorIndex } from './types.js'
 import { loadVectorIndex, writeVectorIndex } from './vector-store-codec.js'
@@ -44,26 +41,22 @@ export type {
 } from './vector-store-types.js'
 
 // ============================================================================
-// Constants
-// ============================================================================
-
-const VECTOR_INDEX_FILE = 'vectors.bin'
-const VECTOR_META_FILE = 'vectors.meta.bin'
-
-// ============================================================================
 // Implementation
 // ============================================================================
 
 class HnswVectorStore implements VectorStore {
   readonly rootPath: string
   readonly dimensions: number
+  private readonly indexDir: string
+  private readonly vectorPath: string
+  private readonly metaPath: string
 
   private index: HierarchicalNSW.HierarchicalNSW | null = null
   private entries: Map<number, VectorEntry> = new Map()
   private idToIndex: Map<string, number> = new Map()
   private nextIndex = 0
-  private provider = 'unknown'
-  private providerModel: string | undefined = undefined
+  private readonly provider: string
+  private readonly providerModel: string
   private providerBaseURL: string | undefined = undefined
   private totalCost = 0
   private totalTokens = 0
@@ -72,64 +65,25 @@ class HnswVectorStore implements VectorStore {
   private readonly hnswM: number
   private readonly hnswEfConstruction: number
 
-  // Namespace support - when set, uses namespaced storage paths
-  private namespace: string | undefined = undefined
-
   constructor(
     indexRoot: string,
+    provider: string,
+    model: string,
     dimensions: number,
     hnswOptions?: HnswBuildOptions,
+    providerBaseURL?: string,
   ) {
     this.rootPath = dbIndexDir(indexRoot)
     this.dimensions = dimensions
+    this.provider = provider
+    this.providerModel = model
+    this.providerBaseURL = providerBaseURL
+    const namespace = generateNamespace(provider, model, dimensions)
+    this.indexDir = getNamespaceDir(this.rootPath, namespace)
+    this.vectorPath = getVectorPath(this.rootPath, namespace)
+    this.metaPath = getMetaPath(this.rootPath, namespace)
     this.hnswM = hnswOptions?.m ?? 16
     this.hnswEfConstruction = hnswOptions?.efConstruction ?? 200
-  }
-
-  /**
-   * Set the namespace for this vector store.
-   * When set, all storage operations use the namespaced path.
-   */
-  setNamespace(namespace: string): void {
-    this.namespace = namespace
-  }
-
-  /**
-   * Get the current namespace (if any).
-   */
-  getNamespace(): string | undefined {
-    return this.namespace
-  }
-
-  /**
-   * Get the index directory path.
-   * Returns the namespaced path when set, otherwise the database root.
-   */
-  private getIndexDir(): string {
-    if (this.namespace) {
-      return getNamespaceDir(this.rootPath, this.namespace)
-    }
-    return dbIndexDir(this.rootPath)
-  }
-
-  /**
-   * Get the vector index file path.
-   */
-  private getVectorPath(): string {
-    if (this.namespace) {
-      return getNamespacedVectorPath(this.rootPath, this.namespace)
-    }
-    return path.join(dbIndexDir(this.rootPath), VECTOR_INDEX_FILE)
-  }
-
-  /**
-   * Get the metadata file path.
-   */
-  private getMetaPath(): string {
-    if (this.namespace) {
-      return getNamespacedMetaPath(this.rootPath, this.namespace)
-    }
-    return path.join(dbIndexDir(this.rootPath), VECTOR_META_FILE)
   }
 
   private ensureIndex(): HierarchicalNSW.HierarchicalNSW {
@@ -326,9 +280,8 @@ class HnswVectorStore implements VectorStore {
           return
         }
 
-        const indexDir = this.getIndexDir()
         yield* Effect.tryPromise({
-          try: () => fs.mkdir(indexDir, { recursive: true }),
+          try: () => fs.mkdir(this.indexDir, { recursive: true }),
           catch: (e) =>
             new VectorStoreError({
               operation: 'save',
@@ -339,7 +292,7 @@ class HnswVectorStore implements VectorStore {
 
         // Save the hnswlib index
         yield* Effect.tryPromise({
-          try: () => this.index!.writeIndex(this.getVectorPath()),
+          try: () => this.index!.writeIndex(this.vectorPath),
           catch: (e) =>
             new VectorStoreError({
               operation: 'save',
@@ -383,7 +336,7 @@ class HnswVectorStore implements VectorStore {
               )
             }
 
-            await writeVectorIndex(this.getMetaPath(), meta)
+            await writeVectorIndex(this.metaPath, meta)
           },
           catch: (e) =>
             new VectorStoreError({
@@ -402,14 +355,11 @@ class HnswVectorStore implements VectorStore {
   > {
     return Effect.gen(
       function* (this: HnswVectorStore) {
-        const vectorPath = this.getVectorPath()
-        const metaPath = this.getMetaPath()
-
         // Check if files exist and treat an absent index as empty.
         const filesExist = yield* Effect.tryPromise({
           try: async () => {
-            await fs.access(vectorPath)
-            await fs.access(metaPath)
+            await fs.access(this.vectorPath)
+            await fs.access(this.metaPath)
             return true
           },
           catch: () =>
@@ -425,7 +375,7 @@ class HnswVectorStore implements VectorStore {
           return { loaded: false }
         }
 
-        const meta = yield* loadVectorIndex(metaPath)
+        const meta = yield* loadVectorIndex(this.metaPath)
 
         // Verify dimensions match - fail with clear error if mismatch
         if (meta.dimensions !== this.dimensions) {
@@ -447,7 +397,7 @@ class HnswVectorStore implements VectorStore {
           this.dimensions,
         )
         yield* Effect.tryPromise({
-          try: () => this.index!.readIndex(vectorPath),
+          try: () => this.index!.readIndex(this.vectorPath),
           catch: (e) =>
             new VectorStoreError({
               operation: 'load',
@@ -468,8 +418,6 @@ class HnswVectorStore implements VectorStore {
           this.nextIndex = Math.max(this.nextIndex, idx + 1)
         }
 
-        this.provider = meta.provider
-        this.providerModel = meta.providerModel
         this.providerBaseURL = meta.providerBaseURL
         this.totalCost = meta.totalCost
         this.totalTokens = meta.totalTokens
@@ -537,31 +485,11 @@ class HnswVectorStore implements VectorStore {
     })
   }
 
-  setProvider(name: string, model?: string, baseURL?: string): void {
-    this.provider = name
-    this.providerModel = model
-    this.providerBaseURL = baseURL
-  }
-
   addCost(cost: number, tokens: number): void {
     this.totalCost += cost
     this.totalTokens += tokens
   }
 }
-
-/**
- * Create a vector store for the given root path.
- *
- * @param indexRoot - Explicit index root
- * @param dimensions - Embedding dimensions
- * @param hnswOptions - Optional HNSW build parameters
- * @returns A new VectorStore instance
- */
-export const createVectorStore = (
-  indexRoot: string,
-  dimensions: number,
-  hnswOptions?: HnswBuildOptions,
-): VectorStore => new HnswVectorStore(indexRoot, dimensions, hnswOptions)
 
 /**
  * Create a namespaced vector store for a specific provider/model.
@@ -574,7 +502,8 @@ export const createVectorStore = (
  * @param model - Model name (e.g., "text-embedding-3-small")
  * @param dimensions - Embedding dimensions
  * @param hnswOptions - Optional HNSW build parameters
- * @returns A new VectorStore instance with namespace set
+ * @param providerBaseURL - Resolved provider endpoint persisted with the index
+ * @returns A new VectorStore instance fixed to the generated namespace
  */
 export const createNamespacedVectorStore = (
   indexRoot: string,
@@ -582,11 +511,16 @@ export const createNamespacedVectorStore = (
   model: string,
   dimensions: number,
   hnswOptions?: HnswBuildOptions,
+  providerBaseURL?: string,
 ): VectorStore => {
-  const namespace = generateNamespace(provider, model, dimensions)
-  const store = new HnswVectorStore(indexRoot, dimensions, hnswOptions)
-  store.setNamespace(namespace)
-  return store
+  return new HnswVectorStore(
+    indexRoot,
+    provider,
+    model,
+    dimensions,
+    hnswOptions,
+    providerBaseURL,
+  )
 }
 
 // Export the class for type access

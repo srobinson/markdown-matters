@@ -18,10 +18,12 @@ import { Effect } from 'effect'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   createNamespacedVectorStore,
-  createVectorStore,
   type VectorSearchResultWithStats,
 } from './vector-store.js'
-import { seedFreshVectorFixture } from './vector-store-test-fixture.js'
+import {
+  createTestVectorStore,
+  seedFreshVectorFixture,
+} from './vector-store-test-fixture.js'
 
 let testIndexPath: string
 
@@ -29,15 +31,10 @@ let testIndexPath: string
 const TEST_CORPUS_DIMENSIONS = 512
 const TEST_CORPUS_PROVIDER = 'openai'
 const TEST_CORPUS_MODEL = 'text-embedding-3-small'
-
-// Helper to create the namespaced vector store for test corpus
-const createTestVectorStore = () =>
-  createNamespacedVectorStore(
-    testIndexPath,
-    TEST_CORPUS_PROVIDER,
-    TEST_CORPUS_MODEL,
-    TEST_CORPUS_DIMENSIONS,
-  )
+const TEST_CORPUS_IDENTITY = {
+  provider: TEST_CORPUS_PROVIDER,
+  model: TEST_CORPUS_MODEL,
+} as const
 
 beforeAll(async () => {
   testIndexPath = await fs.mkdtemp(
@@ -55,320 +52,376 @@ afterAll(async () => {
   await fs.rm(testIndexPath, { recursive: true, force: true })
 })
 
-describe('Semantic Search Threshold', () => {
-  describe('VectorStore searchWithStats', () => {
-    it('should load test corpus with embeddings', async () => {
-      const vectorStore = createTestVectorStore()
-      const loadResult = await Effect.runPromise(vectorStore.load())
-      expect(loadResult.loaded).toBe(true)
+describe('VectorStore searchWithStats', () => {
+  it('should load test corpus with embeddings', async () => {
+    const vectorStore = createTestVectorStore(
+      testIndexPath,
+      TEST_CORPUS_DIMENSIONS,
+      TEST_CORPUS_IDENTITY,
+    )
+    const loadResult = await Effect.runPromise(vectorStore.load())
+    expect(loadResult.loaded).toBe(true)
 
-      const stats = vectorStore.getStats()
-      expect(stats.count).toBeGreaterThan(0)
-      expect(stats.dimensions).toBe(TEST_CORPUS_DIMENSIONS)
-    })
+    const stats = vectorStore.getStats()
+    expect(stats.count).toBeGreaterThan(0)
+    expect(stats.dimensions).toBe(TEST_CORPUS_DIMENSIONS)
+  })
 
-    it('should return results with searchWithStats', async () => {
-      const vectorStore = createTestVectorStore()
-      await Effect.runPromise(vectorStore.load())
+  it('should return results with searchWithStats', async () => {
+    const vectorStore = createTestVectorStore(
+      testIndexPath,
+      TEST_CORPUS_DIMENSIONS,
+      TEST_CORPUS_IDENTITY,
+    )
+    await Effect.runPromise(vectorStore.load())
 
-      // Use a zero threshold to get all results
-      const result = await Effect.runPromise(
-        vectorStore.searchWithStats(
-          new Array(TEST_CORPUS_DIMENSIONS).fill(0.1),
-          10,
-          0,
-        ),
-      )
+    // Use a zero threshold to get all results
+    const result = await Effect.runPromise(
+      vectorStore.searchWithStats(
+        new Array(TEST_CORPUS_DIMENSIONS).fill(0.1),
+        10,
+        0,
+      ),
+    )
 
-      expect(result.results).toBeDefined()
-      expect(Array.isArray(result.results)).toBe(true)
+    expect(result.results).toBeDefined()
+    expect(Array.isArray(result.results)).toBe(true)
+    expect(result.results.length).toBeGreaterThan(0)
+  })
+
+  it('should track below-threshold results count', async () => {
+    const vectorStore = createTestVectorStore(
+      testIndexPath,
+      TEST_CORPUS_DIMENSIONS,
+      TEST_CORPUS_IDENTITY,
+    )
+    await Effect.runPromise(vectorStore.load())
+
+    // Use a very high threshold to push all results below it
+    const result = await Effect.runPromise(
+      vectorStore.searchWithStats(
+        new Array(TEST_CORPUS_DIMENSIONS).fill(0.1),
+        10,
+        0.99,
+      ),
+    )
+
+    // With 0.99 threshold, most/all results should be below threshold
+    expect(result.belowThresholdCount).toBeGreaterThanOrEqual(0)
+  })
+
+  it('should track highest below-threshold similarity', async () => {
+    const vectorStore = createTestVectorStore(
+      testIndexPath,
+      TEST_CORPUS_DIMENSIONS,
+      TEST_CORPUS_IDENTITY,
+    )
+    await Effect.runPromise(vectorStore.load())
+
+    // Use high threshold to force below-threshold results
+    const result = await Effect.runPromise(
+      vectorStore.searchWithStats(
+        new Array(TEST_CORPUS_DIMENSIONS).fill(0.1),
+        10,
+        0.99,
+      ),
+    )
+
+    // When there are below-threshold results, highest should be tracked
+    if (result.belowThresholdCount > 0) {
+      expect(result.belowThresholdHighest).not.toBeNull()
+      expect(result.belowThresholdHighest).toBeLessThan(0.99)
+      expect(result.belowThresholdHighest).toBeGreaterThan(0)
+    }
+  })
+
+  it('should return empty results when no embeddings exist', async () => {
+    const vectorStore = createNamespacedVectorStore(
+      '/nonexistent/path',
+      TEST_CORPUS_PROVIDER,
+      TEST_CORPUS_MODEL,
+      1536,
+    )
+    const loadResult = await Effect.runPromise(vectorStore.load())
+    expect(loadResult.loaded).toBe(false)
+
+    const result = await Effect.runPromise(
+      vectorStore.searchWithStats(
+        new Array(TEST_CORPUS_DIMENSIONS).fill(0),
+        10,
+        0,
+      ),
+    )
+
+    expect(result.results).toHaveLength(0)
+    expect(result.belowThresholdCount).toBe(0)
+    expect(result.belowThresholdHighest).toBeNull()
+  })
+})
+
+describe('Threshold boundaries', () => {
+  it('should return all results with threshold of 0', async () => {
+    const vectorStore = createTestVectorStore(
+      testIndexPath,
+      TEST_CORPUS_DIMENSIONS,
+      TEST_CORPUS_IDENTITY,
+    )
+    await Effect.runPromise(vectorStore.load())
+
+    // Use 0 threshold - everything should be above
+    const result = await Effect.runPromise(
+      vectorStore.searchWithStats(
+        new Array(TEST_CORPUS_DIMENSIONS).fill(0.1),
+        10,
+        0,
+      ),
+    )
+
+    expect(result.belowThresholdCount).toBe(0)
+    expect(result.results.length).toBeGreaterThan(0)
+  })
+
+  it('should return no results with threshold of 1', async () => {
+    const vectorStore = createTestVectorStore(
+      testIndexPath,
+      TEST_CORPUS_DIMENSIONS,
+      TEST_CORPUS_IDENTITY,
+    )
+    await Effect.runPromise(vectorStore.load())
+
+    const result = await Effect.runPromise(
+      vectorStore.searchWithStats(
+        new Array(TEST_CORPUS_DIMENSIONS).fill(0.1),
+        10,
+        1,
+      ),
+    )
+
+    // With threshold of 1, nothing should pass (similarity is never >= 1 in practice)
+    // Note: if a result has exactly similarity=1, it would pass
+    expect(result.results.length).toBeLessThanOrEqual(1)
+  })
+
+  it('should respect the limit parameter', async () => {
+    const vectorStore = createTestVectorStore(
+      testIndexPath,
+      TEST_CORPUS_DIMENSIONS,
+      TEST_CORPUS_IDENTITY,
+    )
+    await Effect.runPromise(vectorStore.load())
+
+    const stats = vectorStore.getStats()
+    const limit = 3
+
+    const result = await Effect.runPromise(
+      vectorStore.searchWithStats(
+        new Array(TEST_CORPUS_DIMENSIONS).fill(0.1),
+        limit,
+        0,
+      ),
+    )
+
+    // Should not return more than limit
+    expect(result.results.length).toBeLessThanOrEqual(limit)
+    // Should return results if corpus has entries
+    if (stats.count > 0) {
       expect(result.results.length).toBeGreaterThan(0)
-    })
+    }
+  })
+})
 
-    it('should track below-threshold results count', async () => {
-      const vectorStore = createTestVectorStore()
-      await Effect.runPromise(vectorStore.load())
-
-      // Use a very high threshold to push all results below it
-      const result = await Effect.runPromise(
-        vectorStore.searchWithStats(
-          new Array(TEST_CORPUS_DIMENSIONS).fill(0.1),
-          10,
-          0.99,
-        ),
-      )
-
-      // With 0.99 threshold, most/all results should be below threshold
-      expect(result.belowThresholdCount).toBeGreaterThanOrEqual(0)
-    })
-
-    it('should track highest below-threshold similarity', async () => {
-      const vectorStore = createTestVectorStore()
-      await Effect.runPromise(vectorStore.load())
-
-      // Use high threshold to force below-threshold results
-      const result = await Effect.runPromise(
-        vectorStore.searchWithStats(
-          new Array(TEST_CORPUS_DIMENSIONS).fill(0.1),
-          10,
-          0.99,
-        ),
-      )
-
-      // When there are below-threshold results, highest should be tracked
-      if (result.belowThresholdCount > 0) {
-        expect(result.belowThresholdHighest).not.toBeNull()
-        expect(result.belowThresholdHighest).toBeLessThan(0.99)
-        expect(result.belowThresholdHighest).toBeGreaterThan(0)
-      }
-    })
-
-    it('should return empty results when no embeddings exist', async () => {
-      const vectorStore = createVectorStore('/nonexistent/path', 1536)
-      const loadResult = await Effect.runPromise(vectorStore.load())
-      expect(loadResult.loaded).toBe(false)
-
-      const result = await Effect.runPromise(
-        vectorStore.searchWithStats(
-          new Array(TEST_CORPUS_DIMENSIONS).fill(0),
-          10,
-          0,
-        ),
-      )
-
-      expect(result.results).toHaveLength(0)
-      expect(result.belowThresholdCount).toBe(0)
-      expect(result.belowThresholdHighest).toBeNull()
-    })
+describe('Default threshold value (0.35)', () => {
+  it('should use 0.35 as the default threshold in config schema', async () => {
+    const { defaultConfig } = await import('../config/schema.js')
+    expect(defaultConfig.search.minSimilarity).toBe(0.35)
   })
 
-  describe('Threshold boundaries', () => {
-    it('should return all results with threshold of 0', async () => {
-      const vectorStore = createTestVectorStore()
-      await Effect.runPromise(vectorStore.load())
+  it('should document 0.35 threshold in help text', async () => {
+    const { helpContent } = await import('../cli/help.js')
+    const searchHelp = helpContent.search
+    expect(searchHelp).toBeDefined()
+    expect(searchHelp!.notes).toBeDefined()
 
-      // Use 0 threshold - everything should be above
-      const result = await Effect.runPromise(
-        vectorStore.searchWithStats(
-          new Array(TEST_CORPUS_DIMENSIONS).fill(0.1),
-          10,
-          0,
-        ),
-      )
-
-      expect(result.belowThresholdCount).toBe(0)
-      expect(result.results.length).toBeGreaterThan(0)
-    })
-
-    it('should return no results with threshold of 1', async () => {
-      const vectorStore = createTestVectorStore()
-      await Effect.runPromise(vectorStore.load())
-
-      const result = await Effect.runPromise(
-        vectorStore.searchWithStats(
-          new Array(TEST_CORPUS_DIMENSIONS).fill(0.1),
-          10,
-          1,
-        ),
-      )
-
-      // With threshold of 1, nothing should pass (similarity is never >= 1 in practice)
-      // Note: if a result has exactly similarity=1, it would pass
-      expect(result.results.length).toBeLessThanOrEqual(1)
-    })
-
-    it('should respect the limit parameter', async () => {
-      const vectorStore = createTestVectorStore()
-      await Effect.runPromise(vectorStore.load())
-
-      const stats = vectorStore.getStats()
-      const limit = 3
-
-      const result = await Effect.runPromise(
-        vectorStore.searchWithStats(
-          new Array(TEST_CORPUS_DIMENSIONS).fill(0.1),
-          limit,
-          0,
-        ),
-      )
-
-      // Should not return more than limit
-      expect(result.results.length).toBeLessThanOrEqual(limit)
-      // Should return results if corpus has entries
-      if (stats.count > 0) {
-        expect(result.results.length).toBeGreaterThan(0)
-      }
-    })
+    // Verify notes mention 0.35
+    const notesText = searchHelp!.notes?.join(' ') ?? ''
+    expect(notesText).toContain('0.35')
   })
 
-  describe('Default threshold value (0.35)', () => {
-    it('should use 0.35 as the default threshold in config schema', async () => {
-      const { defaultConfig } = await import('../config/schema.js')
-      expect(defaultConfig.search.minSimilarity).toBe(0.35)
-    })
+  it('should mention threshold in search options', async () => {
+    const { helpContent } = await import('../cli/help.js')
+    const searchHelp = helpContent.search
+    expect(searchHelp).toBeDefined()
 
-    it('should document 0.35 threshold in help text', async () => {
-      const { helpContent } = await import('../cli/help.js')
-      const searchHelp = helpContent.search
-      expect(searchHelp).toBeDefined()
-      expect(searchHelp!.notes).toBeDefined()
+    // Find threshold option
+    const thresholdOption = searchHelp!.options.find((opt) =>
+      opt.name.includes('--threshold'),
+    )
+    expect(thresholdOption).toBeDefined()
+    expect(thresholdOption?.description).toContain('0.35')
+  })
+})
 
-      // Verify notes mention 0.35
-      const notesText = searchHelp!.notes?.join(' ') ?? ''
-      expect(notesText).toContain('0.35')
-    })
+describe('VectorSearchResultWithStats type shape', () => {
+  it('should have correct structure', async () => {
+    const vectorStore = createTestVectorStore(
+      testIndexPath,
+      TEST_CORPUS_DIMENSIONS,
+      TEST_CORPUS_IDENTITY,
+    )
+    await Effect.runPromise(vectorStore.load())
 
-    it('should mention threshold in search options', async () => {
-      const { helpContent } = await import('../cli/help.js')
-      const searchHelp = helpContent.search
-      expect(searchHelp).toBeDefined()
+    const result = await Effect.runPromise(
+      vectorStore.searchWithStats(
+        new Array(TEST_CORPUS_DIMENSIONS).fill(0.1),
+        10,
+        0.35,
+      ),
+    )
 
-      // Find threshold option
-      const thresholdOption = searchHelp!.options.find((opt) =>
-        opt.name.includes('--threshold'),
-      )
-      expect(thresholdOption).toBeDefined()
-      expect(thresholdOption?.description).toContain('0.35')
-    })
+    // Type assertions
+    const typed: VectorSearchResultWithStats = result
+
+    expect('results' in typed).toBe(true)
+    expect('belowThresholdCount' in typed).toBe(true)
+    expect('belowThresholdHighest' in typed).toBe(true)
+
+    // Results array should have proper shape
+    for (const r of typed.results) {
+      expect(typeof r.id).toBe('string')
+      expect(typeof r.sectionId).toBe('string')
+      expect(typeof r.documentPath).toBe('string')
+      expect(typeof r.heading).toBe('string')
+      expect(typeof r.similarity).toBe('number')
+    }
+  })
+})
+
+describe('Test corpus validation', () => {
+  it('should have test corpus with multiple documents', async () => {
+    const vectorStore = createTestVectorStore(
+      testIndexPath,
+      TEST_CORPUS_DIMENSIONS,
+      TEST_CORPUS_IDENTITY,
+    )
+    const loadResult = await Effect.runPromise(vectorStore.load())
+
+    expect(loadResult.loaded).toBe(true)
+    const stats = vectorStore.getStats()
+    // Test corpus has 6 documents with multiple sections each
+    expect(stats.count).toBeGreaterThan(10)
   })
 
-  describe('VectorSearchResultWithStats type shape', () => {
-    it('should have correct structure', async () => {
-      const vectorStore = createTestVectorStore()
-      await Effect.runPromise(vectorStore.load())
+  it('should have correct dimensions (512 for test corpus)', async () => {
+    const vectorStore = createTestVectorStore(
+      testIndexPath,
+      TEST_CORPUS_DIMENSIONS,
+      TEST_CORPUS_IDENTITY,
+    )
+    await Effect.runPromise(vectorStore.load())
 
-      const result = await Effect.runPromise(
-        vectorStore.searchWithStats(
-          new Array(TEST_CORPUS_DIMENSIONS).fill(0.1),
-          10,
-          0.35,
-        ),
-      )
+    const stats = vectorStore.getStats()
+    expect(stats.dimensions).toBe(TEST_CORPUS_DIMENSIONS)
+  })
+})
 
-      // Type assertions
-      const typed: VectorSearchResultWithStats = result
+describe('Similarity score validation', () => {
+  it('should return similarity scores between 0 and 1', async () => {
+    const vectorStore = createTestVectorStore(
+      testIndexPath,
+      TEST_CORPUS_DIMENSIONS,
+      TEST_CORPUS_IDENTITY,
+    )
+    await Effect.runPromise(vectorStore.load())
 
-      expect('results' in typed).toBe(true)
-      expect('belowThresholdCount' in typed).toBe(true)
-      expect('belowThresholdHighest' in typed).toBe(true)
+    const result = await Effect.runPromise(
+      vectorStore.searchWithStats(
+        new Array(TEST_CORPUS_DIMENSIONS).fill(0.1),
+        20,
+        0,
+      ),
+    )
 
-      // Results array should have proper shape
-      for (const r of typed.results) {
-        expect(typeof r.id).toBe('string')
-        expect(typeof r.sectionId).toBe('string')
-        expect(typeof r.documentPath).toBe('string')
-        expect(typeof r.heading).toBe('string')
-        expect(typeof r.similarity).toBe('number')
-      }
-    })
+    for (const r of result.results) {
+      expect(r.similarity).toBeGreaterThanOrEqual(0)
+      expect(r.similarity).toBeLessThanOrEqual(1)
+    }
   })
 
-  describe('Test corpus validation', () => {
-    it('should have test corpus with multiple documents', async () => {
-      const vectorStore = createTestVectorStore()
-      const loadResult = await Effect.runPromise(vectorStore.load())
+  it('should return results sorted by similarity (highest first)', async () => {
+    const vectorStore = createTestVectorStore(
+      testIndexPath,
+      TEST_CORPUS_DIMENSIONS,
+      TEST_CORPUS_IDENTITY,
+    )
+    await Effect.runPromise(vectorStore.load())
 
-      expect(loadResult.loaded).toBe(true)
-      const stats = vectorStore.getStats()
-      // Test corpus has 6 documents with multiple sections each
-      expect(stats.count).toBeGreaterThan(10)
-    })
+    const result = await Effect.runPromise(
+      vectorStore.searchWithStats(
+        new Array(TEST_CORPUS_DIMENSIONS).fill(0.1),
+        20,
+        0,
+      ),
+    )
 
-    it('should have correct dimensions (512 for test corpus)', async () => {
-      const vectorStore = createTestVectorStore()
-      await Effect.runPromise(vectorStore.load())
+    // Verify descending order
+    for (let i = 1; i < result.results.length; i++) {
+      expect(result.results[i]!.similarity).toBeLessThanOrEqual(
+        result.results[i - 1]!.similarity,
+      )
+    }
+  })
+})
 
-      const stats = vectorStore.getStats()
-      expect(stats.dimensions).toBe(TEST_CORPUS_DIMENSIONS)
-    })
+describe('Below-threshold feedback', () => {
+  it('should provide count when results are below threshold', async () => {
+    const vectorStore = createTestVectorStore(
+      testIndexPath,
+      TEST_CORPUS_DIMENSIONS,
+      TEST_CORPUS_IDENTITY,
+    )
+    await Effect.runPromise(vectorStore.load())
+
+    // Use very high threshold to get 0 passing results
+    const result = await Effect.runPromise(
+      vectorStore.searchWithStats(
+        new Array(TEST_CORPUS_DIMENSIONS).fill(0.1),
+        10,
+        0.95,
+      ),
+    )
+
+    // When 0 results pass, we should have below-threshold stats
+    if (result.results.length === 0) {
+      expect(result.belowThresholdCount).toBeGreaterThan(0)
+      expect(result.belowThresholdHighest).not.toBeNull()
+    }
   })
 
-  describe('Similarity score validation', () => {
-    it('should return similarity scores between 0 and 1', async () => {
-      const vectorStore = createTestVectorStore()
-      await Effect.runPromise(vectorStore.load())
+  it('should allow calculating suggested threshold', async () => {
+    const vectorStore = createTestVectorStore(
+      testIndexPath,
+      TEST_CORPUS_DIMENSIONS,
+      TEST_CORPUS_IDENTITY,
+    )
+    await Effect.runPromise(vectorStore.load())
 
-      const result = await Effect.runPromise(
-        vectorStore.searchWithStats(
-          new Array(TEST_CORPUS_DIMENSIONS).fill(0.1),
-          20,
-          0,
-        ),
+    const result = await Effect.runPromise(
+      vectorStore.searchWithStats(
+        new Array(TEST_CORPUS_DIMENSIONS).fill(0.1),
+        10,
+        0.9,
+      ),
+    )
+
+    if (result.results.length === 0 && result.belowThresholdHighest !== null) {
+      // Suggested threshold formula: max(0.1, highest - 0.05)
+      const suggestedThreshold = Math.max(
+        0.1,
+        result.belowThresholdHighest - 0.05,
       )
-
-      for (const r of result.results) {
-        expect(r.similarity).toBeGreaterThanOrEqual(0)
-        expect(r.similarity).toBeLessThanOrEqual(1)
-      }
-    })
-
-    it('should return results sorted by similarity (highest first)', async () => {
-      const vectorStore = createTestVectorStore()
-      await Effect.runPromise(vectorStore.load())
-
-      const result = await Effect.runPromise(
-        vectorStore.searchWithStats(
-          new Array(TEST_CORPUS_DIMENSIONS).fill(0.1),
-          20,
-          0,
-        ),
-      )
-
-      // Verify descending order
-      for (let i = 1; i < result.results.length; i++) {
-        expect(result.results[i]!.similarity).toBeLessThanOrEqual(
-          result.results[i - 1]!.similarity,
-        )
-      }
-    })
-  })
-
-  describe('Below-threshold feedback', () => {
-    it('should provide count when results are below threshold', async () => {
-      const vectorStore = createTestVectorStore()
-      await Effect.runPromise(vectorStore.load())
-
-      // Use very high threshold to get 0 passing results
-      const result = await Effect.runPromise(
-        vectorStore.searchWithStats(
-          new Array(TEST_CORPUS_DIMENSIONS).fill(0.1),
-          10,
-          0.95,
-        ),
-      )
-
-      // When 0 results pass, we should have below-threshold stats
-      if (result.results.length === 0) {
-        expect(result.belowThresholdCount).toBeGreaterThan(0)
-        expect(result.belowThresholdHighest).not.toBeNull()
-      }
-    })
-
-    it('should allow calculating suggested threshold', async () => {
-      const vectorStore = createTestVectorStore()
-      await Effect.runPromise(vectorStore.load())
-
-      const result = await Effect.runPromise(
-        vectorStore.searchWithStats(
-          new Array(TEST_CORPUS_DIMENSIONS).fill(0.1),
-          10,
-          0.9,
-        ),
-      )
-
-      if (
-        result.results.length === 0 &&
-        result.belowThresholdHighest !== null
-      ) {
-        // Suggested threshold formula: max(0.1, highest - 0.05)
-        const suggestedThreshold = Math.max(
-          0.1,
-          result.belowThresholdHighest - 0.05,
-        )
-        expect(suggestedThreshold).toBeLessThan(0.9)
-        expect(suggestedThreshold).toBeGreaterThanOrEqual(0.1)
-      }
-    })
+      expect(suggestedThreshold).toBeLessThan(0.9)
+      expect(suggestedThreshold).toBeGreaterThanOrEqual(0.1)
+    }
   })
 })
 
@@ -405,7 +458,11 @@ describe('Search Quality Modes', () => {
 
   describe('VectorStore efSearch support', () => {
     it('should accept efSearch option in search method', async () => {
-      const vectorStore = createTestVectorStore()
+      const vectorStore = createTestVectorStore(
+        testIndexPath,
+        TEST_CORPUS_DIMENSIONS,
+        TEST_CORPUS_IDENTITY,
+      )
       await Effect.runPromise(vectorStore.load())
 
       // Should not throw when passing efSearch
@@ -419,7 +476,11 @@ describe('Search Quality Modes', () => {
     })
 
     it('should accept efSearch option in searchWithStats method', async () => {
-      const vectorStore = createTestVectorStore()
+      const vectorStore = createTestVectorStore(
+        testIndexPath,
+        TEST_CORPUS_DIMENSIONS,
+        TEST_CORPUS_IDENTITY,
+      )
       await Effect.runPromise(vectorStore.load())
 
       // Should not throw when passing efSearch
@@ -437,7 +498,11 @@ describe('Search Quality Modes', () => {
     })
 
     it('should work without efSearch option (defaults)', async () => {
-      const vectorStore = createTestVectorStore()
+      const vectorStore = createTestVectorStore(
+        testIndexPath,
+        TEST_CORPUS_DIMENSIONS,
+        TEST_CORPUS_IDENTITY,
+      )
       await Effect.runPromise(vectorStore.load())
 
       // Should not throw without efSearch option
@@ -449,7 +514,11 @@ describe('Search Quality Modes', () => {
     })
 
     it('should return consistent results for same query with different efSearch', async () => {
-      const vectorStore = createTestVectorStore()
+      const vectorStore = createTestVectorStore(
+        testIndexPath,
+        TEST_CORPUS_DIMENSIONS,
+        TEST_CORPUS_IDENTITY,
+      )
       await Effect.runPromise(vectorStore.load())
 
       const queryVector = new Array(TEST_CORPUS_DIMENSIONS).fill(0.1)

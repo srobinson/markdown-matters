@@ -4,7 +4,35 @@ import type { DocumentKey } from '../db/canonical.js'
 import { writeActiveProvider } from './embedding-namespace-catalog.js'
 import { generateNamespace } from './embedding-namespace-paths.js'
 import type { VectorEntry } from './types.js'
-import { createNamespacedVectorStore } from './vector-store.js'
+import {
+  createNamespacedVectorStore,
+  type HnswBuildOptions,
+  type VectorStore,
+} from './vector-store.js'
+
+const DEFAULT_PROVIDER = 'test-provider'
+const DEFAULT_MODEL = 'test-model'
+
+export const createTestVectorStore = (
+  indexRoot: string,
+  dimensions: number,
+  {
+    provider = DEFAULT_PROVIDER,
+    model = DEFAULT_MODEL,
+    hnswOptions,
+  }: {
+    readonly provider?: string
+    readonly model?: string
+    readonly hnswOptions?: HnswBuildOptions
+  } = {},
+): VectorStore =>
+  createNamespacedVectorStore(
+    indexRoot,
+    provider,
+    model,
+    dimensions,
+    hnswOptions,
+  )
 
 const makeVector = (seed: number, dimensions: number): number[] => {
   const values = Array.from(
@@ -28,13 +56,10 @@ export const seedFreshVectorFixture = async ({
   readonly model: string
   readonly dimensions: number
 }): Promise<void> => {
-  const store = createNamespacedVectorStore(
-    indexRoot,
+  const store = createTestVectorStore(indexRoot, dimensions, {
     provider,
     model,
-    dimensions,
-  )
-  store.setProvider(provider, model)
+  })
   const entries: VectorEntry[] = Array.from({ length: 12 }, (_, index) => ({
     id: `vector-${index}`,
     sectionId: `section-${index}`,

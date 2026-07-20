@@ -339,17 +339,17 @@ const prepareEmbeddingRuntime = (
       (yield* createEmbeddingClient(providerName, {
         baseURL: providerConfig.baseURL,
       }))
+    const effectiveBaseURL = getResolvedBaseURL(providerName, {
+      baseURL: providerConfig.baseURL,
+    })
     const vectorStore = createNamespacedVectorStore(
       indexRoot,
       providerName,
       providerModel,
       dimensions,
       options.hnswOptions,
+      effectiveBaseURL,
     )
-    const effectiveBaseURL = getResolvedBaseURL(providerName, {
-      baseURL: providerConfig.baseURL,
-    })
-    vectorStore.setProvider(providerName, providerModel, effectiveBaseURL)
 
     return {
       providerName,
