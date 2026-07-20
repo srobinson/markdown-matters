@@ -11,7 +11,6 @@ import {
   type DocumentKey,
   type FileIdentity,
 } from '../db/canonical.js'
-import { dbIndexDir } from '../home.js'
 
 // ============================================================================
 // Document Index
@@ -138,14 +137,12 @@ export interface FileProcessingError {
 export const INDEX_VERSION = CANONICAL_SCHEMA_VERSION
 
 export const getIndexPaths = (indexRoot: string) => {
-  const root = dbIndexDir(indexRoot)
+  const root = path.resolve(indexRoot)
   return {
     root,
     documents: path.join(root, 'indexes', 'documents.json'),
     sections: path.join(root, 'indexes', 'sections.json'),
     links: path.join(root, 'indexes', 'links.json'),
-    cache: path.join(root, 'cache'),
-    parsed: path.join(root, 'cache', 'parsed'),
     bm25: path.join(root, 'bm25.json'),
     bm25Metadata: path.join(root, 'bm25.meta.json'),
   }

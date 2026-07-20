@@ -122,8 +122,8 @@ describe('createStorage', () => {
     expect(storage.paths.links).toBe(
       path.join(indexRoot, 'indexes', 'links.json'),
     )
-    expect(storage.paths.cache).toBe(path.join(indexRoot, 'cache'))
-    expect(storage.paths.parsed).toBe(path.join(indexRoot, 'cache', 'parsed'))
+    expect(storage.paths).not.toHaveProperty('cache')
+    expect(storage.paths).not.toHaveProperty('parsed')
     expect(storage.paths.bm25).toBe(path.join(indexRoot, 'bm25.json'))
     expect(storage.paths.bm25Metadata).toBe(
       path.join(indexRoot, 'bm25.meta.json'),
@@ -175,21 +175,18 @@ describe('initializeIndex', () => {
     await expect(
       fs.access(path.join(storage.indexRoot, 'config.json')),
     ).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(
+      fs.access(path.join(storage.indexRoot, 'cache')),
+    ).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
   it('is idempotent', async () => {
     const storage = createTestStorage(rootDir)
     await run(initializeIndex(storage))
     await run(initializeIndex(storage))
-    await expect(fs.stat(storage.paths.parsed)).resolves.toBeDefined()
-  })
-
-  it('creates parsed cache directory', async () => {
-    const storage = createTestStorage(rootDir)
-    await run(initializeIndex(storage))
-
-    const stat = await fs.stat(storage.paths.parsed)
-    expect(stat.isDirectory()).toBe(true)
+    await expect(
+      fs.stat(path.dirname(storage.paths.documents)),
+    ).resolves.toBeDefined()
   })
 })
 

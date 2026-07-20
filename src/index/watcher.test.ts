@@ -51,8 +51,6 @@ vi.mock('./storage.js', () => ({
       documents: `${indexRoot}/indexes/documents.json`,
       sections: `${indexRoot}/indexes/sections.json`,
       links: `${indexRoot}/indexes/links.json`,
-      cache: `${indexRoot}/cache`,
-      parsed: `${indexRoot}/cache/parsed`,
       bm25: `${indexRoot}/bm25.json`,
       bm25Metadata: `${indexRoot}/bm25.meta.json`,
     },
