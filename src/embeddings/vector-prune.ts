@@ -2,7 +2,10 @@ import { Effect } from 'effect'
 
 import { listNamespaces } from './embedding-namespace.js'
 import { invalidateHnswCache } from './hnsw-cache.js'
-import { createVectorStore, type VectorStore } from './vector-store.js'
+import {
+  createNamespacedVectorStore,
+  type VectorStore,
+} from './vector-store.js'
 
 export const pruneStaleVectorEntries = (
   vectorStore: VectorStore,
@@ -25,8 +28,12 @@ export const pruneVectorNamespaces = (
     return yield* Effect.all(
       namespaces.map((namespace) =>
         Effect.gen(function* () {
-          const store = createVectorStore(indexRoot, namespace.dimensions)
-          store.setNamespace(namespace.namespace)
+          const store = createNamespacedVectorStore(
+            indexRoot,
+            namespace.provider,
+            namespace.model,
+            namespace.dimensions,
+          )
           const loaded = yield* store.load()
           if (!loaded.loaded) return 0
           const removed = yield* pruneStaleVectorEntries(

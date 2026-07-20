@@ -1,8 +1,7 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import * as msgpack from '@msgpack/msgpack'
-import { Effect } from 'effect'
-import type { VectorIndex } from './types.js'
+import { Effect, Schema } from 'effect'
 import {
   getActiveProviderPath,
   getEmbeddingsDir,
@@ -16,38 +15,47 @@ import {
   type EmbeddingNamespace,
   EmbeddingNamespaceError,
 } from './embedding-namespace-types.js'
+import type { VectorIndex } from './types.js'
+
+const ActiveProviderSchema: Schema.Schema<ActiveProvider> = Schema.Struct({
+  namespace: Schema.NonEmptyTrimmedString,
+  provider: Schema.NonEmptyTrimmedString,
+  model: Schema.NonEmptyTrimmedString,
+  dimensions: Schema.Number.pipe(Schema.int(), Schema.positive()),
+  activatedAt: Schema.String.pipe(
+    Schema.filter(
+      (value) =>
+        !Number.isNaN(Date.parse(value)) &&
+        new Date(value).toISOString() === value,
+      { message: () => 'Expected an ISO 8601 UTC timestamp' },
+    ),
+  ),
+})
 
 export const readActiveProvider = (
   rootPath: string,
 ): Effect.Effect<ActiveProvider | null, EmbeddingNamespaceError> =>
   Effect.gen(function* () {
     const filePath = getActiveProviderPath(rootPath)
-    const exists = yield* Effect.tryPromise({
-      try: async () => {
-        await fs.access(filePath)
-        return true
-      },
-      catch: () =>
-        new EmbeddingNamespaceError({
-          operation: 'readActiveProvider',
-          message: 'File not found',
-        }),
-    }).pipe(Effect.catchAll(() => Effect.succeed(false)))
+    const contentResult = yield* Effect.either(
+      Effect.tryPromise({
+        try: () => fs.readFile(filePath, 'utf-8'),
+        catch: (cause) =>
+          new EmbeddingNamespaceError({
+            operation: 'readActiveProvider',
+            message: `Failed to read active provider: ${cause}`,
+            cause,
+          }),
+      }),
+    )
+    if (contentResult._tag === 'Left') {
+      const cause = contentResult.left.cause as NodeJS.ErrnoException
+      if (cause?.code === 'ENOENT') return null
+      return yield* Effect.fail(contentResult.left)
+    }
 
-    if (!exists) return null
-
-    const content = yield* Effect.tryPromise({
-      try: () => fs.readFile(filePath, 'utf-8'),
-      catch: (cause) =>
-        new EmbeddingNamespaceError({
-          operation: 'readActiveProvider',
-          message: `Failed to read active provider: ${cause}`,
-          cause,
-        }),
-    })
-
-    return yield* Effect.try({
-      try: () => JSON.parse(content) as ActiveProvider,
+    const parsed = yield* Effect.try({
+      try: () => JSON.parse(contentResult.right) as unknown,
       catch: (cause) =>
         new EmbeddingNamespaceError({
           operation: 'readActiveProvider',
@@ -55,6 +63,16 @@ export const readActiveProvider = (
           cause,
         }),
     })
+    return yield* Schema.decodeUnknown(ActiveProviderSchema)(parsed).pipe(
+      Effect.mapError(
+        (cause) =>
+          new EmbeddingNamespaceError({
+            operation: 'readActiveProvider',
+            message: `Invalid active provider: ${cause}`,
+            cause,
+          }),
+      ),
+    )
   })
 
 export const writeActiveProvider = (
@@ -73,7 +91,8 @@ export const writeActiveProvider = (
         }),
     })
     yield* Effect.tryPromise({
-      try: () => fs.writeFile(filePath, JSON.stringify(activeProvider, null, 2)),
+      try: () =>
+        fs.writeFile(filePath, JSON.stringify(activeProvider, null, 2)),
       catch: (cause) =>
         new EmbeddingNamespaceError({
           operation: 'writeActiveProvider',
@@ -92,7 +111,8 @@ const fileExists = (
       await fs.access(filePath)
       return true
     },
-    catch: () => new EmbeddingNamespaceError({ operation, message: 'Not found' }),
+    catch: () =>
+      new EmbeddingNamespaceError({ operation, message: 'Not found' }),
   }).pipe(Effect.catchAll(() => Effect.succeed(false)))
 
 export const listNamespaces = (
@@ -127,7 +147,8 @@ export const listNamespaces = (
       if (!(yield* fileExists(metaPath, 'listNamespaces'))) continue
 
       const meta = yield* Effect.tryPromise({
-        try: async () => msgpack.decode(await fs.readFile(metaPath)) as VectorIndex,
+        try: async () =>
+          msgpack.decode(await fs.readFile(metaPath)) as VectorIndex,
         catch: (cause) =>
           new EmbeddingNamespaceError({
             operation: 'listNamespaces',
@@ -173,7 +194,8 @@ export const listNamespaces = (
 
     namespaces.sort(
       (left, right) =>
-        new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
+        new Date(right.updatedAt).getTime() -
+        new Date(left.updatedAt).getTime(),
     )
     return namespaces
   })
@@ -328,32 +350,4 @@ export const removeNamespace = (
 export const getActiveNamespace = (
   rootPath: string,
 ): Effect.Effect<ActiveProvider | null, EmbeddingNamespaceError> =>
-  Effect.gen(function* () {
-    const active = yield* readActiveProvider(rootPath)
-    if (
-      active &&
-      (yield* fileExists(
-        getNamespaceDir(rootPath, active.namespace),
-        'getActiveNamespace',
-      ))
-    ) {
-      return active
-    }
-
-    const namespaces = yield* listNamespaces(rootPath)
-    if (namespaces.length === 0) return null
-
-    const mostRecent = namespaces[0]!
-    const nextActive = {
-      namespace: mostRecent.namespace,
-      provider: mostRecent.provider,
-      model: mostRecent.model,
-      dimensions: mostRecent.dimensions,
-      activatedAt: new Date().toISOString(),
-    }
-    yield* writeActiveProvider(rootPath, nextActive)
-    return {
-      ...nextActive,
-      activatedAt: new Date().toISOString(),
-    }
-  })
+  readActiveProvider(rootPath)

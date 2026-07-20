@@ -152,259 +152,257 @@ const registerFakeRuntimes = (): void => {
 // Test suite
 // ============================================================================
 
-describe('resolveClient', () => {
-  beforeEach(() => {
-    createEmbedClientMock.mockReset()
-    createGenerateTextClientMock.mockReset()
-    embedConstructionCalls.length = 0
-    generateTextConstructionCalls.length = 0
-    installFakeEmbedFactory()
-    installFakeGenerateTextFactory()
-    registerFakeRuntimes()
+beforeEach(() => {
+  createEmbedClientMock.mockReset()
+  createGenerateTextClientMock.mockReset()
+  embedConstructionCalls.length = 0
+  generateTextConstructionCalls.length = 0
+  installFakeEmbedFactory()
+  installFakeGenerateTextFactory()
+  registerFakeRuntimes()
+})
+
+afterEach(() => {
+  clearRegistry()
+})
+
+// ==========================================================================
+// Override path: embed capability
+// ==========================================================================
+
+describe('embed override path', () => {
+  it('forwards a baseURL override to createEmbedClient for openai', async () => {
+    await Effect.runPromise(
+      resolveClient('embed', 'openai', {
+        baseURL: 'https://my-openai-proxy.example/v1',
+      }),
+    )
+
+    expect(createEmbedClientMock).toHaveBeenCalledTimes(1)
+    expect(embedConstructionCalls[0]?.id).toBe('openai')
+    expect(embedConstructionCalls[0]?.overrides?.baseURL).toBe(
+      'https://my-openai-proxy.example/v1',
+    )
   })
 
-  afterEach(() => {
-    clearRegistry()
+  it('forwards a baseURL override for ollama', async () => {
+    await Effect.runPromise(
+      resolveClient('embed', 'ollama', {
+        baseURL: 'http://my-ollama:9999/v1',
+      }),
+    )
+
+    expect(embedConstructionCalls[0]?.id).toBe('ollama')
+    expect(embedConstructionCalls[0]?.overrides?.baseURL).toBe(
+      'http://my-ollama:9999/v1',
+    )
   })
 
-  // ==========================================================================
-  // Override path: embed capability
-  // ==========================================================================
+  it('forwards a baseURL override for lm-studio', async () => {
+    await Effect.runPromise(
+      resolveClient('embed', 'lm-studio', {
+        baseURL: 'http://my-workstation:1234/v1',
+      }),
+    )
 
-  describe('embed override path', () => {
-    it('forwards a baseURL override to createEmbedClient for openai', async () => {
-      await Effect.runPromise(
-        resolveClient('embed', 'openai', {
-          baseURL: 'https://my-openai-proxy.example/v1',
+    expect(embedConstructionCalls[0]?.id).toBe('lm-studio')
+    expect(embedConstructionCalls[0]?.overrides?.baseURL).toBe(
+      'http://my-workstation:1234/v1',
+    )
+  })
+
+  it('forwards an apiKey override alongside baseURL', async () => {
+    await Effect.runPromise(
+      resolveClient('embed', 'ollama', {
+        baseURL: 'http://ollama:11434/v1',
+        apiKey: 'custom-token',
+      }),
+    )
+
+    expect(embedConstructionCalls[0]?.overrides?.baseURL).toBe(
+      'http://ollama:11434/v1',
+    )
+    expect(embedConstructionCalls[0]?.overrides?.apiKey).toBe('custom-token')
+  })
+
+  it('remaps MissingApiKey into ApiKeyMissingError', async () => {
+    createEmbedClientMock.mockReturnValueOnce(
+      Effect.fail(
+        new MissingApiKey({
+          provider: 'openrouter',
+          envVar: 'OPENROUTER_API_KEY',
         }),
-      )
+      ),
+    )
 
-      expect(createEmbedClientMock).toHaveBeenCalledTimes(1)
-      expect(embedConstructionCalls[0]?.id).toBe('openai')
-      expect(embedConstructionCalls[0]?.overrides?.baseURL).toBe(
-        'https://my-openai-proxy.example/v1',
-      )
-    })
+    const result = await Effect.runPromise(
+      resolveClient('embed', 'openrouter', {
+        baseURL: 'https://my-proxy.example/v1',
+      }).pipe(Effect.either),
+    )
 
-    it('forwards a baseURL override for ollama', async () => {
-      await Effect.runPromise(
-        resolveClient('embed', 'ollama', {
-          baseURL: 'http://my-ollama:9999/v1',
-        }),
-      )
-
-      expect(embedConstructionCalls[0]?.id).toBe('ollama')
-      expect(embedConstructionCalls[0]?.overrides?.baseURL).toBe(
-        'http://my-ollama:9999/v1',
-      )
-    })
-
-    it('forwards a baseURL override for lm-studio', async () => {
-      await Effect.runPromise(
-        resolveClient('embed', 'lm-studio', {
-          baseURL: 'http://my-workstation:1234/v1',
-        }),
-      )
-
-      expect(embedConstructionCalls[0]?.id).toBe('lm-studio')
-      expect(embedConstructionCalls[0]?.overrides?.baseURL).toBe(
-        'http://my-workstation:1234/v1',
-      )
-    })
-
-    it('forwards an apiKey override alongside baseURL', async () => {
-      await Effect.runPromise(
-        resolveClient('embed', 'ollama', {
-          baseURL: 'http://ollama:11434/v1',
-          apiKey: 'custom-token',
-        }),
-      )
-
-      expect(embedConstructionCalls[0]?.overrides?.baseURL).toBe(
-        'http://ollama:11434/v1',
-      )
-      expect(embedConstructionCalls[0]?.overrides?.apiKey).toBe('custom-token')
-    })
-
-    it('remaps MissingApiKey into ApiKeyMissingError', async () => {
-      createEmbedClientMock.mockReturnValueOnce(
-        Effect.fail(
-          new MissingApiKey({
-            provider: 'openrouter',
-            envVar: 'OPENROUTER_API_KEY',
-          }),
-        ),
-      )
-
-      const result = await Effect.runPromise(
-        resolveClient('embed', 'openrouter', {
-          baseURL: 'https://my-proxy.example/v1',
-        }).pipe(Effect.either),
-      )
-
-      expect(result._tag).toBe('Left')
-      if (result._tag === 'Left') {
-        expect(result.left).toBeInstanceOf(ApiKeyMissingError)
-        if (result.left instanceof ApiKeyMissingError) {
-          expect(result.left.provider).toBe('openrouter')
-          expect(result.left.envVar).toBe('OPENROUTER_API_KEY')
-        }
+    expect(result._tag).toBe('Left')
+    if (result._tag === 'Left') {
+      expect(result.left).toBeInstanceOf(ApiKeyMissingError)
+      if (result.left instanceof ApiKeyMissingError) {
+        expect(result.left.provider).toBe('openrouter')
+        expect(result.left.envVar).toBe('OPENROUTER_API_KEY')
       }
-    })
+    }
+  })
+})
+
+// ==========================================================================
+// Override path: generateText capability
+// ==========================================================================
+
+describe('generateText override path', () => {
+  it('forwards a baseURL override to createGenerateTextClient', async () => {
+    await Effect.runPromise(
+      resolveClient('generateText', 'openai', {
+        baseURL: 'https://my-openai-proxy.example/v1',
+      }),
+    )
+
+    expect(createGenerateTextClientMock).toHaveBeenCalledTimes(1)
+    expect(generateTextConstructionCalls[0]?.id).toBe('openai')
+    expect(generateTextConstructionCalls[0]?.overrides?.baseURL).toBe(
+      'https://my-openai-proxy.example/v1',
+    )
   })
 
-  // ==========================================================================
-  // Override path: generateText capability
-  // ==========================================================================
+  it('forwards an apiKey override alongside baseURL', async () => {
+    await Effect.runPromise(
+      resolveClient('generateText', 'openrouter', {
+        baseURL: 'https://openrouter.ai/api/v1',
+        apiKey: 'sk-custom',
+      }),
+    )
 
-  describe('generateText override path', () => {
-    it('forwards a baseURL override to createGenerateTextClient', async () => {
-      await Effect.runPromise(
-        resolveClient('generateText', 'openai', {
-          baseURL: 'https://my-openai-proxy.example/v1',
+    expect(generateTextConstructionCalls[0]?.overrides?.apiKey).toBe(
+      'sk-custom',
+    )
+    expect(generateTextConstructionCalls[0]?.overrides?.baseURL).toBe(
+      'https://openrouter.ai/api/v1',
+    )
+  })
+
+  it('remaps MissingApiKey into ApiKeyMissingError', async () => {
+    createGenerateTextClientMock.mockReturnValueOnce(
+      Effect.fail(
+        new MissingApiKey({
+          provider: 'openai',
+          envVar: 'OPENAI_API_KEY',
         }),
-      )
+      ),
+    )
 
-      expect(createGenerateTextClientMock).toHaveBeenCalledTimes(1)
-      expect(generateTextConstructionCalls[0]?.id).toBe('openai')
-      expect(generateTextConstructionCalls[0]?.overrides?.baseURL).toBe(
-        'https://my-openai-proxy.example/v1',
-      )
-    })
+    const result = await Effect.runPromise(
+      resolveClient('generateText', 'openai', {
+        baseURL: 'https://ignore.example/v1',
+      }).pipe(Effect.either),
+    )
 
-    it('forwards an apiKey override alongside baseURL', async () => {
-      await Effect.runPromise(
-        resolveClient('generateText', 'openrouter', {
-          baseURL: 'https://openrouter.ai/api/v1',
-          apiKey: 'sk-custom',
-        }),
-      )
-
-      expect(generateTextConstructionCalls[0]?.overrides?.apiKey).toBe(
-        'sk-custom',
-      )
-      expect(generateTextConstructionCalls[0]?.overrides?.baseURL).toBe(
-        'https://openrouter.ai/api/v1',
-      )
-    })
-
-    it('remaps MissingApiKey into ApiKeyMissingError', async () => {
-      createGenerateTextClientMock.mockReturnValueOnce(
-        Effect.fail(
-          new MissingApiKey({
-            provider: 'openai',
-            envVar: 'OPENAI_API_KEY',
-          }),
-        ),
-      )
-
-      const result = await Effect.runPromise(
-        resolveClient('generateText', 'openai', {
-          baseURL: 'https://ignore.example/v1',
-        }).pipe(Effect.either),
-      )
-
-      expect(result._tag).toBe('Left')
-      if (result._tag === 'Left') {
-        expect(result.left).toBeInstanceOf(ApiKeyMissingError)
-        if (result.left instanceof ApiKeyMissingError) {
-          expect(result.left.provider).toBe('openai')
-          expect(result.left.envVar).toBe('OPENAI_API_KEY')
-        }
+    expect(result._tag).toBe('Left')
+    if (result._tag === 'Left') {
+      expect(result.left).toBeInstanceOf(ApiKeyMissingError)
+      if (result.left instanceof ApiKeyMissingError) {
+        expect(result.left.provider).toBe('openai')
+        expect(result.left.envVar).toBe('OPENAI_API_KEY')
       }
-    })
+    }
+  })
+})
+
+// ==========================================================================
+// Fast path: no overrides, or override is a no-op
+// ==========================================================================
+
+describe('registry fast path', () => {
+  it('returns the registered embed client when no overrides are supplied', async () => {
+    await Effect.runPromise(resolveClient('embed', 'openai'))
+
+    expect(createEmbedClientMock).not.toHaveBeenCalled()
   })
 
-  // ==========================================================================
-  // Fast path: no overrides, or override is a no-op
-  // ==========================================================================
+  it('returns the registered embed client when overrides is an empty object', async () => {
+    await Effect.runPromise(resolveClient('embed', 'openai', {}))
 
-  describe('registry fast path', () => {
-    it('returns the registered embed client when no overrides are supplied', async () => {
-      await Effect.runPromise(resolveClient('embed', 'openai'))
-
-      expect(createEmbedClientMock).not.toHaveBeenCalled()
-    })
-
-    it('returns the registered embed client when overrides is an empty object', async () => {
-      await Effect.runPromise(resolveClient('embed', 'openai', {}))
-
-      expect(createEmbedClientMock).not.toHaveBeenCalled()
-    })
-
-    it('treats { baseURL: undefined } as no override', async () => {
-      // Consumers commonly spread provider config into overrides, so
-      // `{ baseURL: undefined }` is the normal shape when the caller
-      // has not set a custom host. The runtime must take the fast
-      // path, not construct a fresh transport client.
-      await Effect.runPromise(
-        resolveClient('embed', 'openai', { baseURL: undefined }),
-      )
-
-      expect(createEmbedClientMock).not.toHaveBeenCalled()
-    })
-
-    it('returns the registered generateText client when no overrides are supplied', async () => {
-      await Effect.runPromise(resolveClient('generateText', 'openai'))
-
-      expect(createGenerateTextClientMock).not.toHaveBeenCalled()
-    })
+    expect(createEmbedClientMock).not.toHaveBeenCalled()
   })
 
-  // ==========================================================================
-  // Voyage exclusion: overrides are dropped for voyage (fast path)
-  // ==========================================================================
+  it('treats { baseURL: undefined } as no override', async () => {
+    // Consumers commonly spread provider config into overrides, so
+    // `{ baseURL: undefined }` is the normal shape when the caller
+    // has not set a custom host. The runtime must take the fast
+    // path, not construct a fresh transport client.
+    await Effect.runPromise(
+      resolveClient('embed', 'openai', { baseURL: undefined }),
+    )
 
-  describe('voyage exclusion from override path', () => {
-    it('takes the registry fast path for voyage even when baseURL is supplied', async () => {
-      // Voyage is not served by the openai-compatible transport, so
-      // the override path (which only handles openai-compatible
-      // providers) must not be used. The registry path returns the
-      // pre-registered voyage embed client and the caller's baseURL
-      // is silently dropped at this layer.
-      await Effect.runPromise(
-        resolveClient('embed', 'voyage', {
-          baseURL: 'http://ignored.example',
-        }),
-      )
-
-      expect(createEmbedClientMock).not.toHaveBeenCalled()
-    })
+    expect(createEmbedClientMock).not.toHaveBeenCalled()
   })
 
-  // ==========================================================================
-  // Rerank fall-through: no openai-compatible transport for rerank
-  // ==========================================================================
+  it('returns the registered generateText client when no overrides are supplied', async () => {
+    await Effect.runPromise(resolveClient('generateText', 'openai'))
 
-  describe('rerank capability falls through to registry', () => {
-    it('does not route rerank requests through the openai-compatible transport even with overrides', async () => {
-      // Rerank has no openai-compatible transport factory today, so
-      // even when overrides are supplied for an openai-compatible
-      // provider, the override path is skipped and the registry is
-      // consulted. The registry has no rerank capability registered
-      // for openai in this test, so the call surfaces
-      // `CapabilityNotSupported` — the important invariant is that
-      // the transport mocks are NOT called.
-      const result = await Effect.runPromise(
-        resolveClient('rerank', 'openai', {
-          baseURL: 'https://ignored.example/v1',
-        }).pipe(Effect.either),
-      )
+    expect(createGenerateTextClientMock).not.toHaveBeenCalled()
+  })
+})
 
-      expect(createEmbedClientMock).not.toHaveBeenCalled()
-      expect(createGenerateTextClientMock).not.toHaveBeenCalled()
-      expect(result._tag).toBe('Left')
-      if (result._tag === 'Left') {
-        expect(result.left._tag).toBe('CapabilityNotSupported')
-      }
-    })
+// ==========================================================================
+// Voyage exclusion: overrides are dropped for voyage (fast path)
+// ==========================================================================
+
+describe('voyage exclusion from override path', () => {
+  it('takes the registry fast path for voyage even when baseURL is supplied', async () => {
+    // Voyage is not served by the openai-compatible transport, so
+    // the override path (which only handles openai-compatible
+    // providers) must not be used. The registry path returns the
+    // pre-registered voyage embed client and the caller's baseURL
+    // is silently dropped at this layer.
+    await Effect.runPromise(
+      resolveClient('embed', 'voyage', {
+        baseURL: 'http://ignored.example',
+      }),
+    )
+
+    expect(createEmbedClientMock).not.toHaveBeenCalled()
+  })
+})
+
+// ==========================================================================
+// Rerank fall-through: no openai-compatible transport for rerank
+// ==========================================================================
+
+describe('rerank capability falls through to registry', () => {
+  it('does not route rerank requests through the openai-compatible transport even with overrides', async () => {
+    // Rerank has no openai-compatible transport factory today, so
+    // even when overrides are supplied for an openai-compatible
+    // provider, the override path is skipped and the registry is
+    // consulted. The registry has no rerank capability registered
+    // for openai in this test, so the call surfaces
+    // `CapabilityNotSupported` — the important invariant is that
+    // the transport mocks are NOT called.
+    const result = await Effect.runPromise(
+      resolveClient('rerank', 'openai', {
+        baseURL: 'https://ignored.example/v1',
+      }).pipe(Effect.either),
+    )
+
+    expect(createEmbedClientMock).not.toHaveBeenCalled()
+    expect(createGenerateTextClientMock).not.toHaveBeenCalled()
+    expect(result._tag).toBe('Left')
+    if (result._tag === 'Left') {
+      expect(result.left._tag).toBe('CapabilityNotSupported')
+    }
   })
 })
 
 describe('getResolvedBaseURL', () => {
   // Sync helper; no registry or mock state needed. These tests lock in
   // the "voyage has no custom-host concept" contract so feature-layer
-  // callers like `semantic-search-build.ts:vectorStore.setProvider` can
+  // callers like `semantic-search-build.ts:prepareEmbeddingRuntime` can
   // hand off the decision entirely to the runtime.
 
   it('returns the caller override when set for an openai-compatible provider', () => {

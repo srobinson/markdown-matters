@@ -193,7 +193,6 @@ it('removes stale section vectors when manifest membership shrinks', async () =>
     'test-model',
     2,
   )
-  store.setProvider('openai', 'test-model')
   await Effect.runPromise(store.add(entries))
   await Effect.runPromise(store.save())
 

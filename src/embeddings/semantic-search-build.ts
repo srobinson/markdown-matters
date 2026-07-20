@@ -45,11 +45,11 @@ import {
 import { getRecommendedDimensions, supportsMatryoshka } from './dimensions.js'
 import { createEmbeddingClient, embedInBatches } from './embed-batched.js'
 import {
+  type EmbeddingNamespaceError,
   generateNamespace,
-  writeActiveProvider,
 } from './embedding-namespace.js'
-import { invalidateHnswCache } from './hnsw-cache.js'
 import { EMBEDDING_PRICE_PER_MILLION } from './semantic-search-cost.js'
+import { persistEmbeddingRuntime } from './semantic-search-persistence.js'
 import type { VectorEntry } from './types.js'
 import { pruneStaleVectorEntries } from './vector-prune.js'
 import {
@@ -339,17 +339,17 @@ const prepareEmbeddingRuntime = (
       (yield* createEmbeddingClient(providerName, {
         baseURL: providerConfig.baseURL,
       }))
+    const effectiveBaseURL = getResolvedBaseURL(providerName, {
+      baseURL: providerConfig.baseURL,
+    })
     const vectorStore = createNamespacedVectorStore(
       indexRoot,
       providerName,
       providerModel,
       dimensions,
       options.hnswOptions,
+      effectiveBaseURL,
     )
-    const effectiveBaseURL = getResolvedBaseURL(providerName, {
-      baseURL: providerConfig.baseURL,
-    })
-    vectorStore.setProvider(providerName, providerModel, effectiveBaseURL)
 
     return {
       providerName,
@@ -481,30 +481,6 @@ const embedSections = (
     } satisfies EmbeddedSections
   })
 
-const saveEmbeddingBuild = (
-  indexRoot: string,
-  runtime: EmbeddingRuntime,
-  activateProvider: boolean,
-) =>
-  Effect.gen(function* () {
-    yield* runtime.vectorStore.save()
-    invalidateHnswCache(indexRoot, runtime.namespace)
-    if (!activateProvider) return
-
-    yield* writeActiveProvider(indexRoot, {
-      namespace: runtime.namespace,
-      provider: runtime.providerName,
-      model: runtime.providerModel,
-      dimensions: runtime.dimensions,
-      activatedAt: new Date().toISOString(),
-    }).pipe(
-      Effect.catchAll((error) => {
-        console.warn(`Warning: Could not set active provider: ${error.message}`)
-        return Effect.succeed(undefined)
-      }),
-    )
-  })
-
 // ============================================================================
 // Public orchestrator
 // ============================================================================
@@ -523,6 +499,7 @@ const saveEmbeddingBuild = (
  * @throws ApiKeyInvalidError - API key rejected by provider
  * @throws EmbeddingError - Embedding API failure (rate limit, quota, network)
  * @throws VectorStoreError - Cannot save vector index
+ * @throws EmbeddingNamespaceError - Cannot persist the active provider
  * @throws DimensionMismatchError - Existing embeddings have different dimensions
  */
 export const buildEmbeddings = (
@@ -539,6 +516,7 @@ export const buildEmbeddings = (
   | ProviderNotFound
   | EmbeddingError
   | VectorStoreError
+  | EmbeddingNamespaceError
   | DimensionMismatchError
 > =>
   Effect.gen(function* () {
@@ -572,7 +550,7 @@ export const buildEmbeddings = (
 
     if (sectionsByDoc.size === 0) {
       if (reconciliation.removedVectorCount > 0) {
-        yield* saveEmbeddingBuild(storage.indexRoot, runtime, false)
+        yield* persistEmbeddingRuntime(storage.indexRoot, runtime, false)
       }
       return {
         sectionsEmbedded: 0,
@@ -595,7 +573,7 @@ export const buildEmbeddings = (
         reconciliation.reusableIds.size > 0 ||
         reconciliation.removedVectorCount > 0
       ) {
-        yield* saveEmbeddingBuild(storage.indexRoot, runtime, false)
+        yield* persistEmbeddingRuntime(storage.indexRoot, runtime, false)
       }
       const estimatedSavings =
         reconciliation.reusableIds.size > 0
@@ -625,7 +603,7 @@ export const buildEmbeddings = (
     )
     yield* runtime.vectorStore.add(embedded.entries)
     runtime.vectorStore.addCost(embedded.cost, embedded.tokensUsed)
-    yield* saveEmbeddingBuild(storage.indexRoot, runtime, true)
+    yield* persistEmbeddingRuntime(storage.indexRoot, runtime, true)
 
     return {
       sectionsEmbedded: embedded.entries.length,

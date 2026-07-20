@@ -36,10 +36,7 @@ export interface VectorStore {
   getEmbeddedIds(): Set<string>
   getEmbeddedDocumentHashes(): ReadonlyMap<string, string>
   removeEntries(ids: string[]): Effect.Effect<void, VectorStoreError>
-  setProvider(name: string, model?: string, baseURL?: string): void
   addCost(cost: number, tokens: number): void
-  setNamespace(namespace: string): void
-  getNamespace(): string | undefined
 }
 
 export interface VectorSearchResult {
