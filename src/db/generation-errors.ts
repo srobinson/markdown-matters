@@ -31,3 +31,14 @@ export class GenerationDurabilityError extends Data.TaggedError(
   readonly message: string
   readonly cause?: unknown
 }> {}
+
+export type ProcessIdentityOperation = 'current' | 'inspect'
+
+export class ProcessIdentityError extends Data.TaggedError(
+  'ProcessIdentityError',
+)<{
+  readonly operation: ProcessIdentityOperation
+  readonly pid: number
+  readonly message: string
+  readonly cause?: unknown
+}> {}
