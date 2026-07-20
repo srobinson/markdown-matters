@@ -42,6 +42,7 @@ export const seedFreshVectorFixture = async ({
       indexRoot,
       `document-${index}.md`,
     ) as DocumentKey,
+    documentHash: `fixture-hash-${index}`,
     heading: `Document ${index}`,
     embedding: makeVector(index + 1, dimensions),
   }))

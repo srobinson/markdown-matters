@@ -167,15 +167,25 @@ it('removes stale section vectors when manifest membership shrinks', async () =>
     buildManifestIndex(fixture.manifest, { indexRoot: fixture.home }),
   )
   const storage = createStorage(fixture.home, fixture.home)
-  const sections = await Effect.runPromise(loadSectionIndex(storage))
+  const [documents, sections] = await Promise.all([
+    Effect.runPromise(loadDocumentIndex(storage)),
+    Effect.runPromise(loadSectionIndex(storage)),
+  ])
   const entries: VectorEntry[] = Object.values(sections?.sections ?? {}).map(
-    (section, index) => ({
-      id: section.id,
-      sectionId: section.id,
-      documentPath: section.documentPath,
-      heading: section.heading,
-      embedding: index % 2 === 0 ? [1, 0] : [0, 1],
-    }),
+    (section, index) => {
+      const documentHash = documents?.documents[section.documentPath]?.hash
+      if (documentHash === undefined) {
+        throw new Error(`Missing indexed document for ${section.documentPath}`)
+      }
+      return {
+        id: section.id,
+        sectionId: section.id,
+        documentPath: section.documentPath,
+        documentHash,
+        heading: section.heading,
+        embedding: index % 2 === 0 ? [1, 0] : [0, 1],
+      }
+    },
   )
   const store = createNamespacedVectorStore(
     fixture.home,

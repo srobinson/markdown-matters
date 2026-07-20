@@ -55,6 +55,7 @@ import { pruneStaleVectorEntries } from './vector-prune.js'
 import {
   createNamespacedVectorStore,
   type HnswBuildOptions,
+  type VectorStore,
 } from './vector-store.js'
 
 // ============================================================================
@@ -100,6 +101,7 @@ export interface EmbeddingProviderConfig {
 
 export interface BuildEmbeddingsOptions {
   readonly force?: boolean | undefined
+  readonly indexRoot?: string | undefined
   /**
    * Test-only escape hatch to inject a pre-built `EmbeddingClient`,
    * bypassing runtime construction. Production callers leave this unset
@@ -311,6 +313,198 @@ const readSectionsToEmbed = (
     return { sectionsToEmbed, filesProcessed }
   })
 
+interface EmbeddingRuntime {
+  readonly providerName: ProviderId
+  readonly providerModel: string
+  readonly dimensions: number
+  readonly client: EmbeddingClient
+  readonly vectorStore: VectorStore
+  readonly namespace: string
+}
+
+const prepareEmbeddingRuntime = (
+  indexRoot: string,
+  options: BuildEmbeddingsOptions,
+) =>
+  Effect.gen(function* () {
+    const providerConfig = options.providerConfig ?? { provider: 'openai' }
+    const providerName: ProviderId = providerConfig.provider
+    const providerModel = providerConfig.model ?? 'text-embedding-3-small'
+    const dimensions =
+      providerConfig.dimensions ??
+      getRecommendedDimensions(providerModel) ??
+      512
+    const client =
+      options.client ??
+      (yield* createEmbeddingClient(providerName, {
+        baseURL: providerConfig.baseURL,
+      }))
+    const vectorStore = createNamespacedVectorStore(
+      indexRoot,
+      providerName,
+      providerModel,
+      dimensions,
+      options.hnswOptions,
+    )
+    const effectiveBaseURL = getResolvedBaseURL(providerName, {
+      baseURL: providerConfig.baseURL,
+    })
+    vectorStore.setProvider(providerName, providerModel, effectiveBaseURL)
+
+    return {
+      providerName,
+      providerModel,
+      dimensions,
+      client,
+      vectorStore,
+      namespace: generateNamespace(providerName, providerModel, dimensions),
+    } satisfies EmbeddingRuntime
+  })
+
+const reusableSectionIds = (
+  sections: SectionIndex,
+  documents: DocumentIndex,
+  embeddedHashes: ReadonlyMap<string, string>,
+): Set<string> =>
+  new Set(
+    Object.values(sections.sections).flatMap((section) => {
+      const hash = documents.documents[section.documentPath]?.hash
+      return hash !== undefined && embeddedHashes.get(section.id) === hash
+        ? [section.id]
+        : []
+    }),
+  )
+
+interface VectorReconciliation {
+  readonly reusableIds: Set<string>
+  readonly removedVectorCount: number
+}
+
+const reconcileExistingVectors = (
+  vectorStore: VectorStore,
+  sectionIndex: SectionIndex,
+  docIndex: DocumentIndex,
+  currentSectionIds: ReadonlySet<string>,
+  force: boolean,
+) =>
+  Effect.gen(function* () {
+    if (force) {
+      return {
+        reusableIds: new Set<string>(),
+        removedVectorCount: 0,
+      } satisfies VectorReconciliation
+    }
+
+    const loadResult = yield* vectorStore.load()
+    if (!loadResult.loaded) {
+      return {
+        reusableIds: new Set<string>(),
+        removedVectorCount: 0,
+      } satisfies VectorReconciliation
+    }
+
+    const embeddedHashes = vectorStore.getEmbeddedDocumentHashes()
+    const matchingIds = reusableSectionIds(
+      sectionIndex,
+      docIndex,
+      embeddedHashes,
+    )
+    const reusableIds = new Set(
+      [...matchingIds].filter((id) => currentSectionIds.has(id)),
+    )
+    const removedVectorCount = yield* pruneStaleVectorEntries(
+      vectorStore,
+      reusableIds,
+    )
+
+    return {
+      reusableIds,
+      removedVectorCount,
+    } satisfies VectorReconciliation
+  })
+
+interface EmbeddedSections {
+  readonly entries: VectorEntry[]
+  readonly tokensUsed: number
+  readonly cost: number
+}
+
+const embedSections = (
+  sectionsToEmbed: SectionsToEmbed['sectionsToEmbed'],
+  docIndex: DocumentIndex,
+  runtime: EmbeddingRuntime,
+  onBatchProgress: ((progress: EmbeddingBatchProgress) => void) | undefined,
+) =>
+  Effect.gen(function* () {
+    const texts = sectionsToEmbed.map((section) => section.text)
+    const result = yield* embedInBatches(runtime.client, texts, {
+      model: runtime.providerModel,
+      ...(supportsMatryoshka(runtime.providerModel)
+        ? { dimensions: runtime.dimensions }
+        : {}),
+      onBatchProgress: onBatchProgress
+        ? (progress) =>
+            onBatchProgress({
+              batchIndex: progress.batchIndex,
+              totalBatches: progress.totalBatches,
+              processedSections: progress.processedTexts,
+              totalSections: progress.totalTexts,
+            })
+        : undefined,
+    })
+    const tokensUsed = result.usage?.inputTokens ?? 0
+    const pricePerMillion =
+      lookupPricing('embed', runtime.providerModel)?.input ?? 0
+    const entries: VectorEntry[] = []
+
+    for (let index = 0; index < sectionsToEmbed.length; index++) {
+      const section = sectionsToEmbed[index]?.section
+      const embedding = result.embeddings[index]
+      if (!section || !embedding) continue
+      const documentHash = docIndex.documents[section.documentPath]?.hash
+      if (documentHash === undefined) continue
+
+      entries.push({
+        id: section.id,
+        sectionId: section.id,
+        documentPath: section.documentPath,
+        documentHash,
+        heading: section.heading,
+        embedding,
+      })
+    }
+
+    return {
+      entries,
+      tokensUsed,
+      cost: (tokensUsed / 1_000_000) * pricePerMillion,
+    } satisfies EmbeddedSections
+  })
+
+const saveEmbeddingBuild = (
+  indexRoot: string,
+  runtime: EmbeddingRuntime,
+  activateProvider: boolean,
+) =>
+  Effect.gen(function* () {
+    yield* runtime.vectorStore.save()
+    invalidateHnswCache(indexRoot, runtime.namespace)
+    if (!activateProvider) return
+
+    yield* writeActiveProvider(indexRoot, {
+      namespace: runtime.namespace,
+      provider: runtime.providerName,
+      model: runtime.providerModel,
+      dimensions: runtime.dimensions,
+      activatedAt: new Date().toISOString(),
+    }).pipe(
+      Effect.catchAll((error) => {
+        console.warn(`Warning: Could not set active provider: ${error.message}`)
+        return Effect.succeed(undefined)
+      }),
+    )
+  })
+
 // ============================================================================
 // Public orchestrator
 // ============================================================================
@@ -350,7 +544,8 @@ export const buildEmbeddings = (
   Effect.gen(function* () {
     const startTime = Date.now()
     const resolvedRoot = yield* resolveCanonicalSourceRoot(rootPath)
-    const storage = createStorage(resolvedRoot, dbIndexDir(resolveMdmHome()))
+    const indexRoot = options.indexRoot ?? dbIndexDir(resolveMdmHome())
+    const storage = createStorage(resolvedRoot, indexRoot)
 
     const docIndex = yield* loadDocumentIndex(storage)
     const sectionIndex = yield* loadSectionIndex(storage)
@@ -359,48 +554,7 @@ export const buildEmbeddings = (
       return yield* Effect.fail(new IndexNotFoundError({ path: resolvedRoot }))
     }
 
-    // Resolve provider config and build (or accept) the runtime client.
-    // Priority: explicit client > providerConfig.provider > default (openai)
-    const providerConfig = options.providerConfig ?? { provider: 'openai' }
-    const providerName: ProviderId = providerConfig.provider
-    const providerModel = providerConfig.model ?? 'text-embedding-3-small'
-    const dimensions =
-      providerConfig.dimensions ??
-      getRecommendedDimensions(providerModel) ??
-      512
-
-    const client =
-      options.client ??
-      (yield* createEmbeddingClient(providerName, {
-        baseURL: providerConfig.baseURL,
-      }))
-
-    // Create namespaced vector store for this provider/model/dimensions combination
-    const vectorStore = createNamespacedVectorStore(
-      storage.indexRoot,
-      providerName,
-      providerModel,
-      dimensions,
-      options.hnswOptions,
-    )
-
-    // Record the endpoint the runtime actually dialled. The runtime
-    // owns the per-provider "is there a custom-host concept?" decision
-    // — voyage returns undefined, openai-compatible returns the caller
-    // override (when set) or the transport default.
-    const effectiveBaseURL = getResolvedBaseURL(providerName, {
-      baseURL: providerConfig.baseURL,
-    })
-    vectorStore.setProvider(providerName, providerModel, effectiveBaseURL)
-
-    // Load existing vectors for delta computation (skip on --force)
-    let embeddedIds = new Set<string>()
-    if (!options.force) {
-      const loadResult = yield* vectorStore.load()
-      if (loadResult.loaded) {
-        embeddedIds = vectorStore.getEmbeddedIds()
-      }
-    }
+    const runtime = yield* prepareEmbeddingRuntime(storage.indexRoot, options)
 
     const { sectionsByDoc, currentSectionIds } = groupEligibleSections(
       resolvedRoot,
@@ -408,17 +562,17 @@ export const buildEmbeddings = (
       docIndex,
       options.excludePatterns,
     )
-
-    // Remove entries for sections deleted or restructured since the last build.
-    yield* pruneStaleVectorEntries(vectorStore, currentSectionIds)
-
-    const namespace = generateNamespace(providerName, providerModel, dimensions)
+    const reconciliation = yield* reconcileExistingVectors(
+      runtime.vectorStore,
+      sectionIndex,
+      docIndex,
+      currentSectionIds,
+      options.force ?? false,
+    )
 
     if (sectionsByDoc.size === 0) {
-      // Still save if we removed stale entries
-      if (embeddedIds.size > 0) {
-        yield* vectorStore.save()
-        invalidateHnswCache(storage.indexRoot, namespace)
+      if (reconciliation.removedVectorCount > 0) {
+        yield* saveEmbeddingBuild(storage.indexRoot, runtime, false)
       }
       return {
         sectionsEmbedded: 0,
@@ -432,19 +586,20 @@ export const buildEmbeddings = (
     const { sectionsToEmbed, filesProcessed } = yield* readSectionsToEmbed(
       sectionsByDoc,
       docIndex,
-      embeddedIds,
+      reconciliation.reusableIds,
       options.onFileProgress,
     )
 
     if (sectionsToEmbed.length === 0) {
-      // All sections already embedded (or stale ones were cleaned up)
-      if (embeddedIds.size > 0) {
-        yield* vectorStore.save()
-        invalidateHnswCache(storage.indexRoot, namespace)
+      if (
+        reconciliation.reusableIds.size > 0 ||
+        reconciliation.removedVectorCount > 0
+      ) {
+        yield* saveEmbeddingBuild(storage.indexRoot, runtime, false)
       }
       const estimatedSavings =
-        embeddedIds.size > 0
-          ? (vectorStore.getStats().totalTokens / 1_000_000) *
+        reconciliation.reusableIds.size > 0
+          ? (runtime.vectorStore.getStats().totalTokens / 1_000_000) *
             EMBEDDING_PRICE_PER_MILLION
           : 0
       return {
@@ -453,80 +608,29 @@ export const buildEmbeddings = (
         cost: 0,
         duration: Date.now() - startTime,
         filesProcessed,
-        cacheHit: embeddedIds.size > 0,
+        cacheHit: reconciliation.reusableIds.size > 0,
         existingVectors:
-          embeddedIds.size > 0 ? vectorStore.getStats().count : undefined,
+          reconciliation.reusableIds.size > 0
+            ? runtime.vectorStore.getStats().count
+            : undefined,
         estimatedSavings: estimatedSavings > 0 ? estimatedSavings : undefined,
       }
     }
 
-    // Generate embeddings via the runtime client, batched + retried by the
-    // consumer-side helper. Cost is computed locally because the runtime
-    // client is intentionally cost-agnostic.
-    //
-    // Pass `dimensions` to the API only for Matryoshka-capable models so the
-    // OpenAI side returns truncated vectors. Non-Matryoshka models always
-    // emit native dimensions and would reject the parameter.
-    const texts = sectionsToEmbed.map((s) => s.text)
-    const result = yield* embedInBatches(client, texts, {
-      model: providerModel,
-      ...(supportsMatryoshka(providerModel) ? { dimensions } : {}),
-      onBatchProgress: options.onBatchProgress
-        ? (p) =>
-            options.onBatchProgress?.({
-              batchIndex: p.batchIndex,
-              totalBatches: p.totalBatches,
-              processedSections: p.processedTexts,
-              totalSections: p.totalTexts,
-            })
-        : undefined,
-    })
-    const tokensUsed = result.usage?.inputTokens ?? 0
-    const pricePerMillion = lookupPricing('embed', providerModel)?.input ?? 0
-    const cost = (tokensUsed / 1_000_000) * pricePerMillion
-
-    // Create vector entries
-    const entries: VectorEntry[] = []
-    for (let i = 0; i < sectionsToEmbed.length; i++) {
-      const { section } = sectionsToEmbed[i] ?? { section: null }
-      const embedding = result.embeddings[i]
-      if (!section || !embedding) continue
-
-      entries.push({
-        id: section.id,
-        sectionId: section.id,
-        documentPath: section.documentPath,
-        heading: section.heading,
-        embedding,
-      })
-    }
-
-    yield* vectorStore.add(entries)
-    vectorStore.addCost(cost, tokensUsed)
-
-    // Save and invalidate cache so next search picks up new vectors
-    yield* vectorStore.save()
-    invalidateHnswCache(storage.indexRoot, namespace)
-
-    // Set this namespace as the active provider
-    yield* writeActiveProvider(storage.indexRoot, {
-      namespace,
-      provider: providerName,
-      model: providerModel,
-      dimensions,
-      activatedAt: new Date().toISOString(),
-    }).pipe(
-      Effect.catchAll((e) => {
-        // Don't fail the build if we can't write the active provider file
-        console.warn(`Warning: Could not set active provider: ${e.message}`)
-        return Effect.succeed(undefined)
-      }),
+    const embedded = yield* embedSections(
+      sectionsToEmbed,
+      docIndex,
+      runtime,
+      options.onBatchProgress,
     )
+    yield* runtime.vectorStore.add(embedded.entries)
+    runtime.vectorStore.addCost(embedded.cost, embedded.tokensUsed)
+    yield* saveEmbeddingBuild(storage.indexRoot, runtime, true)
 
     return {
-      sectionsEmbedded: entries.length,
-      tokensUsed,
-      cost,
+      sectionsEmbedded: embedded.entries.length,
+      tokensUsed: embedded.tokensUsed,
+      cost: embedded.cost,
       duration: Date.now() - startTime,
       filesProcessed,
     }

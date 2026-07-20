@@ -11,6 +11,7 @@ const VectorEntrySchema = Schema.Struct({
   id: Schema.String,
   sectionId: Schema.String,
   documentPath: DocumentKeySchema,
+  documentHash: Schema.String,
   heading: Schema.String,
   embedding: Schema.Array(Schema.Number),
 })
