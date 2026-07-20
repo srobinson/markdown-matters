@@ -26,6 +26,7 @@ import {
   estimateEmbeddingCost,
 } from '../embeddings/semantic-search.js'
 import { buildIndex } from '../index/indexer.js'
+import { appendManifestDirectory } from '../manifest.js'
 import { freeEncoder } from '../utils/tokens.js'
 
 const execAsync = promisify(exec)
@@ -71,19 +72,13 @@ describe('mdm CLI e2e', () => {
     )
 
     const legacyFixtureDir = path.join(testFixtureDir, '.mdm')
-    await fs.copyFile(
-      path.join(legacyFixtureDir, 'active-provider.json'),
-      path.join(testHomeDir, 'active-provider.json'),
-    )
-    await fs.cp(
-      path.join(legacyFixtureDir, 'embeddings'),
-      path.join(testHomeDir, 'embeddings'),
-      { recursive: true },
-    )
     await fs.rm(path.join(legacyFixtureDir, 'indexes'), {
       recursive: true,
       force: true,
     })
+    await Effect.runPromise(
+      appendManifestDirectory(testHomeDir, { path: testFixtureDir }),
+    )
 
     await Effect.runPromise(
       buildIndex(testFixtureDir, {
@@ -99,14 +94,17 @@ describe('mdm CLI e2e', () => {
 
     if (REBUILD_TEST_INDEX) {
       console.log('Index rebuilt.')
+    }
 
-      if (INCLUDE_EMBED_TESTS) {
-        console.log('Rebuilding test fixture embeddings...')
-        await Effect.runPromise(
-          buildEmbeddings(testFixtureDir, { force: true }),
-        )
-        console.log('Embeddings rebuilt.')
-      }
+    if (INCLUDE_EMBED_TESTS) {
+      console.log('Rebuilding test fixture embeddings...')
+      await Effect.runPromise(
+        buildEmbeddings(testFixtureDir, {
+          indexRoot: testHomeDir,
+          force: true,
+        }),
+      )
+      console.log('Embeddings rebuilt.')
     }
   })
 

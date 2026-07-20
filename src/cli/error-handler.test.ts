@@ -11,6 +11,7 @@ import {
   MDM_ERROR_TAGS,
   ProviderNotFound,
 } from '../errors/index.js'
+import { ManifestError } from '../manifest.js'
 import {
   EFFECT_CLI_ERROR_TAGS,
   formatEffectCliError,
@@ -493,7 +494,23 @@ describe('handleCliTopLevelError (ALP-1717)', () => {
     })
   })
 
-  describe('branch 2: typed MdmError variants', () => {
+  describe('typed domain errors', () => {
+    it('renders manifest guidance without an unexpected stack trace', async () => {
+      const error = new ManifestError({
+        path: '/tmp/mdm/manifest.toml',
+        message: 'Manifest has no directories. Run mdm index <dir> first.',
+      })
+
+      await Effect.runPromise(handleCliTopLevelError(error))
+
+      expect(exitSpy).toHaveBeenCalledWith(1)
+      const output = stderrOutput()
+      expect(output).toContain('Run mdm index <dir> first')
+      expect(output).toContain('/tmp/mdm/manifest.toml')
+      expect(output).not.toContain('Unexpected error:')
+      expect(output).not.toContain('Stack trace:')
+    })
+
     it('routes CapabilityNotSupported with formatter exit code and remediation', async () => {
       const error = new CapabilityNotSupported({
         provider: 'voyage',

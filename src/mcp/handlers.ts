@@ -6,17 +6,20 @@
  * the shared adapter from adapter.ts.
  */
 
+import * as path from 'node:path'
+
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { Effect, Option } from 'effect'
 
 import type { MdmConfig } from '../config/schema.js'
 import type { MdSection } from '../core/types.js'
+import { expandDeclaredPath } from '../db/canonical.js'
 import { semanticSearch } from '../embeddings/semantic-search.js'
-import { dbIndexDir, resolveMdmHome } from '../home.js'
+import { resolveMdmHome } from '../home.js'
 import {
-  buildIndex,
   getIncomingLinks,
   getOutgoingLinks,
+  refreshManifestIndex,
   resolveIndexedDocumentKey,
 } from '../index/indexer.js'
 import { parseFile } from '../parser/parser.js'
@@ -207,15 +210,23 @@ export const handleMdIndex = async (
   const validated = await validateArgs(MdIndexArgs, args)
   if (isValidationError(validated)) return validated
 
-  const indexPath = validated.path ?? '.'
   const force = validated.force ?? false
+  let requestedPath: string | undefined
 
-  const resolvedPath = await resolveAndValidatePath(rootPath, indexPath)
-  if (isPathError(resolvedPath)) return resolvedPath
+  if (validated.path !== undefined) {
+    requestedPath = expandDeclaredPath(
+      path.isAbsolute(validated.path) || validated.path.startsWith('~')
+        ? validated.path
+        : path.resolve(rootPath, validated.path),
+    )
+    const validation = await resolveAndValidatePath(rootPath, requestedPath)
+    if (isPathError(validation)) return validation
+  }
+
+  const home = resolveMdmHome({ create: true })
 
   return effectToMcpResult(
-    buildIndex(resolvedPath, {
-      indexRoot: dbIndexDir(resolveMdmHome({ create: true })),
+    refreshManifestIndex(home, requestedPath, {
       force,
     }),
     (result) =>

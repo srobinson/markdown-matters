@@ -51,14 +51,13 @@ export const helpContent: Record<string, CommandHelp> = {
     ],
   },
   index: {
-    description: 'Index markdown files for fast searching',
+    description: 'Refresh every directory in the active manifest',
     usage: 'mdm index [path] [options]',
     examples: [
-      'mdm index                    # Index current directory',
-      'mdm index docs/              # Index specific directory',
-      'mdm index --embed            # Include semantic embeddings',
-      'mdm index --watch            # Watch for file changes',
-      'mdm index --embed --watch    # Full setup with live updates',
+      'mdm index                    # Refresh the existing manifest',
+      'mdm index docs/              # Append docs/ then refresh all roots',
+      'mdm index --embed            # Refresh and build embeddings',
+      'mdm index --watch            # Show manifest watch guidance',
       'mdm index --force            # Bypass cache, re-process all files',
       '',
       '# Alternative embedding providers:',
@@ -93,7 +92,7 @@ export const helpContent: Record<string, CommandHelp> = {
       },
       {
         name: '-w, --watch',
-        description: 'Watch for changes and re-index automatically',
+        description: 'Rejected until multi-root manifest watching is available',
       },
       {
         name: '-f, --force',
@@ -104,10 +103,13 @@ export const helpContent: Record<string, CommandHelp> = {
       { name: '--pretty', description: 'Pretty-print JSON output' },
     ],
     notes: [
+      'With no path, index refreshes every directory in manifest.toml.',
+      'With a path, index appends its absolute declared path before refreshing.',
+      'An empty manifest requires mdm index <dir>; the current directory is never implicit.',
       'After indexing, prompts to enable semantic search (use --no-embed to skip).',
       'Providers: openai (default), ollama (free/local), lm-studio, openrouter, voyage.',
       'Set API keys: OPENAI_API_KEY, OPENROUTER_API_KEY, or use local providers.',
-      'Index state is stored in the active MDM_HOME.',
+      'Manifest and index state are stored in the active MDM_HOME.',
     ],
   },
   fix: {

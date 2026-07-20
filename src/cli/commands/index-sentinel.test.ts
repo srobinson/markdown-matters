@@ -1,14 +1,20 @@
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { Effect } from 'effect'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { appendManifestDirectory } from '../../manifest.js'
 
 let tempDir: string
+let secondDir: string
 let mdmHome: string
 
 beforeEach(() => {
   tempDir = fs.realpathSync(
     fs.mkdtempSync(path.join(os.tmpdir(), 'mdm-index-source-')),
+  )
+  secondDir = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), 'mdm-index-second-')),
   )
   mdmHome = path.join(
     fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'mdm-index-home-'))),
@@ -19,10 +25,13 @@ beforeEach(() => {
 
 afterEach(() => {
   fs.rmSync(tempDir, { recursive: true, force: true })
+  fs.rmSync(secondDir, { recursive: true, force: true })
   fs.rmSync(path.dirname(mdmHome), { recursive: true, force: true })
 })
 
-const runIndex = async (): Promise<{
+const runIndex = async (
+  args: readonly string[] = [],
+): Promise<{
   stdout: string
   stderr: string
   code: number
@@ -32,12 +41,12 @@ const runIndex = async (): Promise<{
   try {
     const stdout = execFileSync(
       process.execPath,
-      [bin, 'index', '--no-embed'],
+      [bin, 'index', ...args, '--no-embed'],
       {
         cwd: tempDir,
         env: { ...process.env, MDM_HOME: mdmHome },
         encoding: 'utf-8',
-        timeout: 30000,
+        timeout: args.includes('--watch') ? 2000 : 30000,
       },
     )
     return { stdout, stderr: '', code: 0 }
@@ -56,8 +65,40 @@ const runIndex = async (): Promise<{
 }
 
 describe('active home index routing', () => {
-  it('creates the selected MDM_HOME without a project index', async () => {
+  it('appends a path then refreshes every manifest directory', async () => {
+    const first = await runIndex([tempDir])
+    expect(first.code).toBe(0)
+
+    fs.writeFileSync(path.join(secondDir, 'second.md'), '# Second\nContent.\n')
+    await Effect.runPromise(
+      appendManifestDirectory(mdmHome, { path: secondDir }),
+    )
+
+    const refreshed = await runIndex()
+    expect(refreshed.code).toBe(0)
+    const documents = JSON.parse(
+      fs.readFileSync(path.join(mdmHome, 'indexes', 'documents.json'), 'utf-8'),
+    ) as { documents: Record<string, unknown> }
+    expect(Object.keys(documents.documents)).toHaveLength(2)
+  })
+
+  it('fails no-arg index when the manifest is empty', async () => {
     const result = await runIndex()
+
+    expect(result.code).not.toBe(0)
+    expect(result.stderr).toContain('mdm index <dir>')
+    expect(fs.existsSync(path.join(tempDir, '.mdm'))).toBe(false)
+  })
+
+  it('rejects watch until manifest watching exists', async () => {
+    const result = await runIndex(['--watch'])
+
+    expect(result.code).not.toBe(0)
+    expect(result.stderr).toContain('manifest watching')
+  })
+
+  it('creates the selected MDM_HOME without a project index', async () => {
+    const result = await runIndex([tempDir])
 
     expect(result.code).toBe(0)
     expect(fs.existsSync(path.join(tempDir, '.mdm'))).toBe(false)
@@ -66,7 +107,7 @@ describe('active home index routing', () => {
   })
 
   it('keeps the project free of local index state on repeated runs', async () => {
-    await runIndex()
+    await runIndex([tempDir])
     const result = await runIndex()
 
     expect(result.code).toBe(0)

@@ -11,3 +11,4 @@ export {
   resolveIndexedDocumentKey,
 } from './link-index.js'
 export { buildManifestIndex } from './manifest-build.js'
+export { refreshManifestIndex } from './manifest-refresh.js'

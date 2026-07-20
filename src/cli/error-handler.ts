@@ -30,6 +30,7 @@ import {
   isMdmError,
   type MdmError,
 } from '../errors/index.js'
+import { ManifestError } from '../manifest.js'
 import {
   formatEffectCliError,
   isEffectCliValidationError,
@@ -497,9 +498,10 @@ export const displayError = (
  * effect program into one of three branches:
  *
  *   1. `@effect/cli` validation errors → short error + usage hint, exit 1.
- *   2. Typed `MdmError` variants → `formatError` + `displayError` with
+ *   2. Typed manifest errors → concise guidance with exit 1.
+ *   3. Typed `MdmError` variants → `formatError` + `displayError` with
  *      actionable remediation, exit code from the formatter.
- *   3. Everything else → diagnostic `Unexpected error` dump, exit 2.
+ *   4. Everything else → diagnostic `Unexpected error` dump, exit 2.
  *
  * Extracted from `src/cli/main.ts` so the routing logic is testable
  * without importing the CLI entrypoint. The disjointness between
@@ -518,6 +520,14 @@ export const handleCliTopLevelError = (
       console.error(`\nError: ${message}`)
       console.error('\nRun "mdm --help" for usage information.')
       process.exit(1)
+    })
+  }
+
+  if (error instanceof ManifestError) {
+    return Effect.sync(() => {
+      console.error(`\nError: ${error.message}`)
+      console.error(`\nManifest: ${error.path}`)
+      process.exit(EXIT_CODE.USER_ERROR)
     })
   }
 

@@ -7,7 +7,7 @@
  *   mdm init                   Initialize mdm in a directory
  *
  * CORE COMMANDS
- *   mdm index [path]           Index markdown files (default: .)
+ *   mdm index [path]           Refresh the active manifest index
  *   mdm fix [path]             Repair malformed YAML frontmatter
  *   mdm search <query> [path]  Search by meaning or structure
  *   mdm context <files...>     Get LLM-ready summary

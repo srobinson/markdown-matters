@@ -42,7 +42,7 @@ const runIndex = async (
   const { execSync } = await import('node:child_process')
   const bin = path.resolve(import.meta.dirname, '../../../dist/cli/main.js')
   try {
-    const stdout = execSync(`node ${bin} index ${args}`, {
+    const stdout = execSync(`node ${bin} index . ${args}`, {
       cwd,
       env: {
         ...process.env,
