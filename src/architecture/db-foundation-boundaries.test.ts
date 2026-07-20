@@ -1,11 +1,47 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import ts from 'typescript'
 import { expect, it } from 'vitest'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const lines = (file: string): number =>
   fs.readFileSync(path.join(root, file), 'utf-8').split('\n').length
+
+const functionLines = (file: string, symbol: string): number => {
+  const sourcePath = path.join(root, file)
+  const source = fs.readFileSync(sourcePath, 'utf-8')
+  const sourceFile = ts.createSourceFile(
+    sourcePath,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+  )
+  let declaration: ts.FunctionLikeDeclaration | undefined
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isFunctionDeclaration(node) && node.name?.text === symbol) {
+      declaration = node
+    } else if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === symbol &&
+      node.initializer &&
+      (ts.isArrowFunction(node.initializer) ||
+        ts.isFunctionExpression(node.initializer))
+    ) {
+      declaration = node.initializer
+    }
+    ts.forEachChild(node, visit)
+  }
+
+  visit(sourceFile)
+  if (!declaration) throw new Error(`Function ${symbol} not found in ${file}`)
+
+  const start = sourceFile.getLineAndCharacterOfPosition(declaration.getStart())
+  const end = sourceFile.getLineAndCharacterOfPosition(declaration.getEnd())
+  return end.line - start.line + 1
+}
 
 const groups = [
   {
@@ -73,6 +109,12 @@ const productionSourceFiles = (directory: string): string[] =>
 
 it.each(sizedFiles)('%s is at most 700 lines', (file) => {
   expect(lines(file)).toBeLessThanOrEqual(700)
+})
+
+it('keeps hybridSearch within the function size limit', () => {
+  expect(
+    functionLines('search/hybrid-search.ts', 'hybridSearch'),
+  ).toBeLessThanOrEqual(150)
 })
 
 it.each(sourceReaders)('%s uses resolveSourceFile', (file) => {
