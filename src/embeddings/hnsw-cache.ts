@@ -15,7 +15,7 @@ import type { HnswMismatchWarning, VectorStore } from './vector-store.js'
 const hnswCache = new Map<string, VectorStore>()
 
 export const hnswCacheKey = (indexRoot: string, namespace: string): string =>
-  `${indexRoot}::${namespace}`
+  `${path.resolve(indexRoot)}::${namespace}`
 
 export const getHnswCacheEntry = (key: string): VectorStore | undefined =>
   hnswCache.get(key)

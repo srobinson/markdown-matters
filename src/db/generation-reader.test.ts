@@ -340,10 +340,7 @@ describe('generation read lease gate movement', () => {
       ...nodeGenerationReaderFileSystem,
       unlink: async (targetPath) => {
         await nodeGenerationReaderFileSystem.unlink(targetPath)
-        if (
-          !gateMoved &&
-          targetPath.startsWith(`${gen1.openLeases}${path.sep}`)
-        ) {
+        if (!gateMoved && targetPath.startsWith(`${gen1.openLeases}/`)) {
           gateMoved = true
           await fs.rename(gen1.openLeases, gen1.closedLeases)
         }

@@ -22,11 +22,11 @@
  * context so the "why this matters" docblock travels with the test.
  */
 
-import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { Effect } from 'effect'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defaultConfig } from '../config/schema.js'
+import { resolveMdmHome } from '../home.js'
 import {
   clearRegistry,
   getProvider,
@@ -50,9 +50,7 @@ describe('startMcpServer provider runtime bootstrap (ALP-1713/1714)', () => {
     await startMcpServer(FIXTURES_DIR, defaultConfig)
 
     expect(scheduleGenerationReap).toHaveBeenCalledTimes(1)
-    expect(scheduleGenerationReap).toHaveBeenCalledWith(
-      await fs.realpath(process.env.MDM_HOME as string),
-    )
+    expect(scheduleGenerationReap).toHaveBeenCalledWith(resolveMdmHome())
   })
 
   it('populates the registry before returning the server', async () => {

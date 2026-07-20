@@ -150,7 +150,7 @@ describe('writeGeneration', () => {
 
     expect(published.generation).toBe('gen-1')
     expect(published.indexRoot).toBe(
-      path.join(generationHomeLayout(home).home, 'gen-1'),
+      generationLayout(home, published.generation).root,
     )
     expect(published.value).toBe('new')
     expect(contexts).toHaveLength(1)
@@ -361,6 +361,7 @@ describe('writeGeneration publication', () => {
     let pointerRenamed = false
     const fileSystem: GenerationWriterFileSystem = {
       ...nodeGenerationWriterFileSystem,
+      platform: 'linux',
       rename: async (sourcePath, targetPath) => {
         await nodeGenerationWriterFileSystem.rename(sourcePath, targetPath)
         if (targetPath === currentPath) pointerRenamed = true
@@ -369,7 +370,7 @@ describe('writeGeneration publication', () => {
         if (pointerRenamed && directoryPath === normalizedHome) {
           throw new Error('Injected final home sync failure')
         }
-        return nodeGenerationWriterFileSystem.openDirectory(directoryPath)
+        return { sync: async () => undefined, close: async () => undefined }
       },
     }
 
