@@ -26,3 +26,16 @@ export interface WriterLockRecord {
   readonly holder: import('./process-identity.js').ProcessIdentity
   readonly createdAt: string
 }
+
+export interface GenerationLeaseRecord {
+  readonly leaseId: string
+  readonly holder: import('./process-identity.js').ProcessIdentity
+  readonly createdAt: string
+}
+
+export interface GenerationReadSession {
+  readonly home: string
+  readonly generation: GenerationName
+  readonly indexRoot: string
+  readonly leaseId: string
+}

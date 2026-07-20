@@ -45,6 +45,10 @@ export interface PreparedRecord {
 
 export type DurableRecordLinkResult = 'exists' | 'linked' | 'missing-parent'
 
+export interface DurableRecordLinkOptions {
+  readonly movedTargetPath?: string
+}
+
 const directoryEntry = (entry: Dirent): DurabilityDirectoryEntry => ({
   name: entry.name,
   kind: entry.isDirectory()
@@ -244,11 +248,41 @@ const durabilityCauseCode = (
   return typeof error.cause.code === 'string' ? error.cause.code : undefined
 }
 
+const rawCauseCode = (cause: unknown): string | undefined => {
+  if (typeof cause !== 'object' || cause === null || !('code' in cause)) {
+    return undefined
+  }
+  return typeof cause.code === 'string' ? cause.code : undefined
+}
+
+const rollbackLinkedTarget = (
+  targetPaths: readonly string[],
+  fileSystem: DurabilityFileSystem,
+): Effect.Effect<void, GenerationDurabilityError> =>
+  Effect.gen(function* () {
+    for (const targetPath of targetPaths) {
+      const removed = yield* attempt('unlink', targetPath, async () => {
+        try {
+          await fileSystem.unlink(targetPath)
+          return true
+        } catch (cause) {
+          if (rawCauseCode(cause) === 'ENOENT') return false
+          throw cause
+        }
+      })
+      if (removed) {
+        yield* syncDirectory(path.dirname(targetPath), fileSystem)
+        return
+      }
+    }
+  })
+
 export const createDurableRecordLink = (
   directoryPath: string,
   targetPath: string,
   contents: Uint8Array,
   fileSystem: DurabilityFileSystem = nodeDurabilityFileSystem,
+  options: DurableRecordLinkOptions = {},
 ): Effect.Effect<DurableRecordLinkResult, GenerationDurabilityError> =>
   Effect.gen(function* () {
     const prepared = yield* prepareDurableRecord(
@@ -257,24 +291,46 @@ export const createDurableRecordLink = (
       fileSystem,
     )
     const linked = yield* Effect.either(
-      linkPreparedRecord(prepared, targetPath, fileSystem),
+      attempt('link', targetPath, () =>
+        fileSystem.link(prepared.path, targetPath),
+      ),
+    )
+    if (Either.isLeft(linked)) {
+      const discarded = yield* Effect.either(
+        discardPreparedRecord(prepared, fileSystem),
+      )
+      if (Either.isLeft(discarded)) return yield* Effect.fail(discarded.left)
+      const code = durabilityCauseCode(linked.left)
+      if (code === 'EEXIST') return 'exists'
+      if (code === 'ENOENT') return 'missing-parent'
+      return yield* Effect.fail(linked.left)
+    }
+
+    const synced = yield* Effect.either(
+      syncDirectory(path.dirname(targetPath), fileSystem),
     )
     const discarded = yield* Effect.either(
       discardPreparedRecord(prepared, fileSystem),
     )
-
+    const rollbackPaths = [
+      targetPath,
+      ...(options.movedTargetPath === undefined
+        ? []
+        : [options.movedTargetPath]),
+    ]
     if (Either.isLeft(discarded)) {
-      if (Either.isRight(linked)) {
-        yield* attempt('unlink', targetPath, () =>
-          fileSystem.unlink(targetPath),
-        )
-        yield* syncDirectory(path.dirname(targetPath), fileSystem)
-      }
+      yield* rollbackLinkedTarget(rollbackPaths, fileSystem)
       return yield* Effect.fail(discarded.left)
     }
-    if (Either.isRight(linked)) return 'linked'
-    const code = durabilityCauseCode(linked.left)
-    if (code === 'EEXIST') return 'exists'
-    if (code === 'ENOENT') return 'missing-parent'
-    return yield* Effect.fail(linked.left)
+    if (
+      Either.isLeft(synced) &&
+      !(
+        options.movedTargetPath !== undefined &&
+        durabilityCauseCode(synced.left) === 'ENOENT'
+      )
+    ) {
+      yield* rollbackLinkedTarget(rollbackPaths, fileSystem)
+      return yield* Effect.fail(synced.left)
+    }
+    return 'linked'
   })

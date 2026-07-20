@@ -52,3 +52,19 @@ export class WriterLockError extends Data.TaggedError('WriterLockError')<{
   readonly message: string
   readonly cause?: unknown
 }> {}
+
+export type GenerationReadOperation =
+  | 'initialize-gate'
+  | 'insert-lease'
+  | 'read-current'
+  | 'release-lease'
+  | 'verify-lease'
+
+export class GenerationReadError extends Data.TaggedError(
+  'GenerationReadError',
+)<{
+  readonly operation: GenerationReadOperation
+  readonly path: string
+  readonly message: string
+  readonly cause?: unknown
+}> {}
