@@ -51,6 +51,7 @@ import {
 import { invalidateHnswCache } from './hnsw-cache.js'
 import { EMBEDDING_PRICE_PER_MILLION } from './semantic-search-cost.js'
 import type { VectorEntry } from './types.js'
+import { pruneStaleVectorEntries } from './vector-prune.js'
 import {
   createNamespacedVectorStore,
   type HnswBuildOptions,
@@ -408,16 +409,8 @@ export const buildEmbeddings = (
       options.excludePatterns,
     )
 
-    // Remove stale entries: sections that were embedded but no longer exist
-    // in the current index (deleted or restructured files).
-    if (embeddedIds.size > 0) {
-      const staleIds = [...embeddedIds].filter(
-        (id) => !currentSectionIds.has(id),
-      )
-      if (staleIds.length > 0) {
-        yield* vectorStore.removeEntries(staleIds)
-      }
-    }
+    // Remove entries for sections deleted or restructured since the last build.
+    yield* pruneStaleVectorEntries(vectorStore, currentSectionIds)
 
     const namespace = generateNamespace(providerName, providerModel, dimensions)
 

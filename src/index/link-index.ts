@@ -22,13 +22,15 @@ export interface InternalLinkResolutionOptions {
   readonly canonicalize?: (
     value: string,
   ) => ReturnType<typeof canonicalizeSourceFile>
-  readonly selectDocumentKey?: (source: CanonicalSource) => DocumentKey
+  readonly selectDocumentKey?: (
+    source: CanonicalSource,
+  ) => DocumentKey | undefined
 }
 
 export const resolveInternalLink = (
   href: string,
   fromPath: string,
-  rootPath: string,
+  rootPaths: string | readonly string[],
   caseSensitive = true,
   options: InternalLinkResolutionOptions = {},
 ): Effect.Effect<InternalLinkResolution | null> => {
@@ -37,12 +39,12 @@ export const resolveInternalLink = (
     options.selectDocumentKey ?? ((source: CanonicalSource) => source.key)
   const classify = (declaredPath: DeclaredPath) =>
     canonicalize(declaredPath).pipe(
-      Effect.map(
-        (target): InternalLinkResolution => ({
-          kind: 'resolved',
-          path: selectDocumentKey(target),
-        }),
-      ),
+      Effect.map((target): InternalLinkResolution => {
+        const selected = selectDocumentKey(target)
+        return selected === undefined
+          ? { kind: 'broken', path: declaredPath }
+          : { kind: 'resolved', path: selected }
+      }),
       Effect.catchAll(() =>
         Effect.succeed<InternalLinkResolution>({
           kind: 'broken',
@@ -60,7 +62,8 @@ export const resolveInternalLink = (
   if (!linkPath) return Effect.succeed(null)
 
   const resolved = path.resolve(path.dirname(fromPath), linkPath)
-  if (!isPathWithin(resolved, rootPath, caseSensitive)) {
+  const roots = typeof rootPaths === 'string' ? [rootPaths] : rootPaths
+  if (!roots.some((root) => isPathWithin(resolved, root, caseSensitive))) {
     return Effect.succeed(null)
   }
   return classify(expandDeclaredPath(resolved))

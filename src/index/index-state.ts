@@ -238,7 +238,6 @@ export const saveIndexState = (
   ]
   return saveDocumentIndex(storage, {
     version: state.documentVersion,
-    rootPath: storage.sourceRoot,
     documents: state.documents,
   }).pipe(
     Effect.andThen(

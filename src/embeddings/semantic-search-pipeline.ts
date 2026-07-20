@@ -31,8 +31,8 @@ import type {
   ProviderNotFound,
 } from '../providers/index.js'
 import {
-  loadIndexedSourceRoot,
   matchesDocumentPath,
+  resolveCanonicalSourceRoot,
 } from '../search/path-matcher.js'
 import { getRecommendedDimensions, supportsMatryoshka } from './dimensions.js'
 import { createEmbeddingClient } from './embed-batched.js'
@@ -416,9 +416,9 @@ export const postProcessResults = (
     // Apply path filter if specified
     let filteredResults = rawResults
     if (options.pathPattern) {
-      const sourceRoot = yield* loadIndexedSourceRoot(resolvedRoot)
+      const scopeRoot = yield* resolveCanonicalSourceRoot(resolvedRoot)
       filteredResults = rawResults.filter((r) =>
-        matchesDocumentPath(sourceRoot, r.documentPath, options.pathPattern),
+        matchesDocumentPath(scopeRoot, r.documentPath, options.pathPattern),
       )
     }
 

@@ -110,7 +110,7 @@ describe('canonical index construction', () => {
     })
   })
 
-  it('reports a missing declared alias without aborting the build', async () => {
+  it('reports and prunes a missing declared alias without aborting', async () => {
     const { sourceRoot, indexRoot } = await makeRoots()
     const declared = path.join(sourceRoot, 'declared.md')
     await fs.writeFile(declared, '# Declared\n')
@@ -119,7 +119,7 @@ describe('canonical index construction', () => {
 
     const result = await runBuild(sourceRoot, indexRoot)
 
-    expect(result.totalDocuments).toBe(1)
+    expect(result.totalDocuments).toBe(0)
     expect(result.errors).toContainEqual({
       path: 'declared.md',
       message: 'not found (moved/deleted?); relink required',

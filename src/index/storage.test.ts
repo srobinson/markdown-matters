@@ -231,7 +231,6 @@ describe('DocumentIndex round-trip', () => {
     const readmeKey = documentKey(storage.sourceRoot, 'README.md')
     const index: DocumentIndex = {
       version: INDEX_VERSION,
-      rootPath: storage.sourceRoot,
       documents: {
         [readmeKey]: makeDocumentEntry(readmeKey, 'doc-1', 'README', {
           mtime: 1710000000000,
@@ -258,9 +257,8 @@ describe('DocumentIndex round-trip', () => {
   })
 
   it('createEmptyDocumentIndex produces valid structure', () => {
-    const empty = createEmptyDocumentIndex(storage.sourceRoot)
+    const empty = createEmptyDocumentIndex()
     expect(empty.version).toBe(INDEX_VERSION)
-    expect(empty.rootPath).toBe(storage.sourceRoot)
     expect(Object.keys(empty.documents)).toHaveLength(0)
   })
 })
@@ -458,7 +456,6 @@ describe('malformed JSON handling', () => {
       storage.paths.documents,
       JSON.stringify({
         version: INDEX_VERSION,
-        rootPath: storage.sourceRoot,
         documents: {
           'README.md': {
             id: 'doc-1',
@@ -523,7 +520,6 @@ describe('large index handling', () => {
 
     const index: DocumentIndex = {
       version: INDEX_VERSION,
-      rootPath: storage.sourceRoot,
       documents,
     }
 
@@ -547,7 +543,7 @@ describe('atomic writes', () => {
   })
 
   it('leaves no .tmp files in the index directory after a successful save', async () => {
-    const index = createEmptyDocumentIndex(storage.sourceRoot)
+    const index = createEmptyDocumentIndex()
     await run(saveDocumentIndex(storage, index))
 
     const dir = path.dirname(storage.paths.documents)
@@ -561,7 +557,6 @@ describe('atomic writes', () => {
     const secondKey = documentKey(storage.sourceRoot, 'b.md')
     const v1: DocumentIndex = {
       version: INDEX_VERSION,
-      rootPath: storage.sourceRoot,
       documents: {
         [firstKey]: makeDocumentEntry(firstKey, 'doc-1', 'A'),
       },
@@ -585,7 +580,6 @@ describe('atomic writes', () => {
     // A new save succeeds (unique tmp names — stale tmp does not collide).
     const v2: DocumentIndex = {
       version: INDEX_VERSION,
-      rootPath: storage.sourceRoot,
       documents: {
         [firstKey]: v1.documents[firstKey]!,
         [secondKey]: makeDocumentEntry(secondKey, 'doc-2', 'B'),
@@ -606,7 +600,7 @@ describe('atomic writes', () => {
     // with EISDIR (Linux) / ENOTEMPTY (macOS) / EPERM (Windows).
     await fs.mkdir(storage.paths.documents, { recursive: true })
 
-    const index = createEmptyDocumentIndex(storage.sourceRoot)
+    const index = createEmptyDocumentIndex()
     const exit = await runExit(saveDocumentIndex(storage, index))
     expect(Exit.isFailure(exit)).toBe(true)
 

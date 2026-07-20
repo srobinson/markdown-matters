@@ -10,3 +10,4 @@ export {
   getOutgoingLinks,
   resolveIndexedDocumentKey,
 } from './link-index.js'
+export { buildManifestIndex } from './manifest-build.js'

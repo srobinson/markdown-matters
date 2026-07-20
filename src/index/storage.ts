@@ -50,7 +50,6 @@ const documentKeyRecord = <A, I, R>(value: Schema.Schema<A, I, R>) =>
 
 const DocumentIndexSchema = Schema.Struct({
   version: Schema.Literal(INDEX_VERSION),
-  rootPath: Schema.String,
   documents: documentKeyRecord(DocumentEntrySchema),
 })
 
@@ -323,9 +322,8 @@ export const saveDocumentIndex = (
 ): Effect.Effect<void, DirectoryCreateError | FileWriteError> =>
   writeJsonFile(storage.paths.documents, index)
 
-export const createEmptyDocumentIndex = (rootPath: string): DocumentIndex => ({
+export const createEmptyDocumentIndex = (): DocumentIndex => ({
   version: INDEX_VERSION,
-  rootPath,
   documents: {},
 })
 
