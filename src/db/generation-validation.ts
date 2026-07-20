@@ -18,6 +18,7 @@ import type {
   VectorStoreError,
 } from '../errors/index.js'
 import {
+  clearIndexCache,
   createStorage,
   loadDocumentIndex,
   loadLinkIndex,
@@ -341,6 +342,7 @@ export const validateGeneration = (
   indexRoot: string,
 ): Effect.Effect<GenerationArtifactSummary, GenerationValidationFailure> =>
   Effect.gen(function* () {
+    yield* Effect.sync(() => clearIndexCache(indexRoot))
     const structural = yield* validateStructuralArtifacts(indexRoot)
     const bm25Sections = yield* validateBM25Artifacts(indexRoot)
     const semantic = yield* validateSemanticArtifacts(indexRoot)

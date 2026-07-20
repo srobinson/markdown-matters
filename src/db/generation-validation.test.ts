@@ -102,6 +102,20 @@ describe('validateGeneration', () => {
     })
   })
 
+  it('reloads structural bytes when a mutation preserves mtime', async () => {
+    const root = await createRoot()
+    await seedGenerationArtifacts(root)
+    const documentsPath = getIndexPaths(root).documents
+    const cachedMtime = new Date(1_700_000_000_000)
+    await fs.utimes(documentsPath, cachedMtime, cachedMtime)
+    await Effect.runPromise(validateGeneration(root))
+    await fs.writeFile(documentsPath, 'corrupt')
+    await fs.utimes(documentsPath, cachedMtime, cachedMtime)
+    expect((await fs.stat(documentsPath)).mtimeMs).toBe(cachedMtime.getTime())
+
+    await expectValidationFailure(root)
+  })
+
   it('allows complete inactive Plan 3 namespaces beside the active namespace', async () => {
     const root = await createRoot()
     await seedGenerationArtifacts(root)
