@@ -440,16 +440,20 @@ export const buildIndex = (
     const errors: FileProcessingError[] = []
     yield* initializeIndex(storage)
     const state = yield* loadMutableState(storage, options.force ?? false)
-    const ignore = yield* createIgnoreFilter({
+    const ignoreHierarchy = yield* createIgnoreFilter({
       rootPath: storage.sourceRoot,
       cliPatterns: options.exclude,
       honorGitignore: options.honorGitignore ?? true,
       honorMdmignore: options.honorMdmignore ?? true,
     })
-    const discovery = yield* discoverFiles(storage.sourceRoot, ignore.filter, {
-      changedPaths: options.changedPaths,
-      followSymlinks: options.followSymlinks,
-    })
+    const discovery = yield* discoverFiles(
+      storage.sourceRoot,
+      ignoreHierarchy,
+      {
+        changedPaths: options.changedPaths,
+        followSymlinks: options.followSymlinks,
+      },
+    )
     const incremental = (options.changedPaths?.length ?? 0) > 0
     if (!incremental) {
       yield* Effect.promise(() =>

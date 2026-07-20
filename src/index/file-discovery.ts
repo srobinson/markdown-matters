@@ -1,7 +1,6 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { Effect } from 'effect'
-import type { Ignore } from 'ignore'
 import {
   type CanonicalSource,
   type CanonicalSourceSelection,
@@ -13,7 +12,11 @@ import {
   selectCanonicalSource,
 } from '../db/canonical.js'
 import { DirectoryWalkError, type FileReadError } from '../errors/index.js'
-import { shouldIgnore } from './ignore-patterns.js'
+import {
+  extendIgnoreHierarchy,
+  type IgnoreHierarchy,
+  shouldIgnore,
+} from './ignore-patterns.js'
 
 interface WalkResult {
   readonly files: string[]
@@ -26,6 +29,8 @@ interface WalkOptions {
 
 export interface FileDiscoveryOptions extends WalkOptions {
   readonly changedPaths?: readonly string[] | undefined
+  readonly recurse?: boolean | undefined
+  readonly depth?: number | undefined
 }
 
 export interface FileDiscoveryResult extends WalkResult {
@@ -95,8 +100,9 @@ const walkDirectory = async (
   dir: string,
   rootPath: string,
   canonicalRoot: string,
-  filter: Ignore,
-  options: WalkOptions = {},
+  hierarchy: IgnoreHierarchy,
+  options: FileDiscoveryOptions = {},
+  currentDepth = 0,
 ): Promise<WalkResult> => {
   const files: string[] = []
   let hiddenCount = 0
@@ -107,52 +113,57 @@ const walkDirectory = async (
     const fullPath = path.join(dir, entry.name)
     const relativePath = path.relative(rootPath, fullPath)
 
+    // Deliberate git divergence: all hidden entries are skipped before ignore
+    // evaluation, so hidden directories cannot opt back in through nested rules.
     if (entry.name.startsWith('.')) {
       if (entry.isDirectory()) hiddenCount++
       continue
     }
-    if (shouldIgnore(relativePath, filter)) {
-      excludedCount++
-      continue
-    }
-    if (entry.isSymbolicLink() && options.followSymlinks) {
+
+    let isDirectory = entry.isDirectory()
+    let isFile = entry.isFile()
+    if (entry.isSymbolicLink()) {
+      if (!options.followSymlinks) continue
       try {
         const realPath = await fs.realpath(fullPath)
         if (!isPathWithin(realPath, canonicalRoot, true)) {
           continue
         }
         const stat = await fs.stat(realPath)
-        if (stat.isDirectory()) {
-          const nested = await walkDirectory(
-            fullPath,
-            rootPath,
-            canonicalRoot,
-            filter,
-            options,
-          )
-          files.push(...nested.files)
-          hiddenCount += nested.skipped.hidden
-          excludedCount += nested.skipped.excluded
-        } else if (stat.isFile() && isMarkdownFile(entry.name)) {
-          files.push(fullPath)
-        }
+        isDirectory = stat.isDirectory()
+        isFile = stat.isFile()
       } catch {
         // Broken and unreadable symbolic links are ignored.
+        continue
       }
+    }
+
+    if (shouldIgnore(relativePath, hierarchy, isDirectory)) {
+      excludedCount++
       continue
     }
-    if (entry.isDirectory()) {
+    if (isDirectory) {
+      if (
+        options.recurse === false ||
+        (options.depth !== undefined && currentDepth >= options.depth)
+      ) {
+        continue
+      }
+      const childHierarchy = await Effect.runPromise(
+        extendIgnoreHierarchy(hierarchy, fullPath),
+      )
       const nested = await walkDirectory(
         fullPath,
         rootPath,
         canonicalRoot,
-        filter,
+        childHierarchy,
         options,
+        currentDepth + 1,
       )
       files.push(...nested.files)
       hiddenCount += nested.skipped.hidden
       excludedCount += nested.skipped.excluded
-    } else if (entry.isFile() && isMarkdownFile(entry.name)) {
+    } else if (isFile && isMarkdownFile(entry.name)) {
       files.push(fullPath)
     }
   }
@@ -188,7 +199,7 @@ const classifyChangedPaths = async (
 
 export const discoverFiles = (
   rootPath: string,
-  filter: Ignore,
+  hierarchy: IgnoreHierarchy,
   options: FileDiscoveryOptions,
 ): Effect.Effect<FileDiscoveryResult, DirectoryWalkError> => {
   if (options.changedPaths && options.changedPaths.length > 0) {
@@ -202,7 +213,7 @@ export const discoverFiles = (
           rootPath,
           rootPath,
           canonicalRoot,
-          filter,
+          hierarchy,
           options,
         )),
         deletedPaths: [],
