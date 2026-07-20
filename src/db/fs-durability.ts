@@ -7,6 +7,7 @@ import {
   GenerationDurabilityError,
   type GenerationDurabilityOperation,
 } from './generation-errors.js'
+import { portablePath } from './generation-paths.js'
 
 export interface DurabilityFileHandle {
   readonly sync: () => Promise<void>
@@ -41,8 +42,6 @@ export interface PreparedRecord {
   readonly path: string
 }
 
-const portablePath = (value: string): string => value.split(path.sep).join('/')
-
 const directoryEntry = (entry: Dirent): DurabilityDirectoryEntry => ({
   name: entry.name,
   kind: entry.isDirectory()
@@ -57,7 +56,7 @@ export const nodeDurabilityFileSystem: DurabilityFileSystem = {
   temporaryPath: (directoryPath) =>
     path.join(directoryPath, `.record-${randomUUID()}.tmp`),
   // Node does not expose macOS F_FULLFSYNC, so these syncs are best effort there.
-  openFile: (filePath) => fs.open(filePath, 'r'),
+  openFile: (filePath) => fs.open(filePath, 'r+'),
   openDirectory: (directoryPath) => fs.open(directoryPath, 'r'),
   readDirectory: async (directoryPath) =>
     (await fs.readdir(directoryPath, { withFileTypes: true })).map(

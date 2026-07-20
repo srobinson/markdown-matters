@@ -1,3 +1,5 @@
+import * as fs from 'node:fs/promises'
+import * as os from 'node:os'
 import * as path from 'node:path'
 import { Effect } from 'effect'
 import { describe, expect, it } from 'vitest'
@@ -12,23 +14,19 @@ import {
   syncFile,
   syncTree,
 } from './fs-durability.js'
-
-type RecordedOperation =
-  | 'link'
-  | 'read-directory'
-  | 'rename'
-  | 'sync-directory'
-  | 'sync-file'
-  | 'write-file'
+import type { GenerationDurabilityOperation } from './generation-errors.js'
 
 interface RecordingFileSystem extends DurabilityFileSystem {
   readonly events: string[]
-  failAt: RecordedOperation | null
+  failAt: GenerationDurabilityOperation | null
 }
 
 const basename = (value: string): string => path.basename(value)
 
-const failure = (operation: RecordedOperation, targetPath: string): Error =>
+const failure = (
+  operation: GenerationDurabilityOperation,
+  targetPath: string,
+): Error =>
   Object.assign(new Error(`${operation} unsupported for ${targetPath}`), {
     code: 'ENOTSUP',
   })
@@ -100,7 +98,7 @@ const recordingHandle = (
 
 const expectDurabilityFailure = async (
   effect: Effect.Effect<unknown, unknown>,
-  operation: RecordedOperation,
+  operation: GenerationDurabilityOperation,
   failedPath: string,
 ): Promise<void> => {
   const error = await Effect.runPromise(Effect.flip(effect))
@@ -187,6 +185,27 @@ describe('filesystem durability primitives', () => {
 })
 
 describe('durable filesystem mutations', () => {
+  it('syncs and durably replaces a real filesystem file', async () => {
+    const directoryPath = await fs.mkdtemp(
+      path.join(os.tmpdir(), 'mdm-durability-'),
+    )
+    try {
+      const filePath = path.join(directoryPath, 'generation.json')
+      const pointerPath = path.join(directoryPath, 'current')
+      await fs.writeFile(filePath, 'complete')
+
+      await Effect.runPromise(syncFile(filePath))
+      await Effect.runPromise(durableReplaceText(pointerPath, 'gen-2'))
+
+      expect(await fs.readFile(pointerPath, 'utf8')).toBe('gen-2')
+      await expect(fs.access(`${pointerPath}.tmp`)).rejects.toMatchObject({
+        code: 'ENOENT',
+      })
+    } finally {
+      await fs.rm(directoryPath, { recursive: true, force: true })
+    }
+  })
+
   it('durably replaces text with a same-directory rename', async () => {
     const fileSystem = recordingFileSystem()
 

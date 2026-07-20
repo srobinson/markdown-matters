@@ -13,7 +13,8 @@ import type {
 const GENERATION_NAME_PATTERN = /^gen-[1-9][0-9]*$/
 const STAGING_TOKEN_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/
 
-const portablePath = (value: string): string => value.split(path.sep).join('/')
+export const portablePath = (value: string): string =>
+  value.split(path.sep).join('/')
 
 const normalizeHome = (home: string): string =>
   resolveMdmHome({ env: { MDM_HOME: home } })
