@@ -12,6 +12,7 @@ import { Command, Options } from '@effect/cli'
 import { Console, Effect } from 'effect'
 import { loadConfigFile } from '../../config/index.js'
 import { resolveMdmHome } from '../../home.js'
+import { appendManifestDirectory } from '../../manifest.js'
 import { generateDefaultToml } from './init-toml.js'
 
 // ============================================================================
@@ -37,44 +38,6 @@ const confirm = (question: string, defaultYes = true): Effect.Effect<boolean> =>
     if (answer === '') return defaultYes
     return answer.toLowerCase().startsWith('y')
   })
-
-// ============================================================================
-// Sources Management
-// ============================================================================
-
-/**
- * Append a source path to the global config's [[sources]] array.
- * Creates the config file if it does not exist.
- */
-const appendSource = (
-  globalConfigPath: string,
-  sourcePath: string,
-  name?: string | undefined,
-): void => {
-  let content = ''
-  if (fs.existsSync(globalConfigPath)) {
-    content = fs.readFileSync(globalConfigPath, 'utf-8')
-  }
-
-  // Normalize path separators for TOML: backslashes are escape characters in
-  // TOML basic strings. Forward slashes are valid on all platforms including
-  // Windows, so we use them universally to avoid invalid escape sequences.
-  const normalizedPath = sourcePath.replace(/\\/g, '/')
-
-  // Check if this path is already registered (check both forms for idempotency)
-  if (
-    content.includes(`path = "${normalizedPath}"`) ||
-    content.includes(`path = "${sourcePath}"`)
-  ) {
-    return
-  }
-
-  const sourceEntry = name
-    ? `\n[[sources]]\npath = "${normalizedPath}"\nname = "${name}"\n`
-    : `\n[[sources]]\npath = "${normalizedPath}"\n`
-
-  fs.writeFileSync(globalConfigPath, content + sourceEntry, 'utf-8')
-}
 
 // ============================================================================
 // Init Command
@@ -104,7 +67,6 @@ export const initCommand = Command.make(
       const cwd = process.cwd()
       const localConfigPath = path.join(cwd, '.mdm.toml')
       const globalMdmDir = resolveMdmHome()
-      const globalConfigPath = path.join(globalMdmDir, '.mdm.toml')
 
       // Check existing state
       const hasLocalConfig = fs.existsSync(localConfigPath)
@@ -127,11 +89,11 @@ export const initCommand = Command.make(
         const shouldAdd =
           yes ||
           (yield* confirm(
-            'The active MDM_HOME exists. Add this directory as a source?',
+            'The active MDM_HOME exists. Add this directory to the manifest?',
           ))
         if (shouldAdd) {
-          appendSource(globalConfigPath, cwd)
-          yield* Console.log(`Added ${cwd} to global sources.`)
+          yield* appendManifestDirectory(globalMdmDir, { path: cwd })
+          yield* Console.log(`Added ${cwd} to manifest.`)
           yield* Console.log('')
           yield* Console.log('Run "mdm index" to build the index.')
         }
@@ -183,7 +145,7 @@ const initLocal = (cwd: string): Effect.Effect<void> =>
     yield* Console.log('Run "mdm index" to build the index.')
   })
 
-const initGlobal = (cwd: string): Effect.Effect<void> =>
+const initGlobal = (cwd: string) =>
   Effect.gen(function* () {
     const globalDir = resolveMdmHome({ create: true })
     const globalConfigPath = path.join(globalDir, '.mdm.toml')
@@ -194,9 +156,8 @@ const initGlobal = (cwd: string): Effect.Effect<void> =>
       yield* Console.log(`Created ${globalConfigPath}`)
     }
 
-    // Register this directory as a source
-    appendSource(globalConfigPath, cwd)
-    yield* Console.log(`Added ${cwd} to global sources.`)
+    yield* appendManifestDirectory(globalDir, { path: cwd })
+    yield* Console.log(`Added ${cwd} to manifest.`)
 
     yield* Console.log('')
     yield* Console.log('Run "mdm index" to build the index.')

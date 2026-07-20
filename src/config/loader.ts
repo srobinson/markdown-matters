@@ -12,11 +12,10 @@
  * No string serialisation/deserialisation. No ConfigProvider intermediary.
  */
 
-import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { Option } from 'effect'
-import { parse as parseToml } from 'smol-toml'
 import { resolveMdmHome } from '../home.js'
+import { loadTomlDocumentWithStatus, type TomlParseError } from '../toml.js'
 import type { MdmConfig } from './schema.js'
 import { defaultConfig } from './schema.js'
 import {
@@ -50,10 +49,7 @@ type PartialSection<T> = {
 // TOML File Loading
 // ============================================================================
 
-export interface ConfigParseError {
-  path: string
-  message: string
-}
+export type ConfigParseError = TomlParseError
 
 export type TomlFileLoadResult =
   | { status: 'missing'; path: string }
@@ -88,24 +84,15 @@ const warnConfigParseError = (error: ConfigParseError): void => {
 export const loadTomlFileWithStatus = (
   filePath: string,
 ): TomlFileLoadResult => {
-  try {
-    if (!fs.existsSync(filePath)) return { status: 'missing', path: filePath }
-    const content = fs.readFileSync(filePath, 'utf-8')
-    const parsed = parseToml(content)
+  const result = loadTomlDocumentWithStatus(filePath)
+  if (result.status === 'loaded') {
     return {
       status: 'loaded',
       path: filePath,
-      config: parsed as unknown as PartialMdmConfig,
-    }
-  } catch (error) {
-    return {
-      status: 'error',
-      error: {
-        path: filePath,
-        message: error instanceof Error ? error.message : String(error),
-      },
+      config: result.value as unknown as PartialMdmConfig,
     }
   }
+  return result
 }
 
 /**
@@ -521,35 +508,4 @@ export const validateConfig = (
   }
 
   return coerceConfig(config, issues)
-}
-
-// ============================================================================
-// Global Sources
-// ============================================================================
-
-export interface GlobalSource {
-  readonly path: string
-  readonly name?: string | undefined
-}
-
-/**
- * Read registered sources from the active home config file.
- * Returns an empty array if the file does not exist or has no [[sources]].
- * Throws on malformed TOML so callers can distinguish "no config" from "broken config".
- */
-export const readGlobalSources = (): GlobalSource[] => {
-  const globalPath = path.join(resolveMdmHome(), '.mdm.toml')
-  if (!fs.existsSync(globalPath)) return []
-  const content = fs.readFileSync(globalPath, 'utf-8')
-  const parsed = parseToml(content) as Record<string, unknown>
-  const sources = parsed.sources
-  if (!Array.isArray(sources)) return []
-  return sources
-    .filter(
-      (s): s is { path: string; name?: string } =>
-        typeof s === 'object' &&
-        s !== null &&
-        typeof (s as Record<string, unknown>).path === 'string',
-    )
-    .map((s) => ({ path: s.path, name: s.name }))
 }
