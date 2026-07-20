@@ -36,7 +36,10 @@ import {
   type RerankerError,
   rerankResults,
 } from './cross-encoder.js'
-import { loadIndexedSourceRoot, matchesDocumentPath } from './path-matcher.js'
+import {
+  matchesDocumentPath,
+  resolveCanonicalSourceRoot,
+} from './path-matcher.js'
 
 // ============================================================================
 // Types
@@ -275,9 +278,6 @@ export const hybridSearch = (
     const bm25Weight = options.bm25Weight ?? 1.0
     const semanticWeight = options.semanticWeight ?? 1.0
     const rrfK = options.rrfK ?? 60
-    const sourceRoot = options.pathPattern
-      ? yield* loadIndexedSourceRoot(resolvedRoot)
-      : resolvedRoot
 
     // Check index availability
     const hasBM25 = yield* bm25IndexExists(resolvedRoot)
@@ -308,14 +308,13 @@ export const hybridSearch = (
     let keywordResults: readonly BM25SearchResult[] = []
     if (hasBM25 && options.mode !== 'semantic') {
       const rawResults = yield* bm25Search(resolvedRoot, query, limit * 2)
+      const scopeRoot = options.pathPattern
+        ? yield* resolveCanonicalSourceRoot(resolvedRoot)
+        : resolvedRoot
       // Apply path pattern filter if specified
       keywordResults = options.pathPattern
         ? rawResults.filter((r) =>
-            matchesDocumentPath(
-              sourceRoot,
-              r.documentPath,
-              options.pathPattern,
-            ),
+            matchesDocumentPath(scopeRoot, r.documentPath, options.pathPattern),
           )
         : rawResults
     }

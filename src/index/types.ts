@@ -19,7 +19,6 @@ import { dbIndexDir } from '../home.js'
 
 export interface DocumentIndex {
   readonly version: typeof INDEX_VERSION
-  readonly rootPath: string
   readonly documents: Record<DocumentKey, DocumentEntry>
 }
 

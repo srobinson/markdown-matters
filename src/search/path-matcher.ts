@@ -9,20 +9,11 @@ import { Effect } from 'effect'
 import {
   type DocumentKey,
   resolveCanonicalPathOrFallbackAsync,
+  resolveSourceFile,
 } from '../db/canonical.js'
-import { createStorage, loadDocumentIndex } from '../index/storage.js'
 
 export const resolveCanonicalSourceRoot = (sourceRoot: string) =>
   Effect.promise(() => resolveCanonicalPathOrFallbackAsync(sourceRoot))
-
-export const loadIndexedSourceRoot = (indexRoot: string) =>
-  loadDocumentIndex(createStorage(indexRoot, indexRoot)).pipe(
-    Effect.flatMap((documentIndex) =>
-      resolveCanonicalSourceRoot(
-        documentIndex?.rootPath ?? path.resolve(indexRoot),
-      ),
-    ),
-  )
 
 /**
  * Match a file path against a glob-like pattern.
@@ -59,7 +50,7 @@ export const matchesDocumentPath = (
 ): boolean => {
   if (pattern === undefined) return true
   const relativePath = path
-    .relative(sourceRoot, documentPath)
+    .relative(sourceRoot, resolveSourceFile(documentPath))
     .split(path.sep)
     .join('/')
   return matchPath(relativePath, pattern)

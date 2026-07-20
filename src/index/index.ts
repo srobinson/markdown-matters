@@ -1,4 +1,5 @@
 export * from './indexer.js'
+export { buildManifestIndex } from './manifest-build.js'
 export * from './storage.js'
 export * from './types.js'
 export * from './watcher.js'

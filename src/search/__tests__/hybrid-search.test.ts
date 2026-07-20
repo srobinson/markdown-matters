@@ -469,13 +469,13 @@ describe('Hybrid Search Integration', () => {
       expect(result.results.length).toBeGreaterThan(0)
     })
 
-    it('filters hybrid results with a source relative path pattern', async () => {
+    it('filters hybrid results with a database relative path pattern', async () => {
       const result = await Effect.runPromise(
         hybridSearch(TEST_INDEX_PATH, 'error', {
           limit: 10,
           threshold: 0.3,
           mode: 'hybrid',
-          pathPattern: 'docs/*.md',
+          pathPattern: '**/docs/*.md',
         }),
       )
 

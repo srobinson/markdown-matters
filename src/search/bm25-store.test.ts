@@ -23,6 +23,32 @@ afterEach(async () => {
 })
 
 describe('BM25 canonical schema', () => {
+  it('consolidates a one-section corpus without exposing engine padding', async () => {
+    const root = await createRoot()
+    const documentPath = path.join(root, 'README.md') as DocumentKey
+    const writer = createBM25Store(root)
+    await Effect.runPromise(
+      writer.add([
+        {
+          id: 'only-section',
+          sectionId: 'only-section',
+          documentPath,
+          heading: 'Small corpus',
+          content: 'singular searchable content',
+        },
+      ]),
+    )
+    await Effect.runPromise(writer.consolidate())
+    await Effect.runPromise(writer.save())
+
+    const reader = createBM25Store(root)
+    expect(await Effect.runPromise(reader.load())).toBe(true)
+    expect(reader.getStats().count).toBe(1)
+    expect(await Effect.runPromise(reader.search('singular'))).toEqual([
+      expect.objectContaining({ sectionId: 'only-section', documentPath }),
+    ])
+  })
+
   it('persists version 2 canonical document paths', async () => {
     const root = await createRoot()
     const documentPath = path.join(root, 'README.md') as DocumentKey

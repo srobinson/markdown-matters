@@ -111,6 +111,8 @@ const tokenize = (text: string): string[] => {
     .filter((token) => token.length > 2)
 }
 
+const MINIMUM_BM25_DOCUMENTS = 3
+
 // ============================================================================
 // BM25 Store
 // ============================================================================
@@ -213,6 +215,18 @@ class BM25StoreImpl implements BM25Store {
   consolidate(): Effect.Effect<void, never> {
     return Effect.sync(() => {
       if (!this.consolidated && this.documentCount > 0) {
+        // wink requires at least three documents. Private padding records make
+        // small corpora searchable and are omitted from sectionMap results.
+        for (
+          let index = this.documentCount;
+          index < MINIMUM_BM25_DOCUMENTS;
+          index++
+        ) {
+          this.engine.addDoc(
+            { heading: `mdmcorpuspadding${index}`, content: '' },
+            -(index + 1),
+          )
+        }
         this.engine.consolidate()
         this.consolidated = true
       }

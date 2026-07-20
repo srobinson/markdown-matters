@@ -23,7 +23,7 @@ it('filters semantic results with a source relative path pattern', async () => {
     const storage = createStorage(sourceRoot, indexRoot)
     await Effect.runPromise(initializeIndex(storage))
     await Effect.runPromise(
-      saveDocumentIndex(storage, createEmptyDocumentIndex(sourceRoot)),
+      saveDocumentIndex(storage, createEmptyDocumentIndex()),
     )
     const canonicalRoot = await fs.realpath(sourceRoot)
     const nested = path.resolve(
@@ -47,7 +47,7 @@ it('filters semantic results with a source relative path pattern', async () => {
         rawResults,
         'guide',
         { pathPattern: 'docs/*.md', headingBoost: false },
-        indexRoot,
+        sourceRoot,
         10,
       ),
     )
