@@ -56,6 +56,7 @@ const makeEntry = (id: string, seed: number): VectorEntry => ({
   id,
   sectionId: `section-${id}`,
   documentPath: path.resolve(tempRoot, 'docs', `${id}.md`) as DocumentKey,
+  documentHash: `hash-${id}`,
   heading: `Heading ${id}`,
   embedding: makeVector(seed),
 })
@@ -123,6 +124,7 @@ describe('add and search', () => {
       id: 'distant',
       sectionId: 'section-distant',
       documentPath: path.resolve(tempRoot, 'docs/distant.md') as DocumentKey,
+      documentHash: 'hash-distant',
       heading: 'Distant',
       embedding: makeDistantVector(),
     }
@@ -164,6 +166,7 @@ describe('add and search', () => {
       id: 'opposite',
       sectionId: 'section-opp',
       documentPath: path.resolve(tempRoot, 'docs/opp.md') as DocumentKey,
+      documentHash: 'hash-opposite',
       heading: 'Opposite',
       embedding: makeDistantVector(),
     }
@@ -399,6 +402,30 @@ describe('corrupted metadata validation', () => {
       expect(String(error)).toContain('schema validation failed')
     }
   })
+
+  it('rejects vector metadata without document hashes', async () => {
+    const dir = await createTempDir()
+    const store1 = createVectorStore(dir, DIMS)
+    await run(store1.add([makeEntry('old', 1)]))
+    await run(store1.save())
+
+    const metaPath = path.join(dir, 'vectors.meta.bin')
+    const { decode, encode } = await import('@msgpack/msgpack')
+    const meta = decode(await fs.readFile(metaPath)) as {
+      entries: Record<string, Record<string, unknown>>
+    }
+    const entry = Object.values(meta.entries)[0]
+    if (entry) delete entry.documentHash
+    await fs.writeFile(metaPath, encode(meta))
+
+    const store2 = createVectorStore(dir, DIMS)
+    const exit = await runExit(store2.load())
+
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) {
+      expect(String(exit.cause)).toContain('schema validation failed')
+    }
+  })
 })
 
 // ============================================================================
@@ -439,6 +466,25 @@ describe('removeEntries', () => {
     await run(store.removeEntries(['x']))
     expect(store.getEmbeddedIds()).not.toContain('x')
     expect(store.getEmbeddedIds()).toContain('y')
+  })
+
+  it('exposes document hashes by embedded section id', async () => {
+    const dir = await createTempDir()
+    const store = createVectorStore(dir, DIMS)
+
+    await run(store.add([makeEntry('x', 1), makeEntry('y', 2)]))
+
+    expect(store.getEmbeddedDocumentHashes()).toEqual(
+      new Map([
+        ['x', 'hash-x'],
+        ['y', 'hash-y'],
+      ]),
+    )
+
+    await run(store.removeEntries(['x']))
+    expect(store.getEmbeddedDocumentHashes()).toEqual(
+      new Map([['y', 'hash-y']]),
+    )
   })
 
   it('is a no-op for non-existent IDs', async () => {

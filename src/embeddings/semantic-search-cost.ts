@@ -49,6 +49,11 @@ export interface EmbeddingEstimate {
   readonly byDirectory: readonly DirectoryEstimate[]
 }
 
+export interface EstimateEmbeddingCostOptions {
+  readonly indexRoot?: string | undefined
+  readonly excludePatterns?: readonly string[] | undefined
+}
+
 /**
  * Estimate the cost of generating embeddings for a directory.
  *
@@ -62,14 +67,15 @@ export interface EmbeddingEstimate {
  */
 export const estimateEmbeddingCost = (
   rootPath: string,
-  options: { excludePatterns?: readonly string[] | undefined } = {},
+  options: EstimateEmbeddingCostOptions = {},
 ): Effect.Effect<
   EmbeddingEstimate,
   IndexNotFoundError | FileReadError | IndexCorruptedError
 > =>
   Effect.gen(function* () {
     const resolvedRoot = yield* resolveCanonicalSourceRoot(rootPath)
-    const storage = createStorage(resolvedRoot, dbIndexDir(resolveMdmHome()))
+    const indexRoot = options.indexRoot ?? dbIndexDir(resolveMdmHome())
+    const storage = createStorage(resolvedRoot, indexRoot)
 
     const docIndex = yield* loadDocumentIndex(storage)
     const sectionIndex = yield* loadSectionIndex(storage)

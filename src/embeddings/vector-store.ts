@@ -510,6 +510,12 @@ class HnswVectorStore implements VectorStore {
     return new Set(this.idToIndex.keys())
   }
 
+  getEmbeddedDocumentHashes(): ReadonlyMap<string, string> {
+    return new Map(
+      [...this.entries.values()].map((entry) => [entry.id, entry.documentHash]),
+    )
+  }
+
   removeEntries(ids: string[]): Effect.Effect<void, VectorStoreError> {
     return Effect.try({
       try: () => {

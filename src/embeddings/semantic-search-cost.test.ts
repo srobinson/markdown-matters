@@ -10,7 +10,6 @@ it('excludes source relative path patterns from the estimate', async () => {
   const parent = await fs.mkdtemp(path.join(os.tmpdir(), 'mdm-cost-path-'))
   const sourceRoot = path.join(parent, 'source')
   const indexRoot = path.join(parent, 'index')
-  const previousHome = process.env.MDM_HOME
 
   try {
     await Promise.all([
@@ -23,12 +22,16 @@ it('excludes source relative path patterns from the estimate', async () => {
       fs.writeFile(path.join(sourceRoot, 'README.md'), content),
       fs.writeFile(path.join(sourceRoot, 'docs', 'guide.md'), content),
     ])
-    process.env.MDM_HOME = indexRoot
 
     await Effect.runPromise(buildIndex(sourceRoot, { indexRoot }))
-    const complete = await Effect.runPromise(estimateEmbeddingCost(sourceRoot))
+    const complete = await Effect.runPromise(
+      estimateEmbeddingCost(sourceRoot, { indexRoot }),
+    )
     const filtered = await Effect.runPromise(
-      estimateEmbeddingCost(sourceRoot, { excludePatterns: ['docs/*'] }),
+      estimateEmbeddingCost(sourceRoot, {
+        indexRoot,
+        excludePatterns: ['docs/*'],
+      }),
     )
 
     expect(complete.totalFiles).toBe(2)
@@ -36,8 +39,6 @@ it('excludes source relative path patterns from the estimate', async () => {
     expect(filtered.totalSections).toBeLessThan(complete.totalSections)
     expect(filtered.totalTokens).toBeLessThan(complete.totalTokens)
   } finally {
-    if (previousHome === undefined) delete process.env.MDM_HOME
-    else process.env.MDM_HOME = previousHome
     await fs.rm(parent, { recursive: true, force: true })
   }
 })

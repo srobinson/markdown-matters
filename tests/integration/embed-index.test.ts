@@ -4,9 +4,11 @@ import * as path from 'node:path'
 import { Effect } from 'effect'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { DocumentKey } from '../../src/db/canonical.js'
+import type { VectorEntry } from '../../src/embeddings/types.js'
 import { createVectorStore } from '../../src/embeddings/vector-store.js'
 import { buildIndex as buildIndexEffect } from '../../src/index/indexer.js'
 import {
+  computeHash,
   createStorage,
   loadDocumentIndex,
   loadSectionIndex,
@@ -16,6 +18,15 @@ const buildIndex = (
   rootPath: string,
   options: Omit<Parameters<typeof buildIndexEffect>[1], 'indexRoot'> = {},
 ) => buildIndexEffect(rootPath, { indexRoot: rootPath, ...options })
+
+const makeVectorEntry = (rootPath: string): VectorEntry => ({
+  id: 'test-1',
+  sectionId: 'sec-1',
+  documentPath: path.join(rootPath, 'test.md') as DocumentKey,
+  documentHash: computeHash('integration vector fixture'),
+  heading: 'Test',
+  embedding: Array(512).fill(0.1),
+})
 
 // ============================================================================
 // Test Setup
@@ -163,17 +174,7 @@ describe('Embed + Index Integration Tests', () => {
 
       // Add a mock vector entry to test format
       const vectorStore = createVectorStore(tempDir, 512)
-      await Effect.runPromise(
-        vectorStore.add([
-          {
-            id: 'test-1',
-            sectionId: 'sec-1',
-            documentPath: path.join(tempDir, 'test.md') as DocumentKey,
-            heading: 'Test',
-            embedding: Array(512).fill(0.1),
-          },
-        ]),
-      )
+      await Effect.runPromise(vectorStore.add([makeVectorEntry(tempDir)]))
       await Effect.runPromise(vectorStore.save())
 
       // Check that binary format (.bin) is created, not JSON
@@ -256,17 +257,7 @@ describe('Embed + Index Integration Tests', () => {
 
       // Create a large vector store with some entries to test MessagePack
       const vectorStore = createVectorStore(tempDir, 512)
-      await Effect.runPromise(
-        vectorStore.add([
-          {
-            id: 'test-1',
-            sectionId: 'sec-1',
-            documentPath: path.join(tempDir, 'test.md') as DocumentKey,
-            heading: 'Test',
-            embedding: Array(512).fill(0.1),
-          },
-        ]),
-      )
+      await Effect.runPromise(vectorStore.add([makeVectorEntry(tempDir)]))
       await Effect.runPromise(vectorStore.save())
 
       // Binary file should exist
@@ -338,17 +329,7 @@ describe('Embed + Index Integration Tests', () => {
       await Effect.runPromise(buildIndex(tempDir))
 
       const vectorStore = createVectorStore(tempDir, 512)
-      await Effect.runPromise(
-        vectorStore.add([
-          {
-            id: 'test-1',
-            sectionId: 'sec-1',
-            documentPath: path.join(tempDir, 'test.md') as DocumentKey,
-            heading: 'Test',
-            embedding: Array(512).fill(0.1),
-          },
-        ]),
-      )
+      await Effect.runPromise(vectorStore.add([makeVectorEntry(tempDir)]))
       await Effect.runPromise(vectorStore.save())
 
       const binPath = path.join(tempDir, 'vectors.meta.bin')
@@ -365,17 +346,7 @@ describe('Embed + Index Integration Tests', () => {
 
       // Save vector store with data
       const vectorStore1 = createVectorStore(tempDir, 512)
-      await Effect.runPromise(
-        vectorStore1.add([
-          {
-            id: 'test-1',
-            sectionId: 'sec-1',
-            documentPath: path.join(tempDir, 'test.md') as DocumentKey,
-            heading: 'Test',
-            embedding: Array(512).fill(0.1),
-          },
-        ]),
-      )
+      await Effect.runPromise(vectorStore1.add([makeVectorEntry(tempDir)]))
       await Effect.runPromise(vectorStore1.save())
 
       // Load vector store
@@ -391,17 +362,7 @@ describe('Embed + Index Integration Tests', () => {
       await Effect.runPromise(buildIndex(tempDir))
 
       const vectorStore = createVectorStore(tempDir, 512)
-      await Effect.runPromise(
-        vectorStore.add([
-          {
-            id: 'test-1',
-            sectionId: 'sec-1',
-            documentPath: path.join(tempDir, 'test.md') as DocumentKey,
-            heading: 'Test',
-            embedding: Array(512).fill(0.1),
-          },
-        ]),
-      )
+      await Effect.runPromise(vectorStore.add([makeVectorEntry(tempDir)]))
 
       // Capture console.warn calls
       const originalWarn = console.warn
@@ -436,17 +397,7 @@ describe('Embed + Index Integration Tests', () => {
       await Effect.runPromise(buildIndex(tempDir))
 
       const vectorStore = createVectorStore(tempDir, 512)
-      await Effect.runPromise(
-        vectorStore.add([
-          {
-            id: 'test-1',
-            sectionId: 'sec-1',
-            documentPath: path.join(tempDir, 'test.md') as DocumentKey,
-            heading: 'Test',
-            embedding: Array(512).fill(0.1),
-          },
-        ]),
-      )
+      await Effect.runPromise(vectorStore.add([makeVectorEntry(tempDir)]))
       await Effect.runPromise(vectorStore.save())
 
       const loadResult = await Effect.runPromise(vectorStore.load())
@@ -462,17 +413,7 @@ describe('Embed + Index Integration Tests', () => {
 
       // Save with 512 dimensions
       const vectorStore1 = createVectorStore(tempDir, 512)
-      await Effect.runPromise(
-        vectorStore1.add([
-          {
-            id: 'test-1',
-            sectionId: 'sec-1',
-            documentPath: path.join(tempDir, 'test.md') as DocumentKey,
-            heading: 'Test',
-            embedding: Array(512).fill(0.1),
-          },
-        ]),
-      )
+      await Effect.runPromise(vectorStore1.add([makeVectorEntry(tempDir)]))
       await Effect.runPromise(vectorStore1.save())
 
       // Try to load with different dimensions
@@ -498,17 +439,7 @@ describe('Embed + Index Integration Tests', () => {
       // Save with provider metadata
       const vectorStore1 = createVectorStore(tempDir, 512)
       vectorStore1.setProvider('openai', 'text-embedding-3-small', undefined)
-      await Effect.runPromise(
-        vectorStore1.add([
-          {
-            id: 'test-1',
-            sectionId: 'sec-1',
-            documentPath: path.join(tempDir, 'test.md') as DocumentKey,
-            heading: 'Test',
-            embedding: Array(512).fill(0.1),
-          },
-        ]),
-      )
+      await Effect.runPromise(vectorStore1.add([makeVectorEntry(tempDir)]))
       await Effect.runPromise(vectorStore1.save())
 
       // Load and verify metadata preserved
@@ -531,17 +462,7 @@ describe('Embed + Index Integration Tests', () => {
         m: 16,
         efConstruction: 200,
       })
-      await Effect.runPromise(
-        vectorStore1.add([
-          {
-            id: 'test-1',
-            sectionId: 'sec-1',
-            documentPath: path.join(tempDir, 'test.md') as DocumentKey,
-            heading: 'Test',
-            embedding: Array(512).fill(0.1),
-          },
-        ]),
-      )
+      await Effect.runPromise(vectorStore1.add([makeVectorEntry(tempDir)]))
       await Effect.runPromise(vectorStore1.save())
 
       // Load with different HNSW params

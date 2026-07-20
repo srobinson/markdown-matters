@@ -66,6 +66,7 @@ export interface VectorEntry {
   readonly id: string
   readonly sectionId: string
   readonly documentPath: DocumentKey
+  readonly documentHash: string
   readonly heading: string
   readonly embedding: readonly number[]
 }
