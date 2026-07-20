@@ -7,6 +7,7 @@ import {
   type DurabilityDirectoryEntry,
   type DurabilityFileHandle,
   type DurabilityFileSystem,
+  discardPreparedRecord,
   durableReplaceText,
   linkPreparedRecord,
   prepareDurableRecord,
@@ -76,6 +77,12 @@ const recordingFileSystem = (
         throw failure('link', targetPath)
       }
       events.push(`link:${basename(sourcePath)}:${basename(targetPath)}`)
+    },
+    unlink: async (filePath) => {
+      if (adapter.failAt === 'unlink') {
+        throw failure('unlink', filePath)
+      }
+      events.push(`unlink:${basename(filePath)}`)
     },
   }
   return adapter
@@ -266,6 +273,22 @@ describe('durable filesystem mutations', () => {
       'sync-file:record.tmp',
       'link:record.tmp:lease-1',
       'sync-dir:open',
+    ])
+  })
+
+  it('discards a prepared record and syncs its directory', async () => {
+    const fileSystem = recordingFileSystem()
+    const record = await Effect.runPromise(
+      prepareDurableRecord('/home/leases', new Uint8Array([1, 2]), fileSystem),
+    )
+
+    await Effect.runPromise(discardPreparedRecord(record, fileSystem))
+
+    expect(fileSystem.events).toEqual([
+      'write:record.tmp',
+      'sync-file:record.tmp',
+      'unlink:record.tmp',
+      'sync-dir:leases',
     ])
   })
 

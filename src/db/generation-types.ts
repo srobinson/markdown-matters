@@ -20,3 +20,9 @@ export interface GenerationLayout {
   readonly openLeases: string
   readonly closedLeases: string
 }
+
+export interface WriterLockRecord {
+  readonly token: string
+  readonly holder: import('./process-identity.js').ProcessIdentity
+  readonly createdAt: string
+}

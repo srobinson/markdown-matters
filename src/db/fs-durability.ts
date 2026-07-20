@@ -36,6 +36,7 @@ export interface DurabilityFileSystem {
   ) => Promise<void>
   readonly rename: (sourcePath: string, targetPath: string) => Promise<void>
   readonly link: (sourcePath: string, targetPath: string) => Promise<void>
+  readonly unlink: (filePath: string) => Promise<void>
 }
 
 export interface PreparedRecord {
@@ -67,6 +68,7 @@ export const nodeDurabilityFileSystem: DurabilityFileSystem = {
   },
   rename: (sourcePath, targetPath) => fs.rename(sourcePath, targetPath),
   link: (sourcePath, targetPath) => fs.link(sourcePath, targetPath),
+  unlink: (filePath) => fs.unlink(filePath),
 }
 
 const durabilityError = (
@@ -216,4 +218,13 @@ export const linkPreparedRecord = (
       fileSystem.link(record.path, targetPath),
     )
     yield* syncDirectory(path.dirname(targetPath), fileSystem)
+  })
+
+export const discardPreparedRecord = (
+  record: PreparedRecord,
+  fileSystem: DurabilityFileSystem = nodeDurabilityFileSystem,
+): Effect.Effect<void, GenerationDurabilityError> =>
+  Effect.gen(function* () {
+    yield* attempt('unlink', record.path, () => fileSystem.unlink(record.path))
+    yield* syncDirectory(path.dirname(record.path), fileSystem)
   })

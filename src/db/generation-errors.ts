@@ -21,6 +21,7 @@ export type GenerationDurabilityOperation =
   | 'rename'
   | 'sync-directory'
   | 'sync-file'
+  | 'unlink'
   | 'write-file'
 
 export class GenerationDurabilityError extends Data.TaggedError(
@@ -39,6 +40,15 @@ export class ProcessIdentityError extends Data.TaggedError(
 )<{
   readonly operation: ProcessIdentityOperation
   readonly pid: number
+  readonly message: string
+  readonly cause?: unknown
+}> {}
+
+export type WriterLockOperation = 'acquire' | 'read' | 'reclaim' | 'release'
+
+export class WriterLockError extends Data.TaggedError('WriterLockError')<{
+  readonly operation: WriterLockOperation
+  readonly path: string
   readonly message: string
   readonly cause?: unknown
 }> {}
