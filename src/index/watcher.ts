@@ -33,6 +33,7 @@ import {
   type IndexCorruptedError,
   WatchError,
 } from '../errors/index.js'
+import { isMarkdownFile } from './file-discovery.js'
 import { getChokidarIgnorePatterns } from './ignore-patterns.js'
 import { buildIndex, type IndexOptions } from './indexer.js'
 import { createStorage, indexExists } from './storage.js'
@@ -72,9 +73,6 @@ export interface Watcher {
 // ============================================================================
 // Watcher Implementation
 // ============================================================================
-
-const isMarkdownFile = (filePath: string): boolean =>
-  filePath.endsWith('.md') || filePath.endsWith('.mdx')
 
 export const watchDirectory = (
   rootPath: string,
