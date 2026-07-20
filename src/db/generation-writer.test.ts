@@ -159,7 +159,9 @@ describe('writeGeneration', () => {
       previous: null,
       generation: 'gen-1',
     })
-    expect(contexts[0]!.indexRoot).toContain(`${path.sep}staging${path.sep}`)
+    expect(contexts[0]!.indexRoot).toContain(
+      `${generationHomeLayout(home).staging}/`,
+    )
     expect(await Effect.runPromise(readCurrentGeneration(home))).toBe('gen-1')
     expect(await readTitle(home)).toBe('old')
     expect(await readTitle(published.indexRoot)).toBe('new')
