@@ -227,7 +227,9 @@ describe('writeGeneration', () => {
     expect(await exists(stale)).toBe(false)
     expect(await readTitle(published.indexRoot)).toBe('fresh')
   })
+})
 
+describe('writeGeneration validation', () => {
   it('runs prepare, build, and validation under the transaction in order', async () => {
     const home = await createHome()
     await seedGenerationArtifacts(home)
@@ -320,7 +322,9 @@ describe('writeGeneration', () => {
     })
     expect(await Effect.runPromise(readCurrentGeneration(home))).toBe('gen-1')
   })
+})
 
+describe('writeGeneration publication', () => {
   it.each([
     [
       'generation rename',

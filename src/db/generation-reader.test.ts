@@ -205,7 +205,9 @@ describe('generation read leases', () => {
       await fs.rm(home, { recursive: true, force: true })
     }
   })
+})
 
+describe('generation read lease release', () => {
   it('releases a lease when the gate moves after the hard link', async () => {
     const home = await createHome()
     const gen1 = await generation(home, 'gen-1')

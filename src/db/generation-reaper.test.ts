@@ -210,7 +210,9 @@ describe.skipIf(CHILD_HOME !== undefined)('generation reaper', () => {
     ).resolves.toEqual({ generation: 'gen-1', status: 'leased' })
     expect(await fs.readdir(gen1.closedLeases)).toEqual(['live'])
   })
+})
 
+describe.skipIf(CHILD_HOME !== undefined)('generation reaper grace', () => {
   it('starts grace when the gate closes and deletes only after it expires', async () => {
     const home = await createHome()
     const gen1 = await createGeneration(home, 'gen-1')
@@ -281,7 +283,9 @@ describe.skipIf(CHILD_HOME !== undefined)('generation reaper', () => {
     expect(second).toEqual({ generation: 'gen-1', status: 'grace' })
     expect(await exists(gen1.root)).toBe(true)
   })
+})
 
+describe.skipIf(CHILD_HOME !== undefined)('generation reaper safety', () => {
   it('keeps a generation until an admitted reader releases its closed lease', async () => {
     const home = await createHome()
     const gen1 = await createGeneration(home, 'gen-1')
@@ -363,68 +367,73 @@ describe.skipIf(CHILD_HOME !== undefined)('generation reaper', () => {
       { generation: gen10.name, status: 'reaped' },
     ])
   })
-
-  it('wires one nonblocking sweep into writer, CLI, and MCP startup', async () => {
-    const [writer, cli, mcp] = await Promise.all([
-      fs.readFile(path.resolve('src/db/generation-writer.ts'), 'utf8'),
-      fs.readFile(path.resolve('src/cli/main.ts'), 'utf8'),
-      fs.readFile(path.resolve('src/mcp/server.ts'), 'utf8'),
-    ])
-
-    for (const source of [writer, cli, mcp]) {
-      expect(source.match(/scheduleGenerationReap\(/g)).toHaveLength(1)
-    }
-  })
-
-  it('retains a live cross-process lease on every supported CI platform', async () => {
-    const home = await createHome()
-    const gen1 = await createGeneration(home, 'gen-1')
-    const gen2 = await createGeneration(home, 'gen-2')
-    await setCurrent(home, gen1.name)
-    const readyPath = path.join(home, 'child.ready')
-    const releasePath = path.join(home, 'child.release')
-    const child = spawn(
-      process.execPath,
-      [
-        path.resolve('node_modules/vitest/vitest.mjs'),
-        'run',
-        'src/db/generation-reaper.test.ts',
-      ],
-      {
-        env: {
-          ...process.env,
-          MDM_REAPER_CHILD_HOME: home,
-          MDM_REAPER_CHILD_READY: readyPath,
-          MDM_REAPER_CHILD_RELEASE: releasePath,
-        },
-        stdio: ['ignore', 'pipe', 'pipe'],
-        windowsHide: true,
-      },
-    )
-    const completed = waitForChild(child)
-
-    try {
-      await Promise.race([
-        waitForPath(readyPath),
-        completed.then(() => {
-          throw new Error('Lease child exited before acquiring its lease')
-        }),
-      ])
-      await setCurrent(home, gen2.name)
-      await expect(
-        Effect.runPromise(reapGeneration(home, gen1.name, { graceMs: 0 })),
-      ).resolves.toEqual({ generation: 'gen-1', status: 'leased' })
-
-      await fs.writeFile(releasePath, 'release')
-      await completed
-      await expect(
-        Effect.runPromise(reapGeneration(home, gen1.name, { graceMs: 0 })),
-      ).resolves.toEqual({ generation: 'gen-1', status: 'reaped' })
-    } finally {
-      child.kill()
-    }
-  }, 30_000)
 })
+
+describe.skipIf(CHILD_HOME !== undefined)(
+  'generation reaper integration',
+  () => {
+    it('wires one nonblocking sweep into writer, CLI, and MCP startup', async () => {
+      const [writer, cli, mcp] = await Promise.all([
+        fs.readFile(path.resolve('src/db/generation-writer.ts'), 'utf8'),
+        fs.readFile(path.resolve('src/cli/main.ts'), 'utf8'),
+        fs.readFile(path.resolve('src/mcp/server.ts'), 'utf8'),
+      ])
+
+      for (const source of [writer, cli, mcp]) {
+        expect(source.match(/scheduleGenerationReap\(/g)).toHaveLength(1)
+      }
+    })
+
+    it('retains a live cross-process lease on every supported CI platform', async () => {
+      const home = await createHome()
+      const gen1 = await createGeneration(home, 'gen-1')
+      const gen2 = await createGeneration(home, 'gen-2')
+      await setCurrent(home, gen1.name)
+      const readyPath = path.join(home, 'child.ready')
+      const releasePath = path.join(home, 'child.release')
+      const child = spawn(
+        process.execPath,
+        [
+          path.resolve('node_modules/vitest/vitest.mjs'),
+          'run',
+          'src/db/generation-reaper.test.ts',
+        ],
+        {
+          env: {
+            ...process.env,
+            MDM_REAPER_CHILD_HOME: home,
+            MDM_REAPER_CHILD_READY: readyPath,
+            MDM_REAPER_CHILD_RELEASE: releasePath,
+          },
+          stdio: ['ignore', 'pipe', 'pipe'],
+          windowsHide: true,
+        },
+      )
+      const completed = waitForChild(child)
+
+      try {
+        await Promise.race([
+          waitForPath(readyPath),
+          completed.then(() => {
+            throw new Error('Lease child exited before acquiring its lease')
+          }),
+        ])
+        await setCurrent(home, gen2.name)
+        await expect(
+          Effect.runPromise(reapGeneration(home, gen1.name, { graceMs: 0 })),
+        ).resolves.toEqual({ generation: 'gen-1', status: 'leased' })
+
+        await fs.writeFile(releasePath, 'release')
+        await completed
+        await expect(
+          Effect.runPromise(reapGeneration(home, gen1.name, { graceMs: 0 })),
+        ).resolves.toEqual({ generation: 'gen-1', status: 'reaped' })
+      } finally {
+        child.kill()
+      }
+    }, 30_000)
+  },
+)
 
 describe.runIf(CHILD_HOME !== undefined)('generation reaper child', () => {
   it('holds one live lease until released', async () => {

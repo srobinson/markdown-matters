@@ -148,7 +148,9 @@ describe.skipIf(CHILD_HOME !== undefined)('writer lock', () => {
       await fs.rm(home, { recursive: true, force: true })
     }
   })
+})
 
+describe.skipIf(CHILD_HOME !== undefined)('writer lock liveness', () => {
   it.each([
     ['old live record', JSON.stringify(record('live', identity(41)))],
     ['malformed record', '{'],
@@ -233,7 +235,9 @@ describe.skipIf(CHILD_HOME !== undefined)('writer lock', () => {
       await fs.rm(home, { recursive: true, force: true })
     }
   })
+})
 
+describe.skipIf(CHILD_HOME !== undefined)('writer lock release', () => {
   it('releases after callback failure', async () => {
     const home = await createHome()
     const layout = generationHomeLayout(home)
