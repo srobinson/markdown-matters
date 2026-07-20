@@ -174,3 +174,15 @@ it('uses only fixed namespaced vector stores', () => {
     /createVectorStore\(|\.setNamespace\(|\.setProvider\(|private get(?:Vector|Meta)Path/,
   )
 })
+
+it('keeps active provider reads free of discovery and writes', () => {
+  const source = fs.readFileSync(
+    path.join(root, 'embeddings/embedding-namespace-catalog.ts'),
+    'utf-8',
+  )
+  const reader = source.slice(source.indexOf('export const getActiveNamespace'))
+
+  expect(reader).toContain('readActiveProvider')
+  expect(reader).not.toContain('listNamespaces')
+  expect(reader).not.toContain('writeActiveProvider')
+})
