@@ -238,6 +238,36 @@ describe.skipIf(CHILD_HOME !== undefined)('writer lock liveness', () => {
 })
 
 describe.skipIf(CHILD_HOME !== undefined)('writer lock release', () => {
+  it('releases after callback cancellation', async () => {
+    const home = await createHome()
+    const layout = generationHomeLayout(home)
+    let entered: (() => void) | undefined
+    const didEnter = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    const fiber = Effect.runFork(
+      withWriterLock(
+        home,
+        () =>
+          Effect.gen(function* () {
+            entered?.()
+            yield* Effect.never
+          }),
+        { inspector: inspector(identity(100), () => identity(100)) },
+      ),
+    )
+
+    try {
+      await didEnter
+      expect(await exists(layout.writerLock)).toBe(true)
+      await run(Fiber.interrupt(fiber))
+      expect(await exists(layout.writerLock)).toBe(false)
+    } finally {
+      await run(Fiber.interrupt(fiber))
+      await fs.rm(home, { recursive: true, force: true })
+    }
+  })
+
   it('releases after callback failure', async () => {
     const home = await createHome()
     const layout = generationHomeLayout(home)

@@ -182,6 +182,11 @@ const finalizeGateState = (
 ): Effect.Effect<void, GenerationReaperError> =>
   Effect.gen(function* () {
     yield* ensureGateState(layout, fileSystem)
+    yield* syncDirectory(layout.leasesRoot, fileSystem).pipe(
+      Effect.mapError((cause) =>
+        reaperError('close-gate', layout.leasesRoot, cause),
+      ),
+    )
     const statePath = gateStatePath(layout)
     const state = yield* attempt('close-gate', statePath, () =>
       fileSystem.readFile(statePath),
@@ -268,11 +273,6 @@ const closeGate = (
       if (rootKind === 'missing') return false
       return yield* Effect.fail(renamed.left)
     }
-    yield* syncDirectory(layout.leasesRoot, fileSystem).pipe(
-      Effect.mapError((cause) =>
-        reaperError('close-gate', layout.leasesRoot, cause),
-      ),
-    )
     yield* finalizeGateState(layout, now, fileSystem)
     return true
   })

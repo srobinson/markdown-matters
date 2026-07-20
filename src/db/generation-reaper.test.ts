@@ -257,8 +257,14 @@ describe.skipIf(CHILD_HOME !== undefined)('generation reaper grace', () => {
     const renameCanReturn = new Promise<void>((resolve) => {
       releaseRename = resolve
     })
+    const syncedDirectories: string[] = []
     const fileSystem: GenerationReaperFileSystem = {
       ...nodeGenerationReaperFileSystem,
+      platform: 'linux',
+      openDirectory: async (directoryPath) => {
+        syncedDirectories.push(directoryPath)
+        return { sync: async () => undefined, close: async () => undefined }
+      },
       rename: async (sourcePath, targetPath) => {
         await nodeGenerationReaperFileSystem.rename(sourcePath, targetPath)
         renamedGate?.()
@@ -270,10 +276,12 @@ describe.skipIf(CHILD_HOME !== undefined)('generation reaper grace', () => {
       reapGeneration(home, gen1.name, options, { fileSystem }),
     )
     await gateWasRenamed
+    syncedDirectories.length = 0
 
     const second = await Effect.runPromise(
       reapGeneration(home, gen1.name, options, { fileSystem }),
     )
+    expect(syncedDirectories).toContain(gen1.leasesRoot)
     releaseRename?.()
 
     await expect(first).resolves.toEqual({

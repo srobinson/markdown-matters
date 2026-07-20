@@ -329,6 +329,44 @@ describe('generation read lease release', () => {
   })
 })
 
+describe('generation read lease gate movement', () => {
+  it('releases when the gate moves after lease removal', async () => {
+    const home = await createHome()
+    const gen1 = await generation(home, 'gen-1')
+    await generation(home, 'gen-2')
+    await publish(home, 'gen-1')
+    let gateMoved = false
+    const fileSystem: GenerationReaderFileSystem = {
+      ...nodeGenerationReaderFileSystem,
+      unlink: async (targetPath) => {
+        await nodeGenerationReaderFileSystem.unlink(targetPath)
+        if (
+          !gateMoved &&
+          targetPath.startsWith(`${gen1.openLeases}${path.sep}`)
+        ) {
+          gateMoved = true
+          await fs.rename(gen1.openLeases, gen1.closedLeases)
+        }
+      },
+    }
+
+    try {
+      await run(
+        withCurrentGeneration(
+          home,
+          () => Effect.promise(() => publish(home, 'gen-2')),
+          { inspector: processInspector, fileSystem },
+        ),
+      )
+
+      expect(gateMoved).toBe(true)
+      expect(await listAllLeases([gen1])).toEqual([])
+    } finally {
+      await fs.rm(home, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('lease gate initialization', () => {
   it('never reopens a closed gate', async () => {
     const home = await createHome()

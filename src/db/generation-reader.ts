@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
-import { Effect } from 'effect'
+import { Effect, Either } from 'effect'
 import {
   createDurableRecordLink,
   type DurabilityFileSystem,
@@ -107,6 +107,9 @@ const attempt = <A>(
 
 const causeCode = (cause: unknown): string | undefined => {
   if (typeof cause !== 'object' || cause === null || !('code' in cause)) {
+    if (typeof cause === 'object' && cause !== null && 'cause' in cause) {
+      return causeCode(cause.cause)
+    }
     return undefined
   }
   return typeof cause.code === 'string' ? cause.code : undefined
@@ -150,6 +153,7 @@ const pathKind = (
 
 const removeLeaseAt = (
   targetPath: string,
+  movedTargetPath: string,
   fileSystem: GenerationReaderFileSystem,
 ): Effect.Effect<boolean, GenerationReadError> =>
   Effect.gen(function* () {
@@ -163,11 +167,31 @@ const removeLeaseAt = (
       }
     })
     if (removed) {
-      yield* syncDirectory(path.dirname(targetPath), fileSystem).pipe(
-        Effect.mapError((cause) =>
-          generationReadError('release-lease', targetPath, cause),
-        ),
+      const primarySync = yield* Effect.either(
+        syncDirectory(path.dirname(targetPath), fileSystem),
       )
+      if (Either.isLeft(primarySync)) {
+        if (causeCode(primarySync.left) !== 'ENOENT') {
+          return yield* Effect.fail(
+            generationReadError('release-lease', targetPath, primarySync.left),
+          )
+        }
+        const movedSync = yield* Effect.either(
+          syncDirectory(path.dirname(movedTargetPath), fileSystem),
+        )
+        if (
+          Either.isLeft(movedSync) &&
+          causeCode(movedSync.left) !== 'ENOENT'
+        ) {
+          return yield* Effect.fail(
+            generationReadError(
+              'release-lease',
+              movedTargetPath,
+              movedSync.left,
+            ),
+          )
+        }
+      }
     }
     return removed
   })
@@ -187,8 +211,8 @@ const releaseLease = (
 ): Effect.Effect<void, GenerationReadError> =>
   Effect.gen(function* () {
     const [openPath, closedPath] = leasePaths(layout, leaseId)
-    if (yield* removeLeaseAt(openPath, fileSystem)) return
-    yield* removeLeaseAt(closedPath, fileSystem)
+    if (yield* removeLeaseAt(openPath, closedPath, fileSystem)) return
+    yield* removeLeaseAt(closedPath, openPath, fileSystem)
   })
 
 const leasePresent = (

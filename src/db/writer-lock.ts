@@ -233,10 +233,12 @@ const acquireWriterLock = (
     const layout = generationHomeLayout(home)
     const inspector = options.inspector ?? nodeProcessInspector
     const retryMs = Math.max(1, options.retryMs ?? DEFAULT_RETRY_MS)
-    yield* attempt('acquire', layout.home, () =>
-      fs.mkdir(layout.home, { recursive: true }),
+    yield* Effect.interruptible(
+      attempt('acquire', layout.home, () =>
+        fs.mkdir(layout.home, { recursive: true }),
+      ),
     )
-    const holder = yield* inspector.current()
+    const holder = yield* Effect.interruptible(inspector.current())
     const record: WriterLockRecord = {
       token: randomUUID(),
       holder,
@@ -269,7 +271,7 @@ const acquireWriterLock = (
         reclaimer,
         inspector,
       )
-      yield* Effect.sleep(`${retryMs} millis`)
+      yield* Effect.interruptible(Effect.sleep(`${retryMs} millis`))
     }
   })
 
@@ -279,7 +281,7 @@ export const withWriterLock = <A, E>(
   options: WriterLockOptions = {},
 ): Effect.Effect<A, E | WriterLockError | ProcessIdentityError> =>
   Effect.uninterruptibleMask((restore) =>
-    restore(acquireWriterLock(home, options)).pipe(
+    acquireWriterLock(home, options).pipe(
       Effect.flatMap((lock) =>
         Effect.gen(function* () {
           const result = yield* Effect.exit(restore(use(lock)))
