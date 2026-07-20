@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import * as fs from 'node:fs/promises'
 import { Effect } from 'effect'
 import {
+  errorCode,
   ProcessIdentityError,
   type ProcessIdentityOperation,
 } from './generation-errors.js'
@@ -125,8 +126,7 @@ const processIdentity = (
 }
 
 const isMissingFile = (cause: unknown): boolean => {
-  if (typeof cause !== 'object' || cause === null) return false
-  const code = (cause as NodeJS.ErrnoException).code
+  const code = errorCode(cause)
   return code === 'ENOENT' || code === 'ESRCH'
 }
 

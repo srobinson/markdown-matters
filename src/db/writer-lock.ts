@@ -3,6 +3,7 @@ import * as fs from 'node:fs/promises'
 import { Effect, Exit } from 'effect'
 import { createDurableRecordLink, syncDirectory } from './fs-durability.js'
 import {
+  errorCode,
   type ProcessIdentityError,
   type WriterLockOperation,
   WriterLockError,
@@ -57,14 +58,7 @@ const attempt = <A>(
     catch: (cause) => writerLockError(operation, targetPath, cause),
   })
 
-const causeCode = (cause: unknown): string | undefined => {
-  if (typeof cause !== 'object' || cause === null || !('code' in cause)) {
-    return undefined
-  }
-  return typeof cause.code === 'string' ? cause.code : undefined
-}
-
-const isMissing = (cause: unknown): boolean => causeCode(cause) === 'ENOENT'
+const isMissing = (cause: unknown): boolean => errorCode(cause) === 'ENOENT'
 
 const validRecord = (value: unknown): value is WriterLockRecord => {
   if (typeof value !== 'object' || value === null) return false

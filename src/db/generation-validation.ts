@@ -25,7 +25,7 @@ import {
   loadSectionIndex,
 } from '../index/storage.js'
 import { createBM25Store } from '../search/bm25-store.js'
-import { GenerationValidationError } from './generation-errors.js'
+import { errorCode, GenerationValidationError } from './generation-errors.js'
 import { portablePath } from './generation-paths.js'
 
 export interface GenerationArtifactSummary {
@@ -55,11 +55,7 @@ const validationError = (
     cause,
   })
 
-const isMissing = (cause: unknown): boolean =>
-  typeof cause === 'object' &&
-  cause !== null &&
-  'code' in cause &&
-  cause.code === 'ENOENT'
+const isMissing = (cause: unknown): boolean => errorCode(cause) === 'ENOENT'
 
 const isContained = (rootPath: string, targetPath: string): boolean => {
   const relative = path.relative(rootPath, targetPath)

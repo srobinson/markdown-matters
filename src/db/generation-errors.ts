@@ -1,5 +1,22 @@
 import { Data } from 'effect'
 
+export const errorCode = (cause: unknown): string | undefined => {
+  const seen = new Set<unknown>()
+  let current = cause
+  while (
+    typeof current === 'object' &&
+    current !== null &&
+    !seen.has(current)
+  ) {
+    seen.add(current)
+    if ('code' in current && typeof current.code === 'string') {
+      return current.code
+    }
+    current = 'cause' in current ? current.cause : undefined
+  }
+  return undefined
+}
+
 export type GenerationPathErrorReason =
   | 'InvalidGenerationName'
   | 'InvalidPointerType'

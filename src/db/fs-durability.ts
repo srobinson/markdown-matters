@@ -4,6 +4,7 @@ import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { Effect, Either } from 'effect'
 import {
+  errorCode,
   GenerationDurabilityError,
   type GenerationDurabilityOperation,
 } from './generation-errors.js'
@@ -241,26 +242,6 @@ export const discardPreparedRecord = (
     yield* syncDirectory(path.dirname(record.path), fileSystem)
   })
 
-const durabilityCauseCode = (
-  error: GenerationDurabilityError,
-): string | undefined => {
-  if (
-    typeof error.cause !== 'object' ||
-    error.cause === null ||
-    !('code' in error.cause)
-  ) {
-    return undefined
-  }
-  return typeof error.cause.code === 'string' ? error.cause.code : undefined
-}
-
-const rawCauseCode = (cause: unknown): string | undefined => {
-  if (typeof cause !== 'object' || cause === null || !('code' in cause)) {
-    return undefined
-  }
-  return typeof cause.code === 'string' ? cause.code : undefined
-}
-
 const rollbackLinkedTarget = (
   targetPaths: readonly string[],
   fileSystem: DurabilityFileSystem,
@@ -272,7 +253,7 @@ const rollbackLinkedTarget = (
           await fileSystem.unlink(targetPath)
           return true
         } catch (cause) {
-          if (rawCauseCode(cause) === 'ENOENT') return false
+          if (errorCode(cause) === 'ENOENT') return false
           throw cause
         }
       })
@@ -306,7 +287,7 @@ export const createDurableRecordLink = (
         discardPreparedRecord(prepared, fileSystem),
       )
       if (Either.isLeft(discarded)) return yield* Effect.fail(discarded.left)
-      const code = durabilityCauseCode(linked.left)
+      const code = errorCode(linked.left)
       if (code === 'EEXIST') return 'exists'
       if (code === 'ENOENT') return 'missing-parent'
       return yield* Effect.fail(linked.left)
@@ -332,7 +313,7 @@ export const createDurableRecordLink = (
       Either.isLeft(synced) &&
       !(
         options.movedTargetPath !== undefined &&
-        durabilityCauseCode(synced.left) === 'ENOENT'
+        errorCode(synced.left) === 'ENOENT'
       )
     ) {
       yield* rollbackLinkedTarget(rollbackPaths, fileSystem)

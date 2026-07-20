@@ -9,6 +9,7 @@ import {
   syncDirectory,
 } from './fs-durability.js'
 import {
+  errorCode,
   GenerationReadError,
   type GenerationReadOperation,
   type ProcessIdentityError,
@@ -70,7 +71,7 @@ export const nodeGenerationReaderFileSystem: GenerationReaderFileSystem = {
       if (stat.isFile()) return 'file'
       return 'other'
     } catch (cause) {
-      if (causeCode(cause) === 'ENOENT') return 'missing'
+      if (errorCode(cause) === 'ENOENT') return 'missing'
       throw cause
     }
   },
@@ -104,16 +105,6 @@ const attempt = <A>(
     try: action,
     catch: (cause) => generationReadError(operation, targetPath, cause),
   })
-
-const causeCode = (cause: unknown): string | undefined => {
-  if (typeof cause !== 'object' || cause === null || !('code' in cause)) {
-    if (typeof cause === 'object' && cause !== null && 'cause' in cause) {
-      return causeCode(cause.cause)
-    }
-    return undefined
-  }
-  return typeof cause.code === 'string' ? cause.code : undefined
-}
 
 const encodeLease = (record: GenerationLeaseRecord): Uint8Array =>
   new TextEncoder().encode(JSON.stringify(record))
@@ -162,7 +153,7 @@ const removeLeaseAt = (
         await fileSystem.unlink(targetPath)
         return true
       } catch (cause) {
-        if (causeCode(cause) === 'ENOENT') return false
+        if (errorCode(cause) === 'ENOENT') return false
         throw cause
       }
     })
@@ -171,7 +162,7 @@ const removeLeaseAt = (
         syncDirectory(path.dirname(targetPath), fileSystem),
       )
       if (Either.isLeft(primarySync)) {
-        if (causeCode(primarySync.left) !== 'ENOENT') {
+        if (errorCode(primarySync.left) !== 'ENOENT') {
           return yield* Effect.fail(
             generationReadError('release-lease', targetPath, primarySync.left),
           )
@@ -181,7 +172,7 @@ const removeLeaseAt = (
         )
         if (
           Either.isLeft(movedSync) &&
-          causeCode(movedSync.left) !== 'ENOENT'
+          errorCode(movedSync.left) !== 'ENOENT'
         ) {
           return yield* Effect.fail(
             generationReadError(

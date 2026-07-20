@@ -5,6 +5,7 @@ import { evictHnswIndexRoot } from '../embeddings/hnsw-cache.js'
 import { clearIndexCache } from '../index/storage.js'
 import { syncDirectory, syncFile } from './fs-durability.js'
 import {
+  errorCode,
   GenerationReaperError,
   type GenerationReaperOperation,
   type ProcessIdentityError,
@@ -92,14 +93,6 @@ const attempt = <A>(
     catch: (cause) => reaperError(operation, targetPath, cause),
   })
 
-const causeCode = (cause: unknown): string | undefined => {
-  const value = cause instanceof GenerationReaperError ? cause.cause : cause
-  if (typeof value !== 'object' || value === null || !('code' in value)) {
-    return undefined
-  }
-  return typeof value.code === 'string' ? value.code : undefined
-}
-
 const generationOrdinal = (generation: GenerationName): bigint =>
   BigInt(generation.slice('gen-'.length))
 
@@ -146,7 +139,7 @@ const ensureGateState = (
         await fileSystem.writeFile(statePath, GATE_PENDING, true)
         return true
       } catch (cause) {
-        if (causeCode(cause) === 'EEXIST') return false
+        if (errorCode(cause) === 'EEXIST') return false
         throw cause
       }
     })
@@ -263,7 +256,7 @@ const closeGate = (
       const racedKind = yield* attempt('close-gate', layout.closedLeases, () =>
         fileSystem.pathKind(layout.closedLeases),
       )
-      if (causeCode(renamed.left) === 'ENOENT' && racedKind === 'directory') {
+      if (errorCode(renamed.left) === 'ENOENT' && racedKind === 'directory') {
         yield* finalizeGateState(layout, now, fileSystem)
         return true
       }
@@ -291,7 +284,7 @@ const removeLease = (
       await fileSystem.unlink(leasePath)
       return true
     } catch (cause) {
-      if (causeCode(cause) === 'ENOENT') return false
+      if (errorCode(cause) === 'ENOENT') return false
       throw cause
     }
   })

@@ -3,7 +3,7 @@ import * as path from 'node:path'
 import { Effect } from 'effect'
 import { FileReadError } from '../errors/index.js'
 import { resolveMdmHome } from '../home.js'
-import { GenerationPathError } from './generation-errors.js'
+import { errorCode, GenerationPathError } from './generation-errors.js'
 import type {
   GenerationHomeLayout,
   GenerationLayout,
@@ -178,12 +178,7 @@ export const readCurrentGeneration = (
         try {
           return await fs.lstat(layout.current)
         } catch (error) {
-          if (
-            error &&
-            typeof error === 'object' &&
-            'code' in error &&
-            error.code === 'ENOENT'
-          ) {
+          if (errorCode(error) === 'ENOENT') {
             return null
           }
           throw error
