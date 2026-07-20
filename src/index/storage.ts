@@ -303,7 +303,6 @@ export const initializeIndex = (
 ): Effect.Effect<void, DirectoryCreateError> =>
   Effect.gen(function* () {
     yield* ensureDir(storage.paths.root)
-    yield* ensureDir(storage.paths.parsed)
     yield* ensureDir(path.dirname(storage.paths.documents))
   })
 
