@@ -5,7 +5,7 @@
 ```bash
 QUICK REFERENCE
   mdm init [options]              Initialize mdm in a directory
-  mdm index [path] [options]      Index markdown files (add --embed for semantic search)
+  mdm index [path] [options]      Refresh the active manifest (add --embed for semantic search)
   mdm fix [path] [options]        Repair malformed YAML frontmatter
   mdm search <query> [options]    Search by meaning or structure
   mdm context <files...>          Get LLM-ready summary
@@ -28,7 +28,7 @@ mdm extracts *structure* instead of dumping *text*. The result: **80%+ fewer tok
 
 ```bash
 npm install -g markdown-matters
-mdm index .                     # Index your docs
+mdm index .                     # Append this path and refresh the manifest
 mdm fix .                       # Preview malformed frontmatter repairs
 mdm search "authentication"     # Find by meaning
 mdm context README.md           # Get LLM-ready summary
@@ -65,21 +65,20 @@ Config resolution: Local `.mdm.toml` takes precedence over `~/.mdm/.mdm.toml`, w
 
 ### index
 
-Index markdown files for fast searching.
+Refresh the active manifest for fast searching.
 
 ```bash
-mdm index                       # Index current directory (prompts for semantic)
-mdm index ./docs                # Index specific path
+mdm index                       # Refresh all manifest directories (prompts for semantic)
+mdm index ./docs                # Append path, then refresh all directories
 mdm index --embed               # Build embeddings for semantic search
 mdm index --no-embed            # Skip the semantic search prompt
-mdm index --watch               # Watch for changes and re-index automatically
+mdm index --watch               # Show guidance; multi-root watch is deferred
 mdm index --force               # Bypass cache, re-process all files
-mdm index --all                 # Index all registered global sources from ~/.mdm/.mdm.toml
 mdm index --exclude "*.draft.md,research/**"  # Exclude patterns (comma-separated)
 mdm index --no-gitignore        # Ignore .gitignore file
 ```
 
-By default, mdm respects `.gitignore` and `.mdmignore` patterns. Use `--exclude` to add CLI-level patterns (highest priority).
+With a path, `mdm index` appends its absolute declared path to `manifest.toml` before refreshing every directory. Without a path, it refreshes the existing manifest and fails with guidance when the manifest is empty. mdm respects `.gitignore` and `.mdmignore` patterns. Use `--exclude` to add CLI-level patterns.
 
 ### fix
 

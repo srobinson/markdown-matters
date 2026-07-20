@@ -119,5 +119,6 @@ describe('index --force flag', () => {
 
     expect(result.code).not.toBe(0)
     expect(`${result.stdout}\n${result.stderr}`).toContain('--all')
+    expect(`${result.stdout}\n${result.stderr}`).toContain('manifest watching')
   })
 })

@@ -562,7 +562,7 @@ ${c.bold('mdm')} - Token-efficient markdown analysis for LLMs
 
 ${c.yellow('COMMANDS')}
   init                      Initialize mdm in a directory
-  index [path]              Index markdown files (default: .)
+  index [path]              Refresh the active manifest index
   fix [path]                Repair malformed YAML frontmatter
   search <query> [path]     Search by meaning or structure
   context <files>...        Get LLM-ready summary
@@ -577,8 +577,8 @@ ${c.yellow('COMMANDS')}
 ${c.yellow('EXAMPLES')}
   mdm tree                         # List all markdown files
   mdm tree README.md               # Show document outline
-  mdm index                        # Index current directory
-  mdm index --embed                # Index with semantic embeddings
+  mdm index                        # Refresh all manifest directories
+  mdm index --embed                # Refresh and build embeddings
   mdm fix                          # Preview frontmatter repairs
   mdm search "auth"                # Simple term search
   mdm search "auth AND deploy"     # Boolean AND (both required)

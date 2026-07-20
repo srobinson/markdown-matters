@@ -135,6 +135,9 @@ describe('mdm CLI e2e', () => {
       expect(output).toContain('links')
       expect(output).toContain('backlinks')
       expect(output).toContain('stats')
+      expect(output).toContain('Refresh the active manifest index')
+      expect(output).not.toContain('default: .')
+      expect(output).not.toContain('Index current directory')
     })
   })
 
@@ -166,6 +169,7 @@ describe('mdm CLI e2e', () => {
       const output = await run('index --help')
       expect(output).toContain('--embed')
       expect(output).toContain('--watch')
+      expect(output).toContain('manifest watching')
       expect(output).toContain('--force')
       expect(output).not.toContain('--all')
     })

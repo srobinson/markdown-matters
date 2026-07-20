@@ -8,6 +8,7 @@ import { appendManifestDirectory } from '../../manifest.js'
 let tempDir: string
 let secondDir: string
 let mdmHome: string
+const CLI_TIMEOUT_MS = 20_000
 
 beforeEach(() => {
   tempDir = fs.realpathSync(
@@ -46,7 +47,7 @@ const runIndex = async (
         cwd: tempDir,
         env: { ...process.env, MDM_HOME: mdmHome },
         encoding: 'utf-8',
-        timeout: args.includes('--watch') ? 2000 : 30000,
+        timeout: CLI_TIMEOUT_MS,
       },
     )
     return { stdout, stderr: '', code: 0 }

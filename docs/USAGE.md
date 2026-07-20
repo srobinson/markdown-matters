@@ -82,7 +82,7 @@ mdm search "how to authenticate"
 
 ### index
 
-Build or update the document index. Run this first before using other commands.
+Refresh every directory in the active manifest. Run this first before using other commands.
 
 ```bash
 mdm index [path] [options]
@@ -90,33 +90,33 @@ mdm index [path] [options]
 
 **Arguments:**
 
-| Argument | Description                                     |
-| -------- | ----------------------------------------------- |
-| `path`   | Directory to index (default: current directory) |
+| Argument | Description                                            |
+| -------- | ------------------------------------------------------ |
+| `path`   | Optional directory to append before the full refresh   |
 
 **Options:**
 
-| Option        | Description                       |
-| ------------- | --------------------------------- |
-| `-e, --embed` | Also build semantic embeddings    |
-| `-w, --watch` | Watch for file changes            |
-| `--force`     | Force full rebuild (ignore cache) |
-| `--json`      | Output as JSON                    |
-| `--pretty`    | Pretty-print JSON                 |
+| Option        | Description                                |
+| ------------- | ------------------------------------------ |
+| `-e, --embed` | Also build semantic embeddings             |
+| `-w, --watch` | Show deferred manifest watch guidance      |
+| `--force`     | Force full rebuild (ignore cache)          |
+| `--json`      | Output as JSON                             |
+| `--pretty`    | Pretty-print JSON                          |
 
 **Examples:**
 
 ```bash
-# Index current directory
+# Refresh every existing manifest directory
 mdm index
 
-# Index specific directory
+# Append a directory, then refresh the full manifest
 mdm index ./docs
 
-# Index with embeddings for semantic search
+# Refresh with embeddings for semantic search
 mdm index --embed
 
-# Watch mode for development
+# Multi-root watch is deferred; this prints guidance
 mdm index --watch
 
 # Force rebuild
@@ -556,10 +556,10 @@ mdm search "user authentication and session management"
 ### Keeping Index Updated
 
 ```bash
-# One-time index
+# Refresh the active manifest
 mdm index
 
-# Watch mode during development
+# Multi-root watch is deferred; this prints guidance
 mdm index --watch
 
 # Force full rebuild after major changes
