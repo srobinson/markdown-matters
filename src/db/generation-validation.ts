@@ -36,6 +36,13 @@ export interface GenerationArtifactSummary {
   readonly vectors: number
 }
 
+export type GenerationValidationFailure =
+  | GenerationValidationError
+  | FileReadError
+  | IndexCorruptedError
+  | VectorStoreError
+  | EmbeddingNamespaceError
+
 const validationError = (
   targetPath: string,
   message: string,
@@ -332,14 +339,7 @@ const validateSemanticArtifacts = (
 
 export const validateGeneration = (
   indexRoot: string,
-): Effect.Effect<
-  GenerationArtifactSummary,
-  | GenerationValidationError
-  | FileReadError
-  | IndexCorruptedError
-  | VectorStoreError
-  | EmbeddingNamespaceError
-> =>
+): Effect.Effect<GenerationArtifactSummary, GenerationValidationFailure> =>
   Effect.gen(function* () {
     const structural = yield* validateStructuralArtifacts(indexRoot)
     const bm25Sections = yield* validateBM25Artifacts(indexRoot)

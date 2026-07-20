@@ -36,6 +36,10 @@ import type {
   GenerationName,
   PublishedGeneration,
 } from './generation-types.js'
+import {
+  type GenerationValidationFailure,
+  validateGeneration,
+} from './generation-validation.js'
 import { type WriterLockOptions, withWriterLock } from './writer-lock.js'
 
 export type { GenerationBuildContext, PublishedGeneration }
@@ -58,6 +62,7 @@ export interface GenerationWriterFileSystem extends GenerationReaderFileSystem {
 export interface GenerationWriterRuntime {
   readonly fileSystem?: GenerationWriterFileSystem
   readonly writerLock?: WriterLockOptions
+  readonly scheduleReap?: (home: string) => void
 }
 
 export const nodeGenerationWriterFileSystem: GenerationWriterFileSystem = {
@@ -266,7 +271,11 @@ const transactGeneration = <A, E, V>(
   options: GenerationWriteOptions<A, E, V>,
   fileSystem: GenerationWriterFileSystem,
   state: WriteState,
-): Effect.Effect<PublishedGeneration<A>, E | V | GenerationWriteError> => {
+  scheduleReap: (home: string) => void,
+): Effect.Effect<
+  PublishedGeneration<A>,
+  E | V | GenerationValidationFailure | GenerationWriteError
+> => {
   const homeLayout = generationHomeLayout(options.home)
   const transaction = Effect.gen(function* () {
     const previous = yield* wrapWriteError(
@@ -311,6 +320,7 @@ const transactGeneration = <A, E, V>(
     }
     const value = yield* options.build(context)
     yield* options.validate(context, value)
+    yield* validateGeneration(context.indexRoot)
     yield* wrapWriteError(
       state,
       staging.root,
@@ -338,7 +348,7 @@ const transactGeneration = <A, E, V>(
           homeLayout.home,
           syncDirectory(homeLayout.home, fileSystem),
         )
-        yield* Effect.sync(() => scheduleGenerationReap(homeLayout.home))
+        yield* Effect.sync(() => scheduleReap(homeLayout.home))
       }),
     )
 
@@ -361,10 +371,17 @@ export const writeGeneration = <A, E, V>(
   runtime: GenerationWriterRuntime = {},
 ): Effect.Effect<
   PublishedGeneration<A>,
-  E | V | GenerationWriteError | WriterLockError | ProcessIdentityError
+  | E
+  | V
+  | GenerationValidationFailure
+  | GenerationWriteError
+  | WriterLockError
+  | ProcessIdentityError
 > =>
   Effect.suspend(() => {
     const fileSystem = runtime.fileSystem ?? nodeGenerationWriterFileSystem
+    const scheduleReap =
+      runtime.scheduleReap ?? ((home) => scheduleGenerationReap(home))
     const state: WriteState = {
       commitState: 'not-published',
       generation: null,
@@ -372,7 +389,7 @@ export const writeGeneration = <A, E, V>(
     }
     return withWriterLock(
       options.home,
-      () => transactGeneration(options, fileSystem, state),
+      () => transactGeneration(options, fileSystem, state, scheduleReap),
       runtime.writerLock,
     )
   })

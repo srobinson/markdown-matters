@@ -73,6 +73,13 @@ const writeTitle = (
     return title
   })
 
+const testRuntime = (
+  runtime: GenerationWriterRuntime = {},
+): GenerationWriterRuntime => ({
+  ...runtime,
+  scheduleReap: () => undefined,
+})
+
 const seedCurrent = async (
   home: string,
   rawName = 'gen-1',
@@ -97,7 +104,7 @@ const validatedWrite = (
       validate: (context) =>
         validateGeneration(context.indexRoot).pipe(Effect.asVoid),
     },
-    runtime,
+    testRuntime(runtime),
   )
 
 const failingFileSystem = (
@@ -127,15 +134,18 @@ describe('writeGeneration', () => {
     const contexts: GenerationBuildContext[] = []
 
     const published = await Effect.runPromise(
-      writeGeneration({
-        home,
-        build: (context) => {
-          contexts.push(context)
-          return writeTitle(context, 'new')
+      writeGeneration(
+        {
+          home,
+          build: (context) => {
+            contexts.push(context)
+            return writeTitle(context, 'new')
+          },
+          validate: (context) =>
+            validateGeneration(context.indexRoot).pipe(Effect.asVoid),
         },
-        validate: (context) =>
-          validateGeneration(context.indexRoot).pipe(Effect.asVoid),
-      }),
+        testRuntime(),
+      ),
     )
 
     expect(published.generation).toBe('gen-1')
@@ -224,19 +234,22 @@ describe('writeGeneration', () => {
     const events: string[] = []
 
     await Effect.runPromise(
-      writeGeneration({
-        home,
-        prepare: () => Effect.sync(() => events.push('prepare')),
-        build: (context) =>
-          Effect.sync(() => events.push('build')).pipe(
-            Effect.andThen(writeTitle(context, 'ordered')),
-          ),
-        validate: (context) =>
-          Effect.sync(() => events.push('validate')).pipe(
-            Effect.andThen(validateGeneration(context.indexRoot)),
-            Effect.asVoid,
-          ),
-      }),
+      writeGeneration(
+        {
+          home,
+          prepare: () => Effect.sync(() => events.push('prepare')),
+          build: (context) =>
+            Effect.sync(() => events.push('build')).pipe(
+              Effect.andThen(writeTitle(context, 'ordered')),
+            ),
+          validate: (context) =>
+            Effect.sync(() => events.push('validate')).pipe(
+              Effect.andThen(validateGeneration(context.indexRoot)),
+              Effect.asVoid,
+            ),
+        },
+        testRuntime(),
+      ),
     )
 
     expect(events).toEqual(['prepare', 'build', 'validate'])
@@ -251,17 +264,20 @@ describe('writeGeneration', () => {
     const failure = new Error(`${failurePoint} rejected`)
 
     const exit = await Effect.runPromiseExit(
-      writeGeneration({
-        home,
-        build: (context) =>
-          failurePoint === 'build'
-            ? Effect.fail(failure)
-            : writeTitle(context, 'rejected'),
-        validate: (context) =>
-          failurePoint === 'validate'
-            ? Effect.fail(failure)
-            : validateGeneration(context.indexRoot).pipe(Effect.asVoid),
-      }),
+      writeGeneration(
+        {
+          home,
+          build: (context) =>
+            failurePoint === 'build'
+              ? Effect.fail(failure)
+              : writeTitle(context, 'rejected'),
+          validate: (context) =>
+            failurePoint === 'validate'
+              ? Effect.fail(failure)
+              : validateGeneration(context.indexRoot).pipe(Effect.asVoid),
+        },
+        testRuntime(),
+      ),
     )
 
     expect(exit).toMatchObject({
@@ -270,6 +286,39 @@ describe('writeGeneration', () => {
     })
     expect(await Effect.runPromise(readCurrentGeneration(home))).toBe('gen-1')
     expect(await readTitle(oldRoot)).toBe('old')
+  })
+
+  it('always rejects an incomplete artifact set before publication', async () => {
+    const home = await createHome()
+    await seedCurrent(home)
+
+    const exit = await Effect.runPromiseExit(
+      writeGeneration(
+        {
+          home,
+          build: (context) =>
+            Effect.promise(async () => {
+              const storage = createStorage(
+                context.indexRoot,
+                context.indexRoot,
+              )
+              await fs.unlink(storage.paths.bm25Metadata)
+              return 'incomplete'
+            }),
+          validate: () => Effect.void,
+        },
+        testRuntime(),
+      ),
+    )
+
+    expect(exit).toMatchObject({
+      _tag: 'Failure',
+      cause: {
+        _tag: 'Fail',
+        error: { _tag: 'GenerationValidationError' },
+      },
+    })
+    expect(await Effect.runPromise(readCurrentGeneration(home))).toBe('gen-1')
   })
 
   it.each([
