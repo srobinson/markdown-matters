@@ -79,6 +79,10 @@ export {
   estimateEmbeddingCost,
 } from './semantic-search-cost.js'
 export {
+  type EmbeddingPersistenceInput,
+  persistEmbeddingBuild,
+} from './semantic-search-persistence.js'
+export {
   type EmbeddingStats,
   getEmbeddingStats,
 } from './semantic-search-stats.js'
