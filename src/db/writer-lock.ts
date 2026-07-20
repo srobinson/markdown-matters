@@ -5,8 +5,8 @@ import { createDurableRecordLink, syncDirectory } from './fs-durability.js'
 import {
   errorCode,
   type ProcessIdentityError,
-  type WriterLockOperation,
   WriterLockError,
+  type WriterLockOperation,
 } from './generation-errors.js'
 import { generationHomeLayout, portablePath } from './generation-paths.js'
 import type { WriterLockRecord } from './generation-types.js'
