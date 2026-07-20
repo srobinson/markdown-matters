@@ -5,7 +5,11 @@ import * as path from 'node:path'
 import { Effect } from 'effect'
 import { afterEach, expect, it, vi } from 'vitest'
 
-import { canonicalizeDiscoveredFiles, discoverFiles } from './file-discovery.js'
+import {
+  canonicalizeDiscoveredFiles,
+  discoverFiles,
+  discoveryRelativePath,
+} from './file-discovery.js'
 import { createIgnoreFilter } from './ignore-patterns.js'
 
 const cleanup: string[] = []
@@ -77,9 +81,9 @@ it.each([
   const filter = await Effect.runPromise(createIgnoreFilter({ rootPath: root }))
   const result = await Effect.runPromise(discoverFiles(root, filter, options))
 
-  expect(result.files.map((file) => path.relative(root, file)).sort()).toEqual(
-    [...expected].sort(),
-  )
+  expect(
+    result.files.map((file) => discoveryRelativePath(root, file)).sort(),
+  ).toEqual([...expected].sort())
 })
 
 it('skips hidden entries before applying nested ignore rules', async () => {

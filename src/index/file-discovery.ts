@@ -96,6 +96,11 @@ export const canonicalizeDiscoveredFiles = (
 export const isMarkdownFile = (filename: string): boolean =>
   filename.endsWith('.md') || filename.endsWith('.mdx')
 
+export const discoveryRelativePath = (
+  rootPath: string,
+  filePath: string,
+): string => path.relative(rootPath, filePath).split(path.sep).join('/')
+
 const walkDirectory = async (
   dir: string,
   rootPath: string,
@@ -111,7 +116,7 @@ const walkDirectory = async (
 
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name)
-    const relativePath = path.relative(rootPath, fullPath)
+    const relativePath = discoveryRelativePath(rootPath, fullPath)
 
     // Deliberate git divergence: all hidden entries are skipped before ignore
     // evaluation, so hidden directories cannot opt back in through nested rules.
