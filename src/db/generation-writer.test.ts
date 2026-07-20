@@ -4,6 +4,10 @@ import * as path from 'node:path'
 import { Effect, Fiber } from 'effect'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  getMetaPath,
+  getVectorPath,
+} from '../embeddings/embedding-namespace-paths.js'
+import {
   createStorage,
   loadDocumentIndex,
   saveDocumentIndex,
@@ -128,9 +132,15 @@ afterEach(async () => {
 })
 
 describe('writeGeneration', () => {
-  it('bootstraps gen-1 from direct-root artifacts without mutating them', async () => {
+  it('builds a fresh gen-1 without importing direct-root artifacts', async () => {
     const home = await createHome()
     await seedGenerationArtifacts(home)
+    const legacyNamespace = 'legacy_model_2'
+    const legacyVector = getVectorPath(home, legacyNamespace)
+    const legacyMetadata = getMetaPath(home, legacyNamespace)
+    await fs.mkdir(path.dirname(legacyVector), { recursive: true })
+    await fs.writeFile(legacyVector, 'legacy-vector')
+    await fs.writeFile(legacyMetadata, 'legacy-metadata')
     const contexts: GenerationBuildContext[] = []
 
     const published = await Effect.runPromise(
@@ -139,7 +149,9 @@ describe('writeGeneration', () => {
           home,
           build: (context) => {
             contexts.push(context)
-            return writeTitle(context, 'new')
+            return Effect.promise(() =>
+              seedGenerationArtifacts(context.indexRoot),
+            ).pipe(Effect.andThen(writeTitle(context, 'fresh')))
           },
           validate: (context) =>
             validateGeneration(context.indexRoot).pipe(Effect.asVoid),
@@ -152,7 +164,7 @@ describe('writeGeneration', () => {
     expect(published.indexRoot).toBe(
       generationLayout(home, published.generation).root,
     )
-    expect(published.value).toBe('new')
+    expect(published.value).toBe('fresh')
     expect(contexts).toHaveLength(1)
     expect(contexts[0]).toMatchObject({
       home: generationHomeLayout(home).home,
@@ -164,7 +176,14 @@ describe('writeGeneration', () => {
     )
     expect(await Effect.runPromise(readCurrentGeneration(home))).toBe('gen-1')
     expect(await readTitle(home)).toBe('old')
-    expect(await readTitle(published.indexRoot)).toBe('new')
+    expect(await readTitle(published.indexRoot)).toBe('fresh')
+    expect(await fs.readFile(legacyVector, 'utf8')).toBe('legacy-vector')
+    expect(
+      await exists(getVectorPath(published.indexRoot, legacyNamespace)),
+    ).toBe(false)
+    expect(
+      await exists(getMetaPath(published.indexRoot, legacyNamespace)),
+    ).toBe(false)
   })
 
   it('allocates after every finalized generation without reusing an orphan', async () => {
@@ -234,7 +253,7 @@ describe('writeGeneration', () => {
 describe('writeGeneration validation', () => {
   it('runs prepare, build, and validation under the transaction in order', async () => {
     const home = await createHome()
-    await seedGenerationArtifacts(home)
+    await seedCurrent(home)
     const events: string[] = []
 
     await Effect.runPromise(
@@ -353,6 +372,40 @@ describe('writeGeneration publication', () => {
       generation: 'gen-2',
     })
     expect(await Effect.runPromise(readCurrentGeneration(home))).toBe('gen-1')
+  })
+
+  it('removes an unpublished generation after its final rename', async () => {
+    const home = await createHome()
+    const oldRoot = await seedCurrent(home)
+    const normalizedHome = generationHomeLayout(home).home
+    let generationRenamed = false
+    const fileSystem: GenerationWriterFileSystem = {
+      ...nodeGenerationWriterFileSystem,
+      platform: 'linux',
+      rename: async (sourcePath, targetPath) => {
+        await nodeGenerationWriterFileSystem.rename(sourcePath, targetPath)
+        if (path.basename(targetPath) === 'gen-2') generationRenamed = true
+      },
+      openDirectory: async (directoryPath) => {
+        if (generationRenamed && directoryPath === normalizedHome) {
+          throw new Error('Injected pre-pointer home sync failure')
+        }
+        return { sync: async () => undefined, close: async () => undefined }
+      },
+    }
+
+    const error = await Effect.runPromise(
+      Effect.flip(validatedWrite(home, 'unpublished', { fileSystem })),
+    )
+
+    expect(error).toMatchObject({
+      _tag: 'GenerationWriteError',
+      commitState: 'not-published',
+      generation: 'gen-2',
+    })
+    expect(await Effect.runPromise(readCurrentGeneration(home))).toBe('gen-1')
+    expect(await exists(path.join(home, 'gen-2'))).toBe(false)
+    expect(await readTitle(oldRoot)).toBe('old')
   })
 
   it('reports published when home sync fails after the pointer rename', async () => {

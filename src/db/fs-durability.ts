@@ -130,6 +130,7 @@ export const syncDirectory = (
   directoryPath: string,
   fileSystem: DurabilityFileSystem = nodeDurabilityFileSystem,
 ): Effect.Effect<void, GenerationDurabilityError> => {
+  // Windows deliberately relies on atomic rename because Node cannot fsync directories.
   if (fileSystem.platform === 'win32') return Effect.void
   if (fileSystem.platform === 'linux' || fileSystem.platform === 'darwin') {
     return syncPath(directoryPath, 'sync-directory', () =>

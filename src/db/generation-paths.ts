@@ -211,7 +211,6 @@ export const readCurrentGeneration = (
         }),
     })
     const name = yield* parseGenerationName(contents)
-    generationLayout(layout.home, name)
     return name
   })
 

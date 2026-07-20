@@ -11,6 +11,7 @@ import {
 import { generationHomeLayout, portablePath } from './generation-paths.js'
 import type { WriterLockRecord } from './generation-types.js'
 import {
+  hasValidIdentity,
   isAbandoned,
   nodeProcessInspector,
   type ProcessInspector,
@@ -69,7 +70,7 @@ const validRecord = (value: unknown): value is WriterLockRecord => {
     typeof candidate.createdAt === 'string' &&
     Number.isFinite(Date.parse(candidate.createdAt)) &&
     candidate.holder !== undefined &&
-    sameProcessInstance(candidate.holder, candidate.holder)
+    hasValidIdentity(candidate.holder)
   )
 }
 

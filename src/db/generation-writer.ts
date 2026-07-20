@@ -76,7 +76,7 @@ export const nodeGenerationWriterFileSystem: GenerationWriterFileSystem = {
 interface WriteState {
   commitState: GenerationCommitState
   generation: GenerationName | null
-  stagingRoot: string | null
+  unpublishedRoot: string | null
 }
 
 const writeError = (
@@ -298,14 +298,13 @@ const transactGeneration = <A, E, V>(
       randomUUID(),
     )
     const published = generationLayout(homeLayout.home, generation)
-    state.stagingRoot = staging.root
+    state.unpublishedRoot = staging.root
 
     yield* prepareStagingRoot(state, staging.root, fileSystem)
-    const sourceRoot =
-      previous === null
-        ? homeLayout.home
-        : generationLayout(homeLayout.home, previous).root
-    yield* copyCurrentArtifacts(state, sourceRoot, staging.root, fileSystem)
+    if (previous !== null) {
+      const sourceRoot = generationLayout(homeLayout.home, previous).root
+      yield* copyCurrentArtifacts(state, sourceRoot, staging.root, fileSystem)
+    }
     yield* wrapWriteError(
       state,
       staging.leasesRoot,
@@ -331,6 +330,7 @@ const transactGeneration = <A, E, V>(
         yield* attempt(state, published.root, () =>
           fileSystem.rename(staging.root, published.root),
         )
+        state.unpublishedRoot = published.root
         yield* wrapWriteError(
           state,
           homeLayout.home,
@@ -357,8 +357,8 @@ const transactGeneration = <A, E, V>(
 
   return transaction.pipe(
     Effect.onError(() =>
-      state.commitState === 'not-published' && state.stagingRoot !== null
-        ? removePath(state, state.stagingRoot, fileSystem).pipe(
+      state.commitState === 'not-published' && state.unpublishedRoot !== null
+        ? removePath(state, state.unpublishedRoot, fileSystem).pipe(
             Effect.catchAll(() => Effect.void),
           )
         : Effect.void,
@@ -385,7 +385,7 @@ export const writeGeneration = <A, E, V>(
     const state: WriteState = {
       commitState: 'not-published',
       generation: null,
-      stagingRoot: null,
+      unpublishedRoot: null,
     }
     return withWriterLock(
       options.home,

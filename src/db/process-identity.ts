@@ -95,7 +95,9 @@ const identityValue = (value: unknown): string | null => {
   return normalized.length > 0 ? normalized : null
 }
 
-const validIdentity = (identity: unknown): identity is ProcessIdentity => {
+export const hasValidIdentity = (
+  identity: unknown,
+): identity is ProcessIdentity => {
   if (typeof identity !== 'object' || identity === null) return false
   const candidate = identity as Partial<ProcessIdentity>
   return (
@@ -306,8 +308,8 @@ export const sameProcessInstance = (
   left: ProcessIdentity,
   right: ProcessIdentity,
 ): boolean =>
-  validIdentity(left) &&
-  validIdentity(right) &&
+  hasValidIdentity(left) &&
+  hasValidIdentity(right) &&
   left.pid === right.pid &&
   identityValue(left.startedAt) === identityValue(right.startedAt) &&
   identityValue(left.bootId) === identityValue(right.bootId)
@@ -316,11 +318,11 @@ export const isAbandoned = (
   holder: ProcessIdentity,
   inspector: ProcessInspector,
 ): Effect.Effect<boolean, ProcessIdentityError> => {
-  if (!validIdentity(holder)) return Effect.succeed(false)
+  if (!hasValidIdentity(holder)) return Effect.succeed(false)
   return inspector.inspect(holder.pid).pipe(
     Effect.map((identity) => {
       if (identity === null) return true
-      if (!validIdentity(identity)) return false
+      if (!hasValidIdentity(identity)) return false
       return !sameProcessInstance(holder, identity)
     }),
     Effect.catchAll(() => Effect.succeed(false)),

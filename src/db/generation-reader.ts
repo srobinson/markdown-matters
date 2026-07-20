@@ -26,9 +26,9 @@ import type {
   GenerationReadSession,
 } from './generation-types.js'
 import {
+  hasValidIdentity,
   nodeProcessInspector,
   type ProcessInspector,
-  sameProcessInstance,
 } from './process-identity.js'
 
 export type { GenerationLeaseRecord, GenerationReadSession }
@@ -120,7 +120,7 @@ export const parseGenerationLeaseRecord = (
     typeof candidate.createdAt !== 'string' ||
     !Number.isFinite(Date.parse(candidate.createdAt)) ||
     candidate.holder === undefined ||
-    !sameProcessInstance(candidate.holder, candidate.holder)
+    !hasValidIdentity(candidate.holder)
   ) {
     return null
   }
