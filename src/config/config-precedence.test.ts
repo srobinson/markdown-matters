@@ -3,7 +3,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { generateDefaultToml } from '../cli/commands/init-toml.js'
-import { loadDetailed, readGlobalSources } from './loader.js'
+import { loadDetailed } from './loader.js'
 
 const tempDirs: string[] = []
 
@@ -106,17 +106,6 @@ describe('config precedence', () => {
     expect(result.parseErrors.map((error) => error.path)).toEqual([
       path.join(project, '.mdm.toml'),
     ])
-  })
-
-  it('reads registered sources from the selected home', () => {
-    const home = makeTempDir('mdm-config-home-')
-    fs.writeFileSync(
-      path.join(home, '.mdm.toml'),
-      '[[sources]]\npath="/notes/one"\nname="one"\n',
-    )
-    vi.stubEnv('MDM_HOME', home)
-
-    expect(readGlobalSources()).toEqual([{ path: '/notes/one', name: 'one' }])
   })
 
   it('omits obsolete index and cache directory settings', () => {

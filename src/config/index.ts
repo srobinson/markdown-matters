@@ -7,7 +7,6 @@
 export {
   type ConfigFileLoadResult,
   type ConfigParseError,
-  type GlobalSource,
   type LoadOptions,
   type LoadResult,
   // Loader
@@ -21,7 +20,6 @@ export {
   mergeWithDefaults,
   type PartialMdmConfig,
   readEnvVars,
-  readGlobalSources,
   type TomlFileLoadResult,
   validateConfig,
 } from './loader.js'

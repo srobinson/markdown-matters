@@ -12,6 +12,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { loadTomlFile } from '../../config/loader.js'
+import { manifestPath } from '../../manifest.js'
 
 let tempDir: string
 let fakeHome: string
@@ -145,21 +146,26 @@ describe('mdm init --global', () => {
     expect(fs.existsSync(configPath)).toBe(true)
   })
 
-  it('registers cwd in [[sources]]', async () => {
+  it('registers cwd in manifest.toml without adding config sources', async () => {
     await runInit('--global --yes', tempDir)
+    const home = path.join(fakeHome, '.mdm')
+    const manifest = fs.readFileSync(manifestPath(home), 'utf-8')
     const configPath = path.join(fakeHome, '.mdm', '.mdm.toml')
-    const content = fs.readFileSync(configPath, 'utf-8')
     // Paths are normalized to forward slashes in TOML (backslashes are escape
     // characters in TOML basic strings and invalid on Windows paths).
     const normalizedTempDir = tempDir.replace(/\\/g, '/')
-    expect(content).toContain(`path = "${normalizedTempDir}"`)
+    expect(manifest).toContain('[[dir]]')
+    expect(manifest).toContain(`path = "${normalizedTempDir}"`)
+    expect(loadTomlFile(configPath)).not.toHaveProperty('sources')
   })
 
-  it('does not duplicate source on second init', async () => {
+  it('does not duplicate a directory on second init', async () => {
     await runInit('--global --yes', tempDir)
     await runInit('--global --yes', tempDir)
-    const configPath = path.join(fakeHome, '.mdm', '.mdm.toml')
-    const content = fs.readFileSync(configPath, 'utf-8')
+    const content = fs.readFileSync(
+      manifestPath(path.join(fakeHome, '.mdm')),
+      'utf-8',
+    )
     // Paths are normalized to forward slashes in TOML output.
     const normalizedTempDir = tempDir.replace(/\\/g, '/')
     const matches = content.match(
@@ -168,15 +174,17 @@ describe('mdm init --global', () => {
     expect(matches).toHaveLength(1)
   })
 
-  it('appends new source from different directory', async () => {
+  it('appends a new directory from a different cwd', async () => {
     const secondDir = fs.realpathSync(
       fs.mkdtempSync(path.join(os.tmpdir(), 'mdm-init-2-')),
     )
     try {
       await runInit('--global --yes', tempDir)
       await runInit('--global --yes', secondDir)
-      const configPath = path.join(fakeHome, '.mdm', '.mdm.toml')
-      const content = fs.readFileSync(configPath, 'utf-8')
+      const content = fs.readFileSync(
+        manifestPath(path.join(fakeHome, '.mdm')),
+        'utf-8',
+      )
       // Paths are normalized to forward slashes in TOML output.
       expect(content).toContain(`path = "${tempDir.replace(/\\/g, '/')}"`)
       expect(content).toContain(`path = "${secondDir.replace(/\\/g, '/')}"`)
@@ -189,21 +197,20 @@ describe('mdm init --global', () => {
     await runInit('--global --yes', tempDir)
     const configPath = path.join(fakeHome, '.mdm', '.mdm.toml')
     const parsed = loadTomlFile(configPath)
-    // The generated file has [[sources]] which smol-toml should parse
-    // The base config sections should parse fine
     expect(parsed).not.toBeNull()
+    expect(parsed).not.toHaveProperty('sources')
   })
 })
 
 describe('mdm init with existing global', () => {
-  it('adds source when global exists and --yes', async () => {
+  it('adds a directory when global exists and --yes', async () => {
     // Pre-create global dir
     fs.mkdirSync(path.join(fakeHome, '.mdm'), { recursive: true })
     fs.writeFileSync(path.join(fakeHome, '.mdm', '.mdm.toml'), '')
 
     await runInit('--yes', tempDir)
     const content = fs.readFileSync(
-      path.join(fakeHome, '.mdm', '.mdm.toml'),
+      manifestPath(path.join(fakeHome, '.mdm')),
       'utf-8',
     )
     // Paths are normalized to forward slashes in TOML output.
