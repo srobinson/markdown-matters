@@ -14,3 +14,20 @@ export class GenerationPathError extends Data.TaggedError(
   readonly message: string
   readonly cause?: unknown
 }> {}
+
+export type GenerationDurabilityOperation =
+  | 'link'
+  | 'read-directory'
+  | 'rename'
+  | 'sync-directory'
+  | 'sync-file'
+  | 'write-file'
+
+export class GenerationDurabilityError extends Data.TaggedError(
+  'GenerationDurabilityError',
+)<{
+  readonly operation: GenerationDurabilityOperation
+  readonly path: string
+  readonly message: string
+  readonly cause?: unknown
+}> {}
