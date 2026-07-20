@@ -6,11 +6,17 @@ import { Effect } from 'effect'
 import { afterEach, expect, it } from 'vitest'
 
 import { type DocumentKey, expandDeclaredPath } from '../db/canonical.js'
+import { readCurrentGeneration } from '../db/generation-paths.js'
+import {
+  getActiveProviderPath,
+  writeActiveProvider,
+} from '../embeddings/embedding-namespace.js'
 import type { VectorEntry } from '../embeddings/types.js'
 import { createNamespacedVectorStore } from '../embeddings/vector-store.js'
-import type { MdmManifest } from '../manifest.js'
+import { appendManifestDirectory, type MdmManifest } from '../manifest.js'
 import { bm25Search } from '../search/bm25-store.js'
 import { buildManifestIndex } from './manifest-build.js'
+import { refreshManifestIndex } from './manifest-refresh.js'
 import {
   createStorage,
   loadDocumentIndex,
@@ -214,4 +220,102 @@ it('removes stale section vectors when manifest membership shrinks', async () =>
   expect(reloaded.getEmbeddedIds()).toEqual(
     new Set(Object.keys(remainingSections?.sections ?? {})),
   )
+})
+
+it('removes a vector when its section survives with a changed document hash', async () => {
+  const fixture = await makeManifestRoots()
+  const manifest = {
+    directories: [fixture.manifest.directories[0]!],
+  }
+  await Effect.runPromise(
+    buildManifestIndex(manifest, { indexRoot: fixture.home }),
+  )
+  const storage = createStorage(fixture.home, fixture.home)
+  const [documents, sections] = await Promise.all([
+    Effect.runPromise(loadDocumentIndex(storage)),
+    Effect.runPromise(loadSectionIndex(storage)),
+  ])
+  const section = Object.values(sections?.sections ?? {})[0]
+  if (section === undefined) throw new Error('Expected one indexed section')
+  const documentHash = documents?.documents[section.documentPath]?.hash
+  if (documentHash === undefined) throw new Error('Expected indexed document')
+
+  const store = createNamespacedVectorStore(
+    fixture.home,
+    'openai',
+    'test-model',
+    2,
+  )
+  await Effect.runPromise(
+    store.add([
+      {
+        id: section.id,
+        sectionId: section.id,
+        documentPath: section.documentPath,
+        documentHash,
+        heading: section.heading,
+        embedding: [1, 0],
+      },
+    ]),
+  )
+  await Effect.runPromise(store.save())
+
+  await fs.writeFile(
+    path.join(fixture.first, 'first.md'),
+    '# first\n\nchanged body keeps the same section identity',
+  )
+  await Effect.runPromise(
+    buildManifestIndex(manifest, { indexRoot: fixture.home }),
+  )
+
+  const reloaded = createNamespacedVectorStore(
+    fixture.home,
+    'openai',
+    'test-model',
+    2,
+  )
+  expect((await Effect.runPromise(reloaded.load())).loaded).toBe(true)
+  expect(reloaded.getEmbeddedIds().has(section.id)).toBe(false)
+})
+
+it('keeps current unchanged when staged active-provider persistence fails', async () => {
+  const fixture = await makeManifestRoots()
+  await Effect.runPromise(
+    appendManifestDirectory(fixture.home, { path: fixture.first }),
+  )
+  const first = await Effect.runPromise(
+    refreshManifestIndex(fixture.home, undefined, {}),
+  )
+
+  await expect(
+    Effect.runPromise(
+      refreshManifestIndex(fixture.home, undefined, {
+        complete: (context) =>
+          Effect.gen(function* () {
+            yield* Effect.promise(() =>
+              fs.mkdir(getActiveProviderPath(context.indexRoot), {
+                recursive: true,
+              }),
+            )
+            yield* writeActiveProvider(context.indexRoot, {
+              namespace: 'openai_test-model_2',
+              provider: 'openai',
+              model: 'test-model',
+              dimensions: 2,
+              activatedAt: new Date().toISOString(),
+            })
+          }),
+      }),
+    ),
+  ).rejects.toThrow('Failed to write active provider')
+
+  expect(await Effect.runPromise(readCurrentGeneration(fixture.home))).toBe(
+    first.generation,
+  )
+  await expect(
+    fs.access(path.join(fixture.home, 'gen-2')),
+  ).rejects.toMatchObject({ code: 'ENOENT' })
+  await expect(
+    fs.access(path.join(fixture.home, 'indexes')),
+  ).rejects.toMatchObject({ code: 'ENOENT' })
 })

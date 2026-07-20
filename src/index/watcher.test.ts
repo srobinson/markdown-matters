@@ -3,10 +3,12 @@
  *
  * Tests the file watcher: debounce behavior, event handling (add/change/unlink),
  * graceful shutdown, and error propagation. Uses vitest fake timers and mocks
- * for chokidar and buildIndex to avoid real filesystem watching.
+ * for chokidar and manifest refresh to avoid real filesystem watching.
  */
 
 import { EventEmitter } from 'node:events'
+import * as fs from 'node:fs/promises'
+import * as os from 'node:os'
 import * as path from 'node:path'
 import { Effect } from 'effect'
 import {
@@ -34,31 +36,15 @@ vi.mock('chokidar', () => ({
   watch: vi.fn(() => mockWatcher),
 }))
 
-// Mock buildIndex and indexExists
-const mockBuildIndex = vi.fn()
-const mockIndexExists = vi.fn()
+const mockRefreshManifestIndex = vi.fn()
 
-vi.mock('./indexer.js', () => ({
-  buildIndex: (...args: unknown[]) => mockBuildIndex(...args),
+vi.mock('./manifest-refresh.js', () => ({
+  refreshManifestIndex: (...args: unknown[]) =>
+    mockRefreshManifestIndex(...args),
 }))
 
-vi.mock('./storage.js', () => ({
-  createStorage: (sourceRoot: string, indexRoot: string) => ({
-    sourceRoot,
-    indexRoot,
-    paths: {
-      root: indexRoot,
-      documents: `${indexRoot}/indexes/documents.json`,
-      sections: `${indexRoot}/indexes/sections.json`,
-      links: `${indexRoot}/indexes/links.json`,
-      bm25: `${indexRoot}/bm25.json`,
-      bm25Metadata: `${indexRoot}/bm25.meta.json`,
-    },
-  }),
-  indexExists: (...args: unknown[]) => mockIndexExists(...args),
-}))
-
-vi.mock('./ignore-patterns.js', () => ({
+vi.mock('./ignore-patterns.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./ignore-patterns.js')>()),
   getChokidarIgnorePatterns: () => Effect.succeed([/(^|[/\\])\../]),
 }))
 
@@ -67,6 +53,7 @@ vi.mock('./ignore-patterns.js', () => ({
 // ============================================================================
 
 import {
+  type Watcher,
   type WatcherOptions,
   watchDirectory as watchDirectoryEffect,
 } from './watcher.js'
@@ -87,10 +74,13 @@ const fakeResult: IndexResult = {
   skipped: { unchanged: 0, excluded: 0, hidden: 0, total: 0 },
 }
 
-const setupMocks = (opts: { indexAlreadyExists?: boolean } = {}) => {
-  mockBuildIndex.mockReturnValue(Effect.succeed(fakeResult))
-  mockIndexExists.mockReturnValue(
-    Effect.succeed(opts.indexAlreadyExists ?? true),
+const setupMocks = () => {
+  mockRefreshManifestIndex.mockReturnValue(
+    Effect.succeed({
+      generation: 'gen-1',
+      indexRoot: '/test/index/gen-1',
+      value: fakeResult,
+    }),
   )
 }
 
@@ -101,6 +91,14 @@ const watchDirectory = (
   rootPath: string,
   options: Omit<WatcherOptions, 'indexRoot'> = {},
 ) => watchDirectoryEffect(rootPath, { indexRoot: '/test/index', ...options })
+
+const startWatcher = async (
+  effect: ReturnType<typeof watchDirectory>,
+): Promise<Watcher> => {
+  const watcher = await run(effect)
+  mockRefreshManifestIndex.mockClear()
+  return watcher
+}
 
 // ============================================================================
 // Setup / Teardown
@@ -123,56 +121,56 @@ afterEach(() => {
 
 describe('file change events', () => {
   it('change event triggers re-index after debounce', async () => {
-    const watcher = await run(watchDirectory('/test/root'))
+    const watcher = await startWatcher(watchDirectory('/test/root'))
 
     mockWatcher.emit('change', '/test/root/doc.md')
-    expect(mockBuildIndex).toHaveBeenCalledTimes(0)
+    expect(mockRefreshManifestIndex).toHaveBeenCalledTimes(0)
 
     await vi.advanceTimersByTimeAsync(300)
-    expect(mockBuildIndex).toHaveBeenCalledTimes(1)
+    expect(mockRefreshManifestIndex).toHaveBeenCalledTimes(1)
 
     watcher.stop()
   })
 
   it('add event triggers re-index after debounce', async () => {
-    const watcher = await run(watchDirectory('/test/root'))
+    const watcher = await startWatcher(watchDirectory('/test/root'))
 
     mockWatcher.emit('add', '/test/root/new-file.md')
     await vi.advanceTimersByTimeAsync(300)
 
-    expect(mockBuildIndex).toHaveBeenCalledTimes(1)
+    expect(mockRefreshManifestIndex).toHaveBeenCalledTimes(1)
     watcher.stop()
   })
 
   it('unlink (delete) event triggers re-index after debounce', async () => {
-    const watcher = await run(watchDirectory('/test/root'))
+    const watcher = await startWatcher(watchDirectory('/test/root'))
 
     mockWatcher.emit('unlink', '/test/root/deleted.md')
     await vi.advanceTimersByTimeAsync(300)
 
-    expect(mockBuildIndex).toHaveBeenCalledTimes(1)
+    expect(mockRefreshManifestIndex).toHaveBeenCalledTimes(1)
     watcher.stop()
   })
 
   it('ignores non-markdown files', async () => {
-    const watcher = await run(watchDirectory('/test/root'))
+    const watcher = await startWatcher(watchDirectory('/test/root'))
 
     mockWatcher.emit('change', '/test/root/image.png')
     mockWatcher.emit('add', '/test/root/script.js')
     mockWatcher.emit('unlink', '/test/root/data.json')
     await vi.advanceTimersByTimeAsync(300)
 
-    expect(mockBuildIndex).not.toHaveBeenCalled()
+    expect(mockRefreshManifestIndex).not.toHaveBeenCalled()
     watcher.stop()
   })
 
   it('treats .mdx files as markdown', async () => {
-    const watcher = await run(watchDirectory('/test/root'))
+    const watcher = await startWatcher(watchDirectory('/test/root'))
 
     mockWatcher.emit('change', '/test/root/page.mdx')
     await vi.advanceTimersByTimeAsync(300)
 
-    expect(mockBuildIndex).toHaveBeenCalledTimes(1)
+    expect(mockRefreshManifestIndex).toHaveBeenCalledTimes(1)
     watcher.stop()
   })
 })
@@ -183,7 +181,7 @@ describe('file change events', () => {
 
 describe('debounce', () => {
   it('coalesces multiple rapid changes into a single re-index', async () => {
-    const watcher = await run(watchDirectory('/test/root'))
+    const watcher = await startWatcher(watchDirectory('/test/root'))
 
     // Fire 5 rapid changes within the debounce window
     mockWatcher.emit('change', '/test/root/a.md')
@@ -194,13 +192,12 @@ describe('debounce', () => {
 
     await vi.advanceTimersByTimeAsync(300)
 
-    // All 5 events should produce exactly 1 buildIndex call
-    expect(mockBuildIndex).toHaveBeenCalledTimes(1)
+    expect(mockRefreshManifestIndex).toHaveBeenCalledTimes(1)
     watcher.stop()
   })
 
   it('respects custom debounceMs', async () => {
-    const watcher = await run(
+    const watcher = await startWatcher(
       watchDirectory('/test/root', { debounceMs: 1000 }),
     )
 
@@ -208,16 +205,18 @@ describe('debounce', () => {
 
     // At 300ms, should not have fired yet
     await vi.advanceTimersByTimeAsync(300)
-    expect(mockBuildIndex).not.toHaveBeenCalled()
+    expect(mockRefreshManifestIndex).not.toHaveBeenCalled()
 
     // At 1000ms, should fire
     await vi.advanceTimersByTimeAsync(700)
-    expect(mockBuildIndex).toHaveBeenCalledTimes(1)
+    expect(mockRefreshManifestIndex).toHaveBeenCalledTimes(1)
     watcher.stop()
   })
 
   it('resets debounce timer on each new event', async () => {
-    const watcher = await run(watchDirectory('/test/root', { debounceMs: 300 }))
+    const watcher = await startWatcher(
+      watchDirectory('/test/root', { debounceMs: 300 }),
+    )
 
     mockWatcher.emit('change', '/test/root/a.md')
     await vi.advanceTimersByTimeAsync(200)
@@ -227,11 +226,11 @@ describe('debounce', () => {
     await vi.advanceTimersByTimeAsync(200)
 
     // 400ms total elapsed, but only 200ms since last event
-    expect(mockBuildIndex).not.toHaveBeenCalled()
+    expect(mockRefreshManifestIndex).not.toHaveBeenCalled()
 
     // 300ms since last event
     await vi.advanceTimersByTimeAsync(100)
-    expect(mockBuildIndex).toHaveBeenCalledTimes(1)
+    expect(mockRefreshManifestIndex).toHaveBeenCalledTimes(1)
     watcher.stop()
   })
 })
@@ -243,7 +242,10 @@ describe('debounce', () => {
 describe('callbacks', () => {
   it('calls onIndex after successful re-index', async () => {
     const onIndex = vi.fn()
-    const watcher = await run(watchDirectory('/test/root', { onIndex }))
+    const watcher = await startWatcher(
+      watchDirectory('/test/root', { onIndex }),
+    )
+    onIndex.mockClear()
 
     mockWatcher.emit('change', '/test/root/doc.md')
     await vi.advanceTimersByTimeAsync(300)
@@ -255,19 +257,18 @@ describe('callbacks', () => {
     watcher.stop()
   })
 
-  it('calls onError when buildIndex fails during watch', async () => {
+  it('calls onError when manifest refresh fails during watch', async () => {
     // Use real timers here because Effect's internal fiber scheduling
     // conflicts with vitest fake timer microtask flushing
     vi.useRealTimers()
     setupMocks()
 
     const onError = vi.fn()
-    const watcher = await run(
+    const watcher = await startWatcher(
       watchDirectory('/test/root', { onError, debounceMs: 50 }),
     )
 
-    // Make buildIndex reject via Effect.fail so runPromise throws
-    mockBuildIndex.mockReturnValue(
+    mockRefreshManifestIndex.mockReturnValue(
       Effect.fail(new Error('index rebuild exploded')),
     )
 
@@ -287,7 +288,9 @@ describe('callbacks', () => {
 
   it('calls onError when chokidar emits an error', async () => {
     const onError = vi.fn()
-    const watcher = await run(watchDirectory('/test/root', { onError }))
+    const watcher = await startWatcher(
+      watchDirectory('/test/root', { onError }),
+    )
 
     mockWatcher.emit('error', new Error('ENOSPC: no space left on device'))
 
@@ -303,29 +306,20 @@ describe('callbacks', () => {
 // ============================================================================
 
 describe('initial index', () => {
-  it('builds initial index when none exists', async () => {
-    setupMocks({ indexAlreadyExists: false })
+  it('publishes the initial manifest generation', async () => {
     const onIndex = vi.fn()
     const watcher = await run(watchDirectory('/test/root', { onIndex }))
 
-    // buildIndex should have been called once for initial build
-    expect(mockBuildIndex).toHaveBeenCalledTimes(1)
-    expect(mockBuildIndex).toHaveBeenCalledWith(
+    expect(mockRefreshManifestIndex).toHaveBeenCalledTimes(1)
+    expect(mockRefreshManifestIndex).toHaveBeenCalledWith(
+      path.resolve('/test/index'),
       path.resolve('/test/root'),
-      expect.objectContaining({ indexRoot: '/test/index' }),
+      expect.objectContaining({ changedPaths: undefined }),
     )
     expect(onIndex).toHaveBeenCalledWith({
       documentsIndexed: 5,
       duration: 42,
     })
-    watcher.stop()
-  })
-
-  it('skips initial build when index already exists', async () => {
-    setupMocks({ indexAlreadyExists: true })
-    const watcher = await run(watchDirectory('/test/root'))
-
-    expect(mockBuildIndex).not.toHaveBeenCalled()
     watcher.stop()
   })
 })
@@ -336,21 +330,65 @@ describe('initial index', () => {
 
 describe('stop / shutdown', () => {
   it('stop() closes the chokidar watcher', async () => {
-    const watcher = await run(watchDirectory('/test/root'))
+    const watcher = await startWatcher(watchDirectory('/test/root'))
     watcher.stop()
 
     expect(mockWatcher.close).toHaveBeenCalledTimes(1)
   })
 
   it('stop() cancels pending debounce timer', async () => {
-    const watcher = await run(watchDirectory('/test/root'))
+    const watcher = await startWatcher(watchDirectory('/test/root'))
 
     mockWatcher.emit('change', '/test/root/doc.md')
     // Timer is scheduled but not yet fired
     watcher.stop()
 
     await vi.advanceTimersByTimeAsync(300)
-    // buildIndex should NOT have been called because we stopped before debounce fired
-    expect(mockBuildIndex).not.toHaveBeenCalled()
+    expect(mockRefreshManifestIndex).not.toHaveBeenCalled()
   })
+})
+
+describe('generation publication', () => {
+  it('publishes watcher changes through the shared transaction', async () => {
+    vi.useRealTimers()
+    vi.doUnmock('./manifest-refresh.js')
+    vi.resetModules()
+    const parent = await fs.mkdtemp(path.join(os.tmpdir(), 'mdm-watch-gen-'))
+    const sourceRoot = path.join(parent, 'source')
+    const home = path.join(parent, 'home')
+    await Promise.all([
+      fs.mkdir(sourceRoot, { recursive: true }),
+      fs.mkdir(home, { recursive: true }),
+    ])
+    const sourceFile = path.join(sourceRoot, 'doc.md')
+    await fs.writeFile(sourceFile, '# One\nInitial body.\n')
+
+    try {
+      const watcherModule = await import('./watcher.js')
+      const paths = await import('../db/generation-paths.js')
+      const watcher = await Effect.runPromise(
+        watcherModule.watchDirectory(sourceRoot, {
+          indexRoot: home,
+          debounceMs: 20,
+        }),
+      )
+      expect(await Effect.runPromise(paths.readCurrentGeneration(home))).toBe(
+        'gen-1',
+      )
+
+      await fs.writeFile(sourceFile, '# Two\nChanged body.\n')
+      mockWatcher.emit('change', sourceFile)
+      const deadline = Date.now() + 10_000
+      while (
+        (await Effect.runPromise(paths.readCurrentGeneration(home))) !== 'gen-2'
+      ) {
+        if (Date.now() > deadline)
+          throw new Error('Timed out waiting for gen-2')
+        await new Promise((resolve) => setTimeout(resolve, 25))
+      }
+      watcher.stop()
+    } finally {
+      await fs.rm(parent, { recursive: true, force: true })
+    }
+  }, 20_000)
 })

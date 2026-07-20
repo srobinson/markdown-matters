@@ -186,3 +186,46 @@ it('keeps active provider reads free of discovery and writes', () => {
   expect(reader).not.toContain('listNamespaces')
   expect(reader).not.toContain('writeActiveProvider')
 })
+
+it('routes production index entrypoints through the generation coordinator', () => {
+  const handlerSource = fs.readFileSync(
+    path.join(root, 'mcp/handlers.ts'),
+    'utf-8',
+  )
+  const cliSource = fs.readFileSync(
+    path.join(root, 'cli/commands/index-run.ts'),
+    'utf-8',
+  )
+  const watcherSource = fs.readFileSync(
+    path.join(root, 'index/watcher.ts'),
+    'utf-8',
+  )
+
+  expect(cliSource).toContain('refreshManifestIndex')
+  expect(cliSource).toContain('complete:')
+  expect(cliSource).not.toContain('dbIndexDir')
+  expect(handlerSource).toContain('refreshManifestIndex')
+  expect(handlerSource).toContain('published.value')
+  expect(handlerSource).not.toMatch(
+    /buildManifestIndex\(|dbIndexDir\(home\)|saveIndexState\(/,
+  )
+  expect(watcherSource).toContain('refreshManifestIndex')
+  expect(watcherSource).not.toMatch(
+    /buildIndex\(|saveIndexState\(|\.vectorStore\.save\(/,
+  )
+})
+
+it('keeps raw index writers out of the public facade', () => {
+  const facade = fs.readFileSync(path.join(root, 'index/index.ts'), 'utf-8')
+  const forbiddenExports = [
+    'buildBM25Index',
+    'buildIndex',
+    'buildManifestIndex',
+    'createStorage',
+    'saveIndexState',
+    "export * from './indexer.js'",
+    "export * from './storage.js'",
+  ].filter((symbol) => facade.includes(symbol))
+
+  expect(forbiddenExports).toEqual([])
+})

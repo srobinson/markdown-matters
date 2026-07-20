@@ -1,10 +1,15 @@
+import * as fs from 'node:fs/promises'
 import { Effect } from 'effect'
-import type { VectorStoreError } from '../errors/index.js'
+import { VectorStoreError } from '../errors/index.js'
 import {
   type ActiveProvider,
-  type EmbeddingNamespaceError,
+  EmbeddingNamespaceError,
   writeActiveProvider,
 } from './embedding-namespace.js'
+import {
+  getActiveProviderPath,
+  getEmbeddingsDir,
+} from './embedding-namespace-paths.js'
 import { invalidateHnswCache } from './hnsw-cache.js'
 import type { VectorStore } from './vector-store.js'
 
@@ -54,4 +59,33 @@ export const persistEmbeddingRuntime = (
           },
         }
       : {}),
+  })
+
+export const clearSemanticGeneration = (
+  indexRoot: string,
+  namespace: string,
+): Effect.Effect<void, VectorStoreError | EmbeddingNamespaceError> =>
+  Effect.gen(function* () {
+    const embeddingsDir = getEmbeddingsDir(indexRoot)
+    yield* Effect.tryPromise({
+      try: () => fs.rm(embeddingsDir, { recursive: true, force: true }),
+      catch: (cause) =>
+        new VectorStoreError({
+          operation: 'save',
+          message: `Failed to clear semantic vectors: ${cause instanceof Error ? cause.message : String(cause)}`,
+          cause,
+        }),
+    })
+    invalidateHnswCache(indexRoot, namespace)
+
+    const activeProviderPath = getActiveProviderPath(indexRoot)
+    yield* Effect.tryPromise({
+      try: () => fs.rm(activeProviderPath, { force: true }),
+      catch: (cause) =>
+        new EmbeddingNamespaceError({
+          operation: 'clearSemanticGeneration',
+          message: `Failed to clear active provider: ${cause instanceof Error ? cause.message : String(cause)}`,
+          cause,
+        }),
+    })
   })

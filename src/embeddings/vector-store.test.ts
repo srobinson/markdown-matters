@@ -223,7 +223,12 @@ describe('save and load round-trip', () => {
     const metaPath = getMetaPath(indexRoot, namespace)
     const beforePrune = await run(loadVectorIndex(metaPath))
 
-    await run(pruneVectorNamespaces(indexRoot, new Set(['current-section'])))
+    await run(
+      pruneVectorNamespaces(
+        indexRoot,
+        new Map([['current-section', 'hash-current-section']]),
+      ),
+    )
     const afterPrune = await run(loadVectorIndex(metaPath))
     expect(afterPrune.provider).toBe(beforePrune.provider)
     expect(afterPrune.providerModel).toBe(beforePrune.providerModel)

@@ -1,12 +1,19 @@
 import { Effect } from 'effect'
 
-import { pruneVectorNamespaces } from '../embeddings/vector-prune.js'
+import {
+  pruneVectorNamespaces,
+  sectionDocumentHashes,
+} from '../embeddings/vector-prune.js'
 import type { ManifestDirectory, MdmManifest } from '../manifest.js'
 import { buildBM25Index } from './bm25-build.js'
 import { canonicalizeDiscoveredFiles, discoverFiles } from './file-discovery.js'
 import { createIgnoreFilter } from './ignore-patterns.js'
 import { buildDiscoveredIndex, type IndexOptions } from './index-build.js'
-import { createStorage, loadSectionIndex } from './storage.js'
+import {
+  createStorage,
+  loadDocumentIndex,
+  loadSectionIndex,
+} from './storage.js'
 
 const discoverManifestDirectory = (
   directory: ManifestDirectory,
@@ -58,12 +65,16 @@ export const buildManifestIndex = (
       },
       options,
     )
-    const sectionIndex = yield* loadSectionIndex(
-      createStorage(options.indexRoot, options.indexRoot),
-    )
+    const storage = createStorage(options.indexRoot, options.indexRoot)
+    const [documentIndex, sectionIndex] = yield* Effect.all([
+      loadDocumentIndex(storage),
+      loadSectionIndex(storage),
+    ])
     yield* pruneVectorNamespaces(
       options.indexRoot,
-      new Set(Object.keys(sectionIndex?.sections ?? {})),
+      documentIndex && sectionIndex
+        ? sectionDocumentHashes(sectionIndex, documentIndex)
+        : new Map(),
     )
     yield* buildBM25Index(options.indexRoot, { force: true })
     return result
