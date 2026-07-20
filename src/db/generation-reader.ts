@@ -325,8 +325,9 @@ const initializeLeaseGateWith = (
 
 export const initializeLeaseGate = (
   layout: GenerationLayout,
+  fileSystem: GenerationReaderFileSystem = nodeGenerationReaderFileSystem,
 ): Effect.Effect<void, GenerationReadError> =>
-  initializeLeaseGateWith(layout, nodeGenerationReaderFileSystem)
+  initializeLeaseGateWith(layout, fileSystem)
 
 export const withCurrentGeneration = <A, E>(
   home: string,

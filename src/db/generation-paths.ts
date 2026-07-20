@@ -33,6 +33,9 @@ const assertGenerationName = (raw: string): GenerationName => {
   return raw as GenerationName
 }
 
+export const isGenerationName = (raw: string): raw is GenerationName =>
+  GENERATION_NAME_PATTERN.test(raw)
+
 const containedPath = (
   home: string,
   candidate: string,
@@ -92,17 +95,14 @@ export const parseGenerationName = (
     ? Effect.succeed(raw as GenerationName)
     : Effect.fail(invalidGenerationName(raw))
 
-export const generationLayout = (
+const generationLayoutAtRoot = (
   home: string,
   name: GenerationName,
+  rootPath: string,
 ): GenerationLayout => {
   const normalizedName = assertGenerationName(name)
   const normalizedHome = normalizeHome(home)
-  const root = containedPath(
-    normalizedHome,
-    path.join(normalizedHome, normalizedName),
-    'Generation root',
-  )
+  const root = containedPath(normalizedHome, rootPath, 'Generation root')
   const leasesRoot = containedPath(
     normalizedHome,
     path.join(root, 'leases'),
@@ -127,6 +127,18 @@ export const generationLayout = (
   }
 }
 
+export const generationLayout = (
+  home: string,
+  name: GenerationName,
+): GenerationLayout => {
+  const normalizedHome = normalizeHome(home)
+  return generationLayoutAtRoot(
+    normalizedHome,
+    name,
+    path.join(normalizedHome, name),
+  )
+}
+
 export const stagingGenerationPath = (
   home: string,
   name: GenerationName,
@@ -148,6 +160,13 @@ export const stagingGenerationPath = (
     'Staged generation',
   )
 }
+
+export const stagingGenerationLayout = (
+  home: string,
+  name: GenerationName,
+  token: string,
+): GenerationLayout =>
+  generationLayoutAtRoot(home, name, stagingGenerationPath(home, name, token))
 
 export const readCurrentGeneration = (
   home: string,

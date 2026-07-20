@@ -76,3 +76,15 @@ export class GenerationValidationError extends Data.TaggedError(
   readonly message: string
   readonly cause?: unknown
 }> {}
+
+export type GenerationCommitState = 'not-published' | 'published'
+
+export class GenerationWriteError extends Data.TaggedError(
+  'GenerationWriteError',
+)<{
+  readonly commitState: GenerationCommitState
+  readonly generation: import('./generation-types.js').GenerationName | null
+  readonly path: string
+  readonly message: string
+  readonly cause?: unknown
+}> {}

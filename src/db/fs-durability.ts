@@ -43,6 +43,10 @@ export interface PreparedRecord {
   readonly path: string
 }
 
+export interface DurableReplaceOptions {
+  readonly afterRename?: () => void
+}
+
 export type DurableRecordLinkResult = 'exists' | 'linked' | 'missing-parent'
 
 export interface DurableRecordLinkOptions {
@@ -183,6 +187,7 @@ export const durableReplaceText = (
   targetPath: string,
   contents: string,
   fileSystem: DurabilityFileSystem = nodeDurabilityFileSystem,
+  options: DurableReplaceOptions = {},
 ): Effect.Effect<void, GenerationDurabilityError> =>
   Effect.gen(function* () {
     const directoryPath = path.dirname(targetPath)
@@ -197,6 +202,7 @@ export const durableReplaceText = (
     yield* attempt('rename', targetPath, () =>
       fileSystem.rename(temporaryPath, targetPath),
     )
+    options.afterRename?.()
     yield* syncDirectory(directoryPath, fileSystem)
   })
 

@@ -39,3 +39,16 @@ export interface GenerationReadSession {
   readonly indexRoot: string
   readonly leaseId: string
 }
+
+export interface GenerationBuildContext {
+  readonly home: string
+  readonly previous: GenerationName | null
+  readonly generation: GenerationName
+  readonly indexRoot: string
+}
+
+export interface PublishedGeneration<A> {
+  readonly generation: GenerationName
+  readonly indexRoot: string
+  readonly value: A
+}
