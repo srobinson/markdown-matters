@@ -55,9 +55,14 @@ const makeManifestRoots = async () => {
 
 afterEach(async () => {
   await Promise.all(
-    cleanup
-      .splice(0)
-      .map((target) => fs.rm(target, { recursive: true, force: true })),
+    cleanup.splice(0).map((target) =>
+      fs.rm(target, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 100,
+      }),
+    ),
   )
 })
 
