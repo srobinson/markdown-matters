@@ -109,7 +109,7 @@ export const loadManifest = (
 }
 
 const toTomlTable = (entry: ManifestDirectory): TomlTable => ({
-  path: entry.path,
+  path: entry.path.replace(/\\/g, '/'),
   ...(entry.recurse === false ? { recurse: false } : {}),
   ...(entry.depth !== undefined ? { depth: entry.depth } : {}),
 })

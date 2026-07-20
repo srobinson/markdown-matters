@@ -85,4 +85,18 @@ describe('manifest', () => {
       code: 'ENOENT',
     })
   })
+
+  it('serializes declared paths with portable separators', async () => {
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), 'mdm-manifest-'))
+    cleanup.push(home)
+    const windowsPath = path.win32.join('C:\\', 'Users', 'notes')
+
+    await Effect.runPromise(
+      appendManifestDirectory(home, { path: windowsPath }),
+    )
+
+    const serialized = await fs.readFile(manifestPath(home), 'utf-8')
+    expect(serialized).toContain('C:/Users/notes')
+    expect(serialized).not.toContain('\\')
+  })
 })
