@@ -350,54 +350,6 @@ describe('auto-resize', () => {
 })
 
 // ============================================================================
-// Legacy JSON metadata migration
-// ============================================================================
-
-describe('legacy JSON metadata migration', () => {
-  it('auto-migrates JSON metadata to msgpack on load', async () => {
-    const dir = await createTempDir()
-
-    // First save normally (creates .bin metadata)
-    const store1 = createVectorStore(dir, DIMS)
-    await run(store1.add([makeEntry('legacy', 5)]))
-    await run(store1.save())
-
-    // Read the binary metadata and convert to JSON at the old path
-    const indexDir = dir
-    const binPath = path.join(indexDir, 'vectors.meta.bin')
-    const jsonPath = path.join(indexDir, 'vectors.meta.json')
-
-    const { decode } = await import('@msgpack/msgpack')
-    const binData = await fs.readFile(binPath)
-    const meta = decode(binData)
-
-    // Remove binary, write JSON (simulate legacy state)
-    await fs.unlink(binPath)
-    await fs.writeFile(jsonPath, JSON.stringify(meta))
-
-    // Load should auto-migrate
-    const store2 = createVectorStore(dir, DIMS)
-    const result = await run(store2.load())
-
-    expect(result.loaded).toBe(true)
-    expect(store2.getStats().count).toBe(1)
-
-    // Verify binary file was recreated and JSON was removed
-    const binExists = await fs.access(binPath).then(
-      () => true,
-      () => false,
-    )
-    const jsonExists = await fs.access(jsonPath).then(
-      () => true,
-      () => false,
-    )
-
-    expect(binExists).toBe(true)
-    expect(jsonExists).toBe(false)
-  })
-})
-
-// ============================================================================
 // Corrupted metadata validation
 // ============================================================================
 
@@ -437,35 +389,6 @@ describe('corrupted metadata validation', () => {
     const metaPath = path.join(indexDir, 'vectors.meta.bin')
     const { encode } = await import('@msgpack/msgpack')
     await fs.writeFile(metaPath, encode({ bad: 'data', version: 'wrong' }))
-
-    const store2 = createVectorStore(dir, DIMS)
-    const exit = await runExit(store2.load())
-
-    expect(Exit.isFailure(exit)).toBe(true)
-    if (Exit.isFailure(exit)) {
-      const error = exit.cause
-      expect(String(error)).toContain('schema validation failed')
-    }
-  })
-
-  it('load fails with VectorStoreError for malformed JSON metadata', async () => {
-    const dir = await createTempDir()
-
-    // Save a valid index first so we have a vectors.bin file
-    const store1 = createVectorStore(dir, DIMS)
-    await run(store1.add([makeEntry('c2', 2)]))
-    await run(store1.save())
-
-    // Replace binary metadata with invalid JSON at legacy path
-    const indexDir = dir
-    const binPath = path.join(indexDir, 'vectors.meta.bin')
-    const jsonPath = path.join(indexDir, 'vectors.meta.json')
-
-    await fs.unlink(binPath)
-    await fs.writeFile(
-      jsonPath,
-      JSON.stringify({ entries: 'not-an-object', dimensions: 'wrong' }),
-    )
 
     const store2 = createVectorStore(dir, DIMS)
     const exit = await runExit(store2.load())

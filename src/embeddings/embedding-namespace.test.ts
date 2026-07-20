@@ -11,9 +11,6 @@ import {
   generateNamespace,
   getActiveProviderPath,
   getEmbeddingsDir,
-  getLegacyMetaJsonPath,
-  getLegacyMetaPath,
-  getLegacyVectorPath,
   getMetaPath,
   getNamespaceDir,
   getVectorPath,
@@ -160,22 +157,10 @@ describe('Embedding Namespace', () => {
     })
   })
 
-  describe('database and legacy paths', () => {
+  describe('database paths', () => {
     it('keeps active provider state directly under the index root', () => {
       expect(getActiveProviderPath('/db')).toBe(
         path.join(path.resolve('/db'), 'active-provider.json'),
-      )
-    })
-
-    it('keeps legacy flat vectors under the source .mdm directory', () => {
-      expect(getLegacyVectorPath('/source')).toBe(
-        path.join(path.resolve('/source'), '.mdm', 'vectors.bin'),
-      )
-      expect(getLegacyMetaPath('/source')).toBe(
-        path.join(path.resolve('/source'), '.mdm', 'vectors.meta.bin'),
-      )
-      expect(getLegacyMetaJsonPath('/source')).toBe(
-        path.join(path.resolve('/source'), '.mdm', 'vectors.meta.json'),
       )
     })
   })

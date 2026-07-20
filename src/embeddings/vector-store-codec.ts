@@ -36,23 +36,15 @@ const VectorIndexSchema = Schema.Struct({
   ),
 })
 
-export type VectorIndexSource = 'binary' | 'json'
-
-export interface LoadedVectorIndex {
-  readonly meta: VectorIndex
-  readonly source: VectorIndexSource
-}
-
 export const decodeVectorIndex = (
   raw: unknown,
-  source: VectorIndexSource,
 ): Effect.Effect<VectorIndex, VectorStoreError> =>
   Schema.decodeUnknown(VectorIndexSchema)(raw).pipe(
     Effect.mapError(
       (parseError) =>
         new VectorStoreError({
           operation: 'load',
-          message: `Corrupted vector metadata (${source}): schema validation failed: ${String(parseError)}`,
+          message: `Corrupted vector metadata (binary): schema validation failed: ${String(parseError)}`,
         }),
     ),
     Effect.map((validated) => validated as unknown as VectorIndex),
@@ -60,31 +52,9 @@ export const decodeVectorIndex = (
 
 const readRawVectorIndex = (
   metaPath: string,
-): Effect.Effect<
-  { data: unknown; source: VectorIndexSource },
-  VectorStoreError
-> =>
+): Effect.Effect<unknown, VectorStoreError> =>
   Effect.tryPromise({
-    try: async () => {
-      try {
-        await fs.access(metaPath)
-        return {
-          data: msgpack.decode(await fs.readFile(metaPath)) as unknown,
-          source: 'binary' as const,
-        }
-      } catch {
-        const jsonPath = metaPath.replace('.bin', '.json')
-        try {
-          await fs.access(jsonPath)
-          return {
-            data: JSON.parse(await fs.readFile(jsonPath, 'utf-8')) as unknown,
-            source: 'json' as const,
-          }
-        } catch {
-          throw new Error('Metadata file not found')
-        }
-      }
-    },
+    try: async () => msgpack.decode(await fs.readFile(metaPath)) as unknown,
     catch: (cause) =>
       new VectorStoreError({
         operation: 'load',
@@ -95,40 +65,10 @@ const readRawVectorIndex = (
 
 export const loadVectorIndex = (
   metaPath: string,
-): Effect.Effect<LoadedVectorIndex, VectorStoreError> =>
-  Effect.gen(function* () {
-    const raw = yield* readRawVectorIndex(metaPath)
-    const patched =
-      raw.data &&
-      typeof raw.data === 'object' &&
-      !(
-        'provider' in raw.data && (raw.data as Record<string, unknown>).provider
-      )
-        ? { ...raw.data, provider: 'openai' }
-        : raw.data
-    return {
-      meta: yield* decodeVectorIndex(patched, raw.source),
-      source: raw.source,
-    }
-  })
+): Effect.Effect<VectorIndex, VectorStoreError> =>
+  readRawVectorIndex(metaPath).pipe(Effect.flatMap(decodeVectorIndex))
 
 export const writeVectorIndex = (
   metaPath: string,
   meta: VectorIndex,
 ): Promise<void> => fs.writeFile(metaPath, msgpack.encode(meta))
-
-export const migrateJsonVectorIndex = (
-  metaPath: string,
-  meta: VectorIndex,
-): Effect.Effect<void, never> =>
-  Effect.tryPromise({
-    try: async () => {
-      await writeVectorIndex(metaPath, meta)
-      await fs.unlink(metaPath.replace('.bin', '.json')).catch(() => {})
-    },
-    catch: () =>
-      new VectorStoreError({
-        operation: 'load',
-        message: 'Failed to migrate metadata to binary format',
-      }),
-  }).pipe(Effect.catchAll(() => Effect.void))

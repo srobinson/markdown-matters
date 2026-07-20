@@ -1,13 +1,10 @@
 import * as path from 'node:path'
-import { dbIndexDir, legacyIndexDir } from '../home.js'
+import { dbIndexDir } from '../home.js'
 
 const EMBEDDINGS_DIR = 'embeddings'
 const ACTIVE_PROVIDER_FILE = 'active-provider.json'
 const VECTOR_INDEX_FILE = 'vectors.bin'
 const VECTOR_META_FILE = 'vectors.meta.bin'
-const LEGACY_VECTOR_INDEX_FILE = 'vectors.bin'
-const LEGACY_VECTOR_META_FILE = 'vectors.meta.bin'
-const LEGACY_VECTOR_META_JSON = 'vectors.meta.json'
 
 /**
  * Generate the filesystem safe namespace for a provider and model.
@@ -95,12 +92,3 @@ export const getMetaPath = (indexRoot: string, namespace: string): string =>
 
 export const getActiveProviderPath = (indexRoot: string): string =>
   path.join(dbIndexDir(indexRoot), ACTIVE_PROVIDER_FILE)
-
-export const getLegacyVectorPath = (sourceRoot: string): string =>
-  path.join(legacyIndexDir(sourceRoot), LEGACY_VECTOR_INDEX_FILE)
-
-export const getLegacyMetaPath = (sourceRoot: string): string =>
-  path.join(legacyIndexDir(sourceRoot), LEGACY_VECTOR_META_FILE)
-
-export const getLegacyMetaJsonPath = (sourceRoot: string): string =>
-  path.join(legacyIndexDir(sourceRoot), LEGACY_VECTOR_META_JSON)
