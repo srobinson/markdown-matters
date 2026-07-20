@@ -226,6 +226,10 @@ describe('Ignore Patterns Module', () => {
       expect(DEFAULT_IGNORE_PATTERNS).toContain('.git')
     })
 
+    it('includes .mdm in defaults', () => {
+      expect(DEFAULT_IGNORE_PATTERNS).toContain('.mdm')
+    })
+
     it('includes dist in defaults', () => {
       expect(DEFAULT_IGNORE_PATTERNS).toContain('dist')
     })
@@ -325,8 +329,8 @@ describe('Ignore Patterns Module', () => {
         }),
       )
 
-      // 4 defaults + 2 gitignore + 1 mdmignore + 1 CLI = 8
-      expect(result.patternCount).toBe(8)
+      // 5 defaults + 2 gitignore + 1 mdmignore + 1 CLI = 9
+      expect(result.patternCount).toBe(9)
     })
   })
 })

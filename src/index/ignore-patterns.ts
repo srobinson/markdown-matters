@@ -9,7 +9,7 @@
  * 3. Config file excludePatterns
  * 4. .mdmignore file
  * 5. .gitignore file
- * 6. Built-in defaults: ['node_modules', '.git', 'dist', 'build']
+ * 6. Built-in defaults: ['node_modules', '.git', '.mdm', 'dist', 'build']
  */
 
 import * as fs from 'node:fs/promises'
@@ -63,6 +63,7 @@ export interface IgnoreHierarchy {
 export const DEFAULT_IGNORE_PATTERNS: readonly string[] = [
   'node_modules',
   '.git',
+  '.mdm',
   'dist',
   'build',
 ]

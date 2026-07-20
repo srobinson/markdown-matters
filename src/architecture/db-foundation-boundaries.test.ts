@@ -113,6 +113,7 @@ it('contains no index compatibility implementation', () => {
     ['get', 'LegacyVectorPath'].join(''),
     ['get', 'LegacyMetaPath'].join(''),
     ['get', 'LegacyMetaJsonPath'].join(''),
+    ['legacy', 'IndexDir'].join(''),
     ['vectors', 'meta', 'json'].join('.'),
     `${'[['}${'sources'}${']]'}`,
   ]

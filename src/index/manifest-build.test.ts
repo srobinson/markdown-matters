@@ -10,7 +10,7 @@ import type { VectorEntry } from '../embeddings/types.js'
 import { createNamespacedVectorStore } from '../embeddings/vector-store.js'
 import type { MdmManifest } from '../manifest.js'
 import { bm25Search } from '../search/bm25-store.js'
-import { buildManifestIndex, removeStaleSourceIndex } from './manifest-build.js'
+import { buildManifestIndex } from './manifest-build.js'
 import {
   createStorage,
   loadDocumentIndex,
@@ -55,84 +55,6 @@ afterEach(async () => {
     cleanup
       .splice(0)
       .map((target) => fs.rm(target, { recursive: true, force: true })),
-  )
-})
-
-it('deletes a stale source index without deleting an active home inside the source', async () => {
-  const parent = await fs.mkdtemp(path.join(os.tmpdir(), 'mdm-stale-'))
-  cleanup.push(parent)
-  const source = path.join(parent, 'source')
-  const home = path.join(source, '.active-mdm')
-  await fs.mkdir(path.join(source, '.mdm', 'indexes'), { recursive: true })
-  await fs.mkdir(home, { recursive: true })
-  await fs.writeFile(path.join(source, 'note.md'), '# note')
-
-  await Effect.runPromise(removeStaleSourceIndex(source, home))
-
-  await expect(fs.access(path.join(source, '.mdm'))).rejects.toThrow()
-  await expect(fs.access(home)).resolves.toBeUndefined()
-})
-
-it('keeps the source index when it is the active home', async () => {
-  const source = await fs.mkdtemp(path.join(os.tmpdir(), 'mdm-active-'))
-  cleanup.push(source)
-  const activeHome = path.join(source, '.mdm')
-  await fs.mkdir(path.join(activeHome, 'indexes'), { recursive: true })
-
-  await Effect.runPromise(removeStaleSourceIndex(source, activeHome))
-
-  await expect(fs.access(activeHome)).resolves.toBeUndefined()
-})
-
-it('keeps the source index when the active home is a symlink alias', async () => {
-  const parent = await fs.mkdtemp(path.join(os.tmpdir(), 'mdm-active-alias-'))
-  cleanup.push(parent)
-  const source = path.join(parent, 'source')
-  const activeHome = path.join(source, '.mdm')
-  const activeAlias = path.join(parent, 'active-alias')
-  await fs.mkdir(path.join(activeHome, 'indexes'), { recursive: true })
-  await fs.symlink(
-    activeHome,
-    activeAlias,
-    process.platform === 'win32' ? 'junction' : 'dir',
-  )
-
-  await Effect.runPromise(removeStaleSourceIndex(source, activeAlias))
-
-  await expect(fs.access(activeHome)).resolves.toBeUndefined()
-  await expect(fs.access(activeAlias)).resolves.toBeUndefined()
-})
-
-it('keeps a source index that contains the active home', async () => {
-  const source = await fs.mkdtemp(path.join(os.tmpdir(), 'mdm-active-child-'))
-  cleanup.push(source)
-  const activeHome = path.join(source, '.mdm', 'active')
-  const marker = path.join(activeHome, 'documents.json')
-  await fs.mkdir(activeHome, { recursive: true })
-  await fs.writeFile(marker, '{}')
-
-  await Effect.runPromise(removeStaleSourceIndex(source, activeHome))
-
-  await expect(fs.access(marker)).resolves.toBeUndefined()
-})
-
-it('deletes stale indexes for every manifest root before discovery', async () => {
-  const fixture = await makeManifestRoots()
-  const staleIndexes = [fixture.first, fixture.second].map((source) =>
-    path.join(source, '.mdm'),
-  )
-  await Promise.all(
-    staleIndexes.map((stale) =>
-      fs.mkdir(path.join(stale, 'indexes'), { recursive: true }),
-    ),
-  )
-
-  await Effect.runPromise(
-    buildManifestIndex(fixture.manifest, { indexRoot: fixture.home }),
-  )
-
-  await Promise.all(
-    staleIndexes.map((stale) => expect(fs.access(stale)).rejects.toThrow()),
   )
 })
 
