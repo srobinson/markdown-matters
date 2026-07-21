@@ -135,30 +135,29 @@ describe('validateGeneration', () => {
     })
   })
 
-  it.each([
-    'documents',
-    'sections',
-    'links',
-  ] as const)('rejects every invalid %s structural artifact', async (artifact) => {
-    for (const mutation of ['missing', 'corrupt', 'symlink'] as const) {
-      const root = await createRoot()
-      await seedGenerationArtifacts(root)
-      await mutateArtifact(root, getIndexPaths(root)[artifact], mutation)
-      await expectValidationFailure(root)
-    }
-  })
+  it.each(['documents', 'sections', 'links'] as const)(
+    'rejects every invalid %s structural artifact',
+    async (artifact) => {
+      for (const mutation of ['missing', 'corrupt', 'symlink'] as const) {
+        const root = await createRoot()
+        await seedGenerationArtifacts(root)
+        await mutateArtifact(root, getIndexPaths(root)[artifact], mutation)
+        await expectValidationFailure(root)
+      }
+    },
+  )
 
-  it.each([
-    'bm25',
-    'bm25Metadata',
-  ] as const)('rejects every invalid %s artifact', async (artifact) => {
-    for (const mutation of ['missing', 'corrupt', 'symlink'] as const) {
-      const root = await createRoot()
-      await seedGenerationArtifacts(root)
-      await mutateArtifact(root, getIndexPaths(root)[artifact], mutation)
-      await expectValidationFailure(root)
-    }
-  })
+  it.each(['bm25', 'bm25Metadata'] as const)(
+    'rejects every invalid %s artifact',
+    async (artifact) => {
+      for (const mutation of ['missing', 'corrupt', 'symlink'] as const) {
+        const root = await createRoot()
+        await seedGenerationArtifacts(root)
+        await mutateArtifact(root, getIndexPaths(root)[artifact], mutation)
+        await expectValidationFailure(root)
+      }
+    },
+  )
 
   it('rejects semantic artifacts without an active provider', async () => {
     const root = await createRoot()
@@ -169,34 +168,34 @@ describe('validateGeneration', () => {
     await expectValidationFailure(root)
   })
 
-  it.each([
-    'corrupt',
-    'symlink',
-  ] as const)('rejects a %s active provider artifact', async (mutation) => {
-    const root = await createRoot()
-    await seedGenerationArtifacts(root)
-    await seedSemanticArtifacts(root)
-    await mutateArtifact(root, getActiveProviderPath(root), mutation)
-
-    await expectValidationFailure(root)
-  })
-
-  it.each([
-    'metadata',
-    'binary',
-  ] as const)('rejects every invalid active vector %s artifact', async (artifact) => {
-    for (const mutation of ['missing', 'corrupt', 'symlink'] as const) {
+  it.each(['corrupt', 'symlink'] as const)(
+    'rejects a %s active provider artifact',
+    async (mutation) => {
       const root = await createRoot()
       await seedGenerationArtifacts(root)
       await seedSemanticArtifacts(root)
-      const namespace = generateNamespace(provider, model, dimensions)
-      const artifactPath =
-        artifact === 'metadata'
-          ? getMetaPath(root, namespace)
-          : getVectorPath(root, namespace)
-      await mutateArtifact(root, artifactPath, mutation)
+      await mutateArtifact(root, getActiveProviderPath(root), mutation)
 
       await expectValidationFailure(root)
-    }
-  })
+    },
+  )
+
+  it.each(['metadata', 'binary'] as const)(
+    'rejects every invalid active vector %s artifact',
+    async (artifact) => {
+      for (const mutation of ['missing', 'corrupt', 'symlink'] as const) {
+        const root = await createRoot()
+        await seedGenerationArtifacts(root)
+        await seedSemanticArtifacts(root)
+        const namespace = generateNamespace(provider, model, dimensions)
+        const artifactPath =
+          artifact === 'metadata'
+            ? getMetaPath(root, namespace)
+            : getVectorPath(root, namespace)
+        await mutateArtifact(root, artifactPath, mutation)
+
+        await expectValidationFailure(root)
+      }
+    },
+  )
 })

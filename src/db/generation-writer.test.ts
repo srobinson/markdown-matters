@@ -253,6 +253,39 @@ describe('writeGeneration', () => {
 })
 
 describe('writeGeneration validation', () => {
+  it('discards a validated no-op staging generation', async () => {
+    const home = await createHome()
+    const oldRoot = await seedCurrent(home)
+    const events: string[] = []
+
+    const published = await Effect.runPromise(
+      writeGeneration(
+        {
+          home,
+          build: (context) => writeTitle(context, 'discarded'),
+          validate: (context) =>
+            validateGeneration(context.indexRoot).pipe(
+              Effect.tap(() => Effect.sync(() => events.push('validated'))),
+              Effect.asVoid,
+            ),
+          shouldPublish: () => false,
+        },
+        { scheduleReap: () => events.push('reaped') },
+      ),
+    )
+
+    expect(published).toMatchObject({
+      generation: 'gen-1',
+      indexRoot: oldRoot,
+      value: 'discarded',
+    })
+    expect(events).toEqual(['validated'])
+    expect(await Effect.runPromise(readCurrentGeneration(home))).toBe('gen-1')
+    expect(await readTitle(oldRoot)).toBe('old')
+    expect(await exists(path.join(home, 'gen-2'))).toBe(false)
+    expect(await fs.readdir(path.join(home, 'staging'))).toEqual([])
+  })
+
   it('runs prepare, build, and validation under the transaction in order', async () => {
     const home = await createHome()
     await seedCurrent(home)
@@ -353,38 +386,38 @@ describe('writeGeneration validation', () => {
     expect(await fs.readFile(currentPath, 'utf8')).toBe(beforeCurrent)
   })
 
-  it.each([
-    'build',
-    'validate',
-  ] as const)('retains current when %s rejects', async (failurePoint) => {
-    const home = await createHome()
-    const oldRoot = await seedCurrent(home)
-    const failure = new Error(`${failurePoint} rejected`)
+  it.each(['build', 'validate'] as const)(
+    'retains current when %s rejects',
+    async (failurePoint) => {
+      const home = await createHome()
+      const oldRoot = await seedCurrent(home)
+      const failure = new Error(`${failurePoint} rejected`)
 
-    const exit = await Effect.runPromiseExit(
-      writeGeneration(
-        {
-          home,
-          build: (context) =>
-            failurePoint === 'build'
-              ? Effect.fail(failure)
-              : writeTitle(context, 'rejected'),
-          validate: (context) =>
-            failurePoint === 'validate'
-              ? Effect.fail(failure)
-              : validateGeneration(context.indexRoot).pipe(Effect.asVoid),
-        },
-        testRuntime(),
-      ),
-    )
+      const exit = await Effect.runPromiseExit(
+        writeGeneration(
+          {
+            home,
+            build: (context) =>
+              failurePoint === 'build'
+                ? Effect.fail(failure)
+                : writeTitle(context, 'rejected'),
+            validate: (context) =>
+              failurePoint === 'validate'
+                ? Effect.fail(failure)
+                : validateGeneration(context.indexRoot).pipe(Effect.asVoid),
+          },
+          testRuntime(),
+        ),
+      )
 
-    expect(exit).toMatchObject({
-      _tag: 'Failure',
-      cause: { _tag: 'Fail', error: failure },
-    })
-    expect(await Effect.runPromise(readCurrentGeneration(home))).toBe('gen-1')
-    expect(await readTitle(oldRoot)).toBe('old')
-  })
+      expect(exit).toMatchObject({
+        _tag: 'Failure',
+        cause: { _tag: 'Fail', error: failure },
+      })
+      expect(await Effect.runPromise(readCurrentGeneration(home))).toBe('gen-1')
+      expect(await readTitle(oldRoot)).toBe('old')
+    },
+  )
 
   it('always rejects an incomplete artifact set before publication', async () => {
     const home = await createHome()

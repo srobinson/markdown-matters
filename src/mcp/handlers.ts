@@ -9,12 +9,13 @@
 import * as path from 'node:path'
 
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
-import { Effect, Either, Option } from 'effect'
+import { Effect, Either } from 'effect'
 
 import type { MdmConfig } from '../config/schema.js'
 import type { MdSection } from '../core/types.js'
 import { expandDeclaredPath } from '../db/canonical.js'
 import { withCurrentGeneration } from '../db/generation-reader.js'
+import { resolveQueryProviderConfig } from '../embeddings/query-provider-config.js'
 import { semanticSearch } from '../embeddings/semantic-search.js'
 import { resolveMdmHome } from '../home.js'
 import {
@@ -117,12 +118,6 @@ export const handleMdSearch = async (
   const pathFilter = validated.path_filter
   const threshold = validated.threshold ?? config.search.minSimilarity
 
-  const providerConfig = {
-    provider: config.embeddings.provider,
-    baseURL: Option.getOrUndefined(config.embeddings.baseURL),
-    model: config.embeddings.model,
-  }
-
   return effectToMcpResult(
     withCurrentGeneration(resolveMdmHome(), (session) =>
       formatSearchOutcome(
@@ -130,11 +125,18 @@ export const handleMdSearch = async (
         rootPath,
         query,
         pathFilter,
-        semanticSearch(session, rootPath, query, {
-          limit,
-          threshold,
-          pathPattern: pathFilter,
-          providerConfig,
+        Effect.gen(function* () {
+          const queryProvider = yield* resolveQueryProviderConfig(
+            session,
+            config.embeddings,
+          )
+          return yield* semanticSearch(session, rootPath, query, {
+            limit,
+            threshold,
+            pathPattern: pathFilter,
+            providerConfig: queryProvider.providerConfig,
+            activeProvider: queryProvider.activeProvider,
+          })
         }),
         (results) => {
           const formatted = results.map((r, i) => {

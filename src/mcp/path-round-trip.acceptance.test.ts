@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { defaultConfig } from '../config/schema.js'
 import type { DocumentKey } from '../db/canonical.js'
+import { seedFreshVectorFixture } from '../embeddings/vector-store-test-fixture.js'
 import { refreshManifestIndex } from '../index/manifest-refresh.js'
 import {
   createStorage,
@@ -101,6 +102,14 @@ const resultText = (result: CallToolResult): string =>
     .map(({ text }) => text)
     .join('\n')
 
+const seedQueryProvider = (indexRoot: string) =>
+  seedFreshVectorFixture({
+    indexRoot,
+    provider: 'openai',
+    model: 'acceptance-test-model',
+    dimensions: 2,
+  })
+
 const createFixture = async (): Promise<PathFixture> => {
   const parent = await fs.mkdtemp(path.join(os.tmpdir(), 'mdm-round-trip-'))
   const home = path.join(parent, 'mdm-home')
@@ -170,6 +179,7 @@ const createFixture = async (): Promise<PathFixture> => {
       semantic: { mode: 'skip' },
     }),
   )
+  await seedQueryProvider(published.indexRoot)
   const documentIndex = await Effect.runPromise(
     loadDocumentIndex(createStorage(repoRoot, published.indexRoot)),
   )
@@ -525,12 +535,13 @@ describe('MCP multi-root empty result guidance', () => {
     await Effect.runPromise(
       appendManifestDirectory(emptyHome, { path: emptyRoot }),
     )
-    await Effect.runPromise(
+    const emptyPublished = await Effect.runPromise(
       refreshManifestIndex(emptyHome, undefined, {
         force: true,
         semantic: { mode: 'skip' },
       }),
     )
+    await seedQueryProvider(emptyPublished.indexRoot)
     process.env.MDM_HOME = emptyHome
     semanticResult.current = []
     semanticResult.error = new Error('Embeddings unavailable')

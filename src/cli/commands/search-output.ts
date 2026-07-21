@@ -103,6 +103,12 @@ export const renderHybridOutput = (
       )
       yield* Console.log('')
     }
+    if (stats.semanticDegradation && !json) {
+      yield* Console.log(
+        `Note: semantic search degraded (${stats.semanticDegradation.reason}): ${stats.semanticDegradation.message}`,
+      )
+      yield* Console.log('')
+    }
     const moreAvailable =
       stats.totalAvailable !== undefined &&
       stats.totalAvailable > results.length

@@ -206,15 +206,18 @@ describe('platform process sources', () => {
   it.each([
     ['darwin', 'ps', 1],
     ['win32', 'powershell.exe', 3],
-  ] as const)('returns null for a dead PID on %s', async (platform, command, exitCode) => {
-    const source = commandSource(platform, {
-      [command]: { stdout: '', stderr: '', exitCode },
-    })
+  ] as const)(
+    'returns null for a dead PID on %s',
+    async (platform, command, exitCode) => {
+      const source = commandSource(platform, {
+        [command]: { stdout: '', stderr: '', exitCode },
+      })
 
-    await expect(
-      run(createProcessInspector(source).inspect(404)),
-    ).resolves.toBeNull()
-  })
+      await expect(
+        run(createProcessInspector(source).inspect(404)),
+      ).resolves.toBeNull()
+    },
+  )
 })
 
 describe('native process inspection', () => {

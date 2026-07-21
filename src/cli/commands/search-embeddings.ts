@@ -1,4 +1,4 @@
-import { Console, Effect, Option } from 'effect'
+import { Console, Effect } from 'effect'
 import type {
   BuildEmbeddingsResult,
   EmbeddingEstimate,
@@ -8,6 +8,7 @@ import {
   estimateEmbeddingCost,
 } from '../../embeddings/semantic-search.js'
 import { resolveMdmHome } from '../../home.js'
+import type { ProviderId } from '../../providers/index.js'
 import {
   getRerankerCacheDir,
   initializeReranker,
@@ -145,13 +146,4 @@ export const handleMissingEmbeddings = (
     return false
   })
 
-export type SearchProvider =
-  | 'openai'
-  | 'ollama'
-  | 'lm-studio'
-  | 'openrouter'
-  | 'voyage'
-
-export const resolveProviderConfig = (
-  provider: Option.Option<SearchProvider>,
-) => (Option.isSome(provider) ? { provider: provider.value } : undefined)
+export type SearchProvider = ProviderId

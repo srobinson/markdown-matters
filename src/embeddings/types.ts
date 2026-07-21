@@ -5,8 +5,12 @@
 import type { Redacted } from 'effect'
 import type { ContextLine } from '../core/types.js'
 import type { CANONICAL_SCHEMA_VERSION, DocumentKey } from '../db/canonical.js'
-import type { OpenAICompatibleProviderId } from '../providers/index.js'
+import type {
+  OpenAICompatibleProviderId,
+  ProviderId,
+} from '../providers/index.js'
 import type { PreparedPathFilter } from '../search/path-matcher.js'
+import type { ActiveProvider } from './embedding-namespace-types.js'
 
 export type { ContextLine } from '../core/types.js'
 
@@ -29,6 +33,19 @@ export interface EmbeddingProvider {
   readonly name: string
   readonly dimensions: number
   embed(texts: string[], options?: EmbedOptions): Promise<EmbeddingResult>
+}
+
+/**
+ * Provider config accepted by indexing and query embedding pipelines.
+ *
+ * The optional endpoint overrides provider transport defaults. Model and
+ * dimensions identify the persisted vector namespace used by a query.
+ */
+export interface EmbeddingProviderConfig {
+  readonly provider: ProviderId
+  readonly baseURL?: string | undefined
+  readonly model?: string | undefined
+  readonly dimensions?: number | undefined
 }
 
 /**
@@ -141,18 +158,7 @@ export interface SemanticSearchOptions {
   /** Search quality mode: fast, balanced (default), or thorough */
   readonly quality?: SearchQuality | undefined
   /** Provider configuration override */
-  readonly providerConfig?:
-    | {
-        readonly provider:
-          | 'openai'
-          | 'ollama'
-          | 'lm-studio'
-          | 'openrouter'
-          | 'voyage'
-        readonly baseURL?: string | undefined
-        readonly model?: string | undefined
-      }
-    | undefined
+  readonly providerConfig?: EmbeddingProviderConfig | undefined
   /**
    * Skip query preprocessing (normalize, lowercase, strip punctuation).
    * Default: false (preprocessing enabled for better recall).
@@ -235,6 +241,11 @@ export interface SemanticSearchOptions {
   readonly contextBefore?: number | undefined
   /** Lines of context after matches */
   readonly contextAfter?: number | undefined
+}
+
+export interface ResolvedSemanticSearchOptions extends SemanticSearchOptions {
+  readonly providerConfig: EmbeddingProviderConfig
+  readonly activeProvider: ActiveProvider
 }
 
 export interface SemanticSearchResult {

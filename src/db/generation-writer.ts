@@ -59,6 +59,10 @@ export interface GenerationWriteOptions<A, E, V, P = never> {
     context: GenerationBuildContext,
     value: A,
   ) => Effect.Effect<void, V>
+  readonly shouldPublish?: (
+    context: GenerationBuildContext,
+    value: A,
+  ) => boolean
 }
 
 export interface GenerationWriterFileSystem extends GenerationReaderFileSystem {
@@ -328,6 +332,16 @@ const transactGeneration = <A, E, V, P>(
     const value = yield* options.build(context)
     yield* options.validate(context, value)
     yield* validateGeneration(context.indexRoot)
+    if (
+      previous !== null &&
+      options.shouldPublish !== undefined &&
+      !options.shouldPublish(context, value)
+    ) {
+      const previousRoot = generationLayout(homeLayout.home, previous).root
+      yield* removePath(state, staging.root, fileSystem)
+      state.unpublishedRoot = null
+      return { generation: previous, indexRoot: previousRoot, value }
+    }
     yield* wrapWriteError(
       state,
       staging.root,

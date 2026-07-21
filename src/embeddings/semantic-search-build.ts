@@ -52,7 +52,7 @@ import {
   clearSemanticGeneration,
   persistEmbeddingRuntime,
 } from './semantic-search-persistence.js'
-import type { VectorEntry } from './types.js'
+import type { EmbeddingProviderConfig, VectorEntry } from './types.js'
 import {
   pruneStaleVectorEntries,
   reusableVectorIds,
@@ -80,26 +80,6 @@ export interface EmbeddingBatchProgress {
   readonly totalBatches: number
   readonly processedSections: number
   readonly totalSections: number
-}
-
-/**
- * Provider config accepted by `buildEmbeddings` and `prepareSearchPipeline`.
- *
- * `provider` and `model` flow into the runtime client. `baseURL` overrides
- * the per-provider transport default for embedding requests; honored by
- * the four OpenAI-compatible providers (openai, openrouter, ollama,
- * lm-studio) so private hosts, self-hosted instances, and proxies route
- * correctly. Voyage has no custom-host concept and ignores this field.
- * HyDE inherits this value via `resolveHydeOptions` so a custom host
- * applied here automatically carries across to query expansion.
- * `dimensions` is forwarded to the transport when set; otherwise the
- * consumer derives a recommended value from the model.
- */
-export interface EmbeddingProviderConfig {
-  readonly provider: ProviderId
-  readonly baseURL?: string | undefined
-  readonly model?: string | undefined
-  readonly dimensions?: number | undefined
 }
 
 export interface BuildEmbeddingsOptions {

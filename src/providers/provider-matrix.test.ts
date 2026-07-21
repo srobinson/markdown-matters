@@ -175,40 +175,39 @@ describe('provider-capability matrix (all credentials set)', () => {
     restoreEnv(envSnapshot)
   })
 
-  it.each(MATRIX)('$provider + $capability -> $expected', ({
-    provider,
-    capability,
-    expected,
-  }) => {
-    const runtime = Effect.runSync(getProvider(provider))
-    const result = Effect.runSync(
-      Effect.either(getCapability(runtime, capability)),
-    )
+  it.each(MATRIX)(
+    '$provider + $capability -> $expected',
+    ({ provider, capability, expected }) => {
+      const runtime = Effect.runSync(getProvider(provider))
+      const result = Effect.runSync(
+        Effect.either(getCapability(runtime, capability)),
+      )
 
-    if (expected === 'constructs') {
-      expect(result._tag).toBe('Right')
-      if (result._tag === 'Right') {
-        // Every constructed client exposes the capability-named method
-        // as a function. The precise signatures are pinned in the
-        // capability contract tests.
-        if (capability === 'embed') {
-          expect(typeof (result.right as EmbeddingClient).embed).toBe(
-            'function',
-          )
-        } else if (capability === 'generateText') {
-          expect(typeof (result.right as TextClient).generateText).toBe(
-            'function',
-          )
+      if (expected === 'constructs') {
+        expect(result._tag).toBe('Right')
+        if (result._tag === 'Right') {
+          // Every constructed client exposes the capability-named method
+          // as a function. The precise signatures are pinned in the
+          // capability contract tests.
+          if (capability === 'embed') {
+            expect(typeof (result.right as EmbeddingClient).embed).toBe(
+              'function',
+            )
+          } else if (capability === 'generateText') {
+            expect(typeof (result.right as TextClient).generateText).toBe(
+              'function',
+            )
+          }
         }
+        return
       }
-      return
-    }
 
-    expect(result._tag).toBe('Left')
-    if (result._tag === 'Left') {
-      expect(result.left).toBeInstanceOf(CapabilityNotSupported)
-    }
-  })
+      expect(result._tag).toBe('Left')
+      if (result._tag === 'Left') {
+        expect(result.left).toBeInstanceOf(CapabilityNotSupported)
+      }
+    },
+  )
 })
 
 describe('provider-capability matrix (no remote credentials)', () => {
@@ -228,45 +227,46 @@ describe('provider-capability matrix (no remote credentials)', () => {
     restoreEnv(envSnapshot)
   })
 
-  it.each(NO_CREDENTIALS_MATRIX)('$provider + $capability -> $expected', ({
-    provider,
-    capability,
-    expected,
-  }) => {
-    const providerResult = Effect.runSync(Effect.either(getProvider(provider)))
-
-    if (expected === 'MissingApiKey') {
-      // The parity claim: embed and generateText share the same
-      // resolution surface, so the same precondition (no remote
-      // credentials) produces the same error for both capabilities.
-      // The error surfaces at `getProvider` — it never reaches
-      // `getCapability` — because the runtime is never registered.
-      expect(providerResult._tag).toBe('Left')
-      if (providerResult._tag === 'Left') {
-        expect(providerResult.left).toBeInstanceOf(MissingApiKey)
-      }
-      return
-    }
-
-    // Local providers (ollama, lm-studio) do not need credentials;
-    // both capabilities must still resolve via the same pipeline.
-    expect(providerResult._tag).toBe('Right')
-    if (providerResult._tag === 'Right') {
-      const capResult = Effect.runSync(
-        Effect.either(getCapability(providerResult.right, capability)),
+  it.each(NO_CREDENTIALS_MATRIX)(
+    '$provider + $capability -> $expected',
+    ({ provider, capability, expected }) => {
+      const providerResult = Effect.runSync(
+        Effect.either(getProvider(provider)),
       )
-      expect(capResult._tag).toBe('Right')
-      if (capResult._tag === 'Right') {
-        if (capability === 'embed') {
-          expect(typeof (capResult.right as EmbeddingClient).embed).toBe(
-            'function',
-          )
-        } else if (capability === 'generateText') {
-          expect(typeof (capResult.right as TextClient).generateText).toBe(
-            'function',
-          )
+
+      if (expected === 'MissingApiKey') {
+        // The parity claim: embed and generateText share the same
+        // resolution surface, so the same precondition (no remote
+        // credentials) produces the same error for both capabilities.
+        // The error surfaces at `getProvider` — it never reaches
+        // `getCapability` — because the runtime is never registered.
+        expect(providerResult._tag).toBe('Left')
+        if (providerResult._tag === 'Left') {
+          expect(providerResult.left).toBeInstanceOf(MissingApiKey)
+        }
+        return
+      }
+
+      // Local providers (ollama, lm-studio) do not need credentials;
+      // both capabilities must still resolve via the same pipeline.
+      expect(providerResult._tag).toBe('Right')
+      if (providerResult._tag === 'Right') {
+        const capResult = Effect.runSync(
+          Effect.either(getCapability(providerResult.right, capability)),
+        )
+        expect(capResult._tag).toBe('Right')
+        if (capResult._tag === 'Right') {
+          if (capability === 'embed') {
+            expect(typeof (capResult.right as EmbeddingClient).embed).toBe(
+              'function',
+            )
+          } else if (capability === 'generateText') {
+            expect(typeof (capResult.right as TextClient).generateText).toBe(
+              'function',
+            )
+          }
         }
       }
-    }
-  })
+    },
+  )
 })

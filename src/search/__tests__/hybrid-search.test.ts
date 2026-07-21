@@ -183,7 +183,10 @@ describe('Hybrid Search Results', () => {
     )
 
     expect(hasExactMatches).toBe(true)
-    if (result.stats.embeddingsAvailable) {
+    if (
+      result.stats.embeddingsAvailable &&
+      result.stats.semanticDegradation === undefined
+    ) {
       expect(hasSemanticMatches).toBe(true)
     }
   })

@@ -4,18 +4,14 @@ import {
   getMetaPath,
   readActiveProvider,
 } from '../embeddings/embedding-namespace.js'
-import { EmbeddingNamespaceError } from '../embeddings/embedding-namespace-types.js'
+import { parseEmbeddingProviderId } from '../embeddings/query-provider-config.js'
 import {
   type BuildEmbeddingsOptions,
   type BuildEmbeddingsResult,
   buildEmbeddings,
 } from '../embeddings/semantic-search.js'
 import { loadVectorIndex } from '../embeddings/vector-store-codec.js'
-import {
-  DEFAULT_PROVIDER_IDS,
-  type EmbeddingClient,
-  type ProviderId,
-} from '../providers/index.js'
+import type { EmbeddingClient } from '../providers/index.js'
 
 type SemanticBuildOptions = Omit<BuildEmbeddingsOptions, 'indexRoot'>
 
@@ -35,22 +31,6 @@ export type SemanticRefreshError = Effect.Effect.Error<
   ReturnType<typeof buildEmbeddings>
 >
 
-const parseProviderId = (
-  provider: string,
-): Effect.Effect<ProviderId, EmbeddingNamespaceError> => {
-  const supported = DEFAULT_PROVIDER_IDS.find(
-    (candidate) => candidate === provider,
-  )
-  return supported === undefined
-    ? Effect.fail(
-        new EmbeddingNamespaceError({
-          operation: 'refreshSemanticGeneration',
-          message: `Unsupported active embedding provider: ${provider}`,
-        }),
-      )
-    : Effect.succeed(supported)
-}
-
 const refreshActiveSemanticGeneration = (
   sourceRoot: string,
   indexRoot: string,
@@ -60,7 +40,10 @@ const refreshActiveSemanticGeneration = (
     const active = yield* readActiveProvider(indexRoot)
     if (active === null) return null
 
-    const provider = yield* parseProviderId(active.provider)
+    const provider = yield* parseEmbeddingProviderId(
+      active.provider,
+      'refreshSemanticGeneration',
+    )
     const metadata = yield* loadVectorIndex(
       getMetaPath(indexRoot, active.namespace),
     )
