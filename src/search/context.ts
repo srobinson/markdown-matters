@@ -1,10 +1,7 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { Effect, Option } from 'effect'
-import {
-  type DocumentKey,
-  resolveCanonicalPathOrFallback,
-} from '../db/canonical.js'
+import { resolveCanonicalPathOrFallback } from '../db/canonical.js'
 import type { GenerationReadSession } from '../db/generation-reader.js'
 import {
   DocumentNotFoundError,
@@ -12,6 +9,7 @@ import {
   type IndexCorruptedError,
   IndexNotFoundError,
 } from '../errors/index.js'
+import { resolveDocumentKeyFromIndex } from '../index/link-index.js'
 import {
   createStorage,
   loadDocumentIndex,
@@ -69,7 +67,13 @@ export const getContext = (
       )
     }
 
-    const document = documentIndex.documents[resolvedFile as DocumentKey]
+    const documentKey = yield* resolveDocumentKeyFromIndex(
+      documentIndex,
+      resolvedFile,
+    )
+    const document = documentKey
+      ? documentIndex.documents[documentKey]
+      : undefined
     if (!document) {
       return yield* Effect.fail(
         new DocumentNotFoundError({

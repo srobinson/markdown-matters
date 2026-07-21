@@ -1,4 +1,5 @@
 import * as fs from 'node:fs/promises'
+import * as path from 'node:path'
 import { Effect } from 'effect'
 import { afterEach, expect, it } from 'vitest'
 import {
@@ -23,6 +24,8 @@ const openLeases = (root: string): Promise<string[]> =>
 
 it('keeps every structural read on one leased generation', async () => {
   fixture = await createGenerationReadFixture()
+  const primaryAlias = path.join(fixture.sourceRoot, 'primary-alias.md')
+  await fs.link(fixture.primaryFile, primaryAlias)
 
   const held = await Effect.runPromise(
     withCurrentGeneration(fixture.home, (session) =>
@@ -39,7 +42,7 @@ it('keeps every structural read on one leased generation', async () => {
         const context = yield* getContext(
           session,
           fixture!.sourceRoot,
-          fixture!.primaryFile,
+          primaryAlias,
         )
         return {
           generation: session.generation,

@@ -24,10 +24,10 @@ export const hnswCacheKey = (
 const generationCoordinates = (
   indexRoot: string,
 ): { readonly home: string; readonly generation: GenerationName } => {
-  const resolvedRoot = path.resolve(indexRoot)
+  const parsed = path.parse(indexRoot)
   return {
-    home: path.dirname(resolvedRoot),
-    generation: path.basename(resolvedRoot) as GenerationName,
+    home: parsed.dir,
+    generation: parsed.base as GenerationName,
   }
 }
 
@@ -67,9 +67,8 @@ export const evictHnswGeneration = (
   home: string,
   generation: GenerationName,
 ): void => {
-  const resolvedHome = path.resolve(home)
   for (const key of hnswCache.keys()) {
-    if (matchesGeneration(key, resolvedHome, generation)) hnswCache.delete(key)
+    if (matchesGeneration(key, home, generation)) hnswCache.delete(key)
   }
 }
 

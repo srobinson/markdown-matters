@@ -83,7 +83,7 @@ const findStoredDocumentKey = (
   )
 }
 
-const resolveDocumentKey = (
+export const resolveDocumentKeyFromIndex = (
   documentIndex: DocumentIndex | null,
   filePath: string,
 ): Effect.Effect<DocumentKey | null> =>
@@ -100,7 +100,7 @@ export const resolveIndexedDocumentKey = (
     const documentIndex = yield* loadDocumentIndex(
       createStorage(session.indexRoot, session.indexRoot),
     )
-    return yield* resolveDocumentKey(documentIndex, filePath)
+    return yield* resolveDocumentKeyFromIndex(documentIndex, filePath)
   })
 
 const loadLinksFor = (
@@ -115,7 +115,10 @@ const loadLinksFor = (
       loadLinkIndex(storage),
     ])
     if (!linkIndex) return []
-    const documentKey = yield* resolveDocumentKey(documentIndex, filePath)
+    const documentKey = yield* resolveDocumentKeyFromIndex(
+      documentIndex,
+      filePath,
+    )
     return documentKey ? (linkIndex[direction][documentKey] ?? []) : []
   })
 

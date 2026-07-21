@@ -16,6 +16,7 @@ import {
   generationHomeLayout,
   generationLayout,
   parseGenerationName,
+  portablePath,
   readCurrentGeneration,
 } from './generation-paths.js'
 import { initializeLeaseGate } from './generation-reader.js'
@@ -271,7 +272,7 @@ describe('writeGeneration validation', () => {
         if (
           !staged &&
           !recursive &&
-          directoryPath.split(path.sep).includes('staging')
+          portablePath(directoryPath).split('/').includes('staging')
         ) {
           staged = true
           events.push('stage')
