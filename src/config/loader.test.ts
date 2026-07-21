@@ -320,9 +320,7 @@ describe('readEnvVars', () => {
 
 describe('env var precedence in load()', () => {
   afterEach(() => {
-    for (const key of Object.keys(process.env)) {
-      if (key.startsWith('MDM_')) delete process.env[key]
-    }
+    delete process.env.MDM_SEARCH_DEFAULTLIMIT
   })
 
   it('env var overrides file config', () => {

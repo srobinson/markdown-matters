@@ -1,34 +1,10 @@
 /** Search command option declaration and dispatch. */
 
 import { Args, Command, Options } from '@effect/cli'
-import { Console, Effect } from 'effect'
-import { withCurrentGeneration } from '../../db/generation-reader.js'
 import { resolveMdmHome } from '../../home.js'
 import { jsonOption, prettyOption } from '../options.js'
-import { formatJson } from '../utils.js'
+import { withCurrentGenerationGuidance } from '../utils.js'
 import { runSearchCommand } from './search-mode.js'
-
-const renderNoIndexGuidance = (
-  json: boolean,
-  pretty: boolean,
-): Effect.Effect<void> =>
-  json
-    ? Console.log(
-        formatJson(
-          {
-            error: 'No index found.',
-            guidance: 'Run: mdm index /path/to/docs',
-            hint: 'Add --embed for semantic search capabilities',
-          },
-          pretty,
-        ),
-      )
-    : Effect.gen(function* () {
-        yield* Console.log('No index found.')
-        yield* Console.log('')
-        yield* Console.log('Run: mdm index /path/to/docs')
-        yield* Console.log('  Add --embed for semantic search capabilities')
-      })
 
 const searchOptions = {
   query: Args.text({ name: 'query' }).pipe(
@@ -36,7 +12,7 @@ const searchOptions = {
   ),
   path: Args.directory({ name: 'path' }).pipe(
     Args.withDescription('Directory to search in'),
-    Args.withDefault('.'),
+    Args.optional,
   ),
   keyword: Options.boolean('keyword').pipe(
     Options.withAlias('k'),
@@ -167,13 +143,10 @@ const searchOptions = {
 }
 
 export const searchCommand = Command.make('search', searchOptions, (input) =>
-  withCurrentGeneration(resolveMdmHome(), (session) =>
-    runSearchCommand(input, session),
-  ).pipe(
-    Effect.catchTag('GenerationReadError', (error) =>
-      error.reason === 'NoCurrentGeneration'
-        ? renderNoIndexGuidance(input.json, input.pretty)
-        : Effect.fail(error),
-    ),
+  withCurrentGenerationGuidance(
+    resolveMdmHome(),
+    input.json,
+    input.pretty,
+    (session) => runSearchCommand(input, session),
   ),
 ).pipe(Command.withDescription('Search by meaning or structure'))

@@ -14,11 +14,9 @@
  * - `pnpm test:full` - Runs all tests including semantic search (requires OPENAI_API_KEY)
  */
 
-import { exec } from 'node:child_process'
 import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { promisify } from 'node:util'
 import { Effect } from 'effect'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
@@ -28,43 +26,37 @@ import {
 import { buildIndex } from '../index/indexer.js'
 import { appendManifestDirectory } from '../manifest.js'
 import { freeEncoder } from '../utils/tokens.js'
-
-const execAsync = promisify(exec)
+import { executeCli } from './cli-test-runner.js'
 
 const REBUILD_TEST_INDEX = process.env.REBUILD_TEST_INDEX === 'true'
 const INCLUDE_EMBED_TESTS = process.env.INCLUDE_EMBED_TESTS === 'true'
 const FIXTURE_SOURCE_DIR = path.join(process.cwd(), 'tests', 'fixtures', 'cli')
-const CLI = `node ${path.join(process.cwd(), 'dist', 'cli', 'main.js')}`
 let testFixtureDir = ''
 let testHomeDir = ''
-let originalMdmHome: string | undefined
 
 const run = async (
   args: string,
   options: { cwd?: string; expectError?: boolean } = {},
 ): Promise<string> => {
   const cwd = options.cwd ?? testFixtureDir
-  try {
-    const { stdout } = await execAsync(`${CLI} ${args}`, {
-      cwd,
-      encoding: 'utf-8',
-    })
-    return stdout.trim()
-  } catch (error: unknown) {
-    if (options.expectError) {
-      const execError = error as { stderr?: string; stdout?: string }
-      return execError.stderr || execError.stdout || ''
-    }
-    throw error
+  const result = await executeCli(args, {
+    cwd,
+    env: { ...process.env, MDM_HOME: testHomeDir },
+  })
+  if (result.exitCode !== 0 && !options.expectError) {
+    throw new Error(
+      result.stderr || result.stdout || `CLI exited ${result.exitCode}`,
+    )
   }
+  return (
+    options.expectError ? result.stderr || result.stdout : result.stdout
+  ).trim()
 }
 
 describe('mdm CLI e2e', () => {
   beforeAll(async () => {
     testFixtureDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mdm-cli-e2e-'))
     testHomeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mdm-cli-home-'))
-    originalMdmHome = process.env.MDM_HOME
-    process.env.MDM_HOME = testHomeDir
     await fs.cp(FIXTURE_SOURCE_DIR, testFixtureDir, { recursive: true })
     await fs.link(
       path.join(testFixtureDir, 'README.md'),
@@ -113,8 +105,6 @@ describe('mdm CLI e2e', () => {
     freeEncoder()
     await fs.rm(testFixtureDir, { recursive: true, force: true })
     await fs.rm(testHomeDir, { recursive: true, force: true })
-    if (originalMdmHome === undefined) delete process.env.MDM_HOME
-    else process.env.MDM_HOME = originalMdmHome
   })
 
   describe('--version', () => {
@@ -130,16 +120,15 @@ describe('mdm CLI e2e', () => {
         path.join(os.tmpdir(), 'mdm-first-search-'),
       )
       try {
-        const { stdout, stderr } = await execAsync(
-          `${CLI} search needle . --keyword`,
+        const { exitCode, stdout, stderr } = await executeCli(
+          'search needle . --keyword',
           {
             cwd: testFixtureDir,
             env: { ...process.env, MDM_HOME: firstRunHome },
-            encoding: 'utf-8',
-            timeout: 60_000,
           },
         )
 
+        expect(exitCode).toBe(0)
         expect(stdout).toContain('No index found.')
         expect(stdout).toContain('Run: mdm index /path/to/docs')
         expect(`${stdout}\n${stderr}`).not.toMatch(

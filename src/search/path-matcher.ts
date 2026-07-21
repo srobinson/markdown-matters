@@ -15,6 +15,9 @@ import {
 export const resolveCanonicalSourceRoot = (sourceRoot: string) =>
   Effect.promise(() => resolveCanonicalPathOrFallbackAsync(sourceRoot))
 
+export const escapePathPatternLiteral = (value: string): string =>
+  value.replaceAll('\\', '\\\\').replaceAll('*', '\\*').replaceAll('?', '\\?')
+
 /**
  * Match a file path against a glob-like pattern.
  *
@@ -29,15 +32,23 @@ export const resolveCanonicalSourceRoot = (sourceRoot: string) =>
  * @returns True if the path matches the pattern
  */
 export const matchPath = (filePath: string, pattern: string): boolean => {
-  // Use a placeholder for ** to avoid it being processed by single * replacement
-  const DOUBLE_STAR_PLACEHOLDER = '__DOUBLE_STAR_MARKER__'
+  const ESCAPED_BACKSLASH_PLACEHOLDER = '\u0000ESCAPED_BACKSLASH\u0000'
+  const ESCAPED_STAR_PLACEHOLDER = '\u0000ESCAPED_STAR\u0000'
+  const ESCAPED_QUESTION_PLACEHOLDER = '\u0000ESCAPED_QUESTION\u0000'
+  const DOUBLE_STAR_PLACEHOLDER = '\u0000DOUBLE_STAR\u0000'
 
   const regexPattern = pattern
+    .replace(/\\\\/g, ESCAPED_BACKSLASH_PLACEHOLDER)
+    .replace(/\\\*/g, ESCAPED_STAR_PLACEHOLDER)
+    .replace(/\\\?/g, ESCAPED_QUESTION_PLACEHOLDER)
     .replace(/[.+^${}()|[\]\\]/g, '\\$&') // Escape all regex special chars first
     .replace(/\*\*/g, DOUBLE_STAR_PLACEHOLDER) // Preserve ** before processing *
     .replace(/\*/g, '[^/]*') // Single * doesn't match slashes
     .replace(/\?/g, '[^/]') // ? matches any single non-slash char
-    .replace(new RegExp(DOUBLE_STAR_PLACEHOLDER, 'g'), '.*') // ** matches anything
+    .replaceAll(DOUBLE_STAR_PLACEHOLDER, '.*') // ** matches anything
+    .replaceAll(ESCAPED_BACKSLASH_PLACEHOLDER, '\\\\')
+    .replaceAll(ESCAPED_STAR_PLACEHOLDER, '\\*')
+    .replaceAll(ESCAPED_QUESTION_PLACEHOLDER, '\\?')
 
   const regex = new RegExp(`^${regexPattern}$`, 'i')
   return regex.test(filePath)

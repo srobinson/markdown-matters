@@ -15,6 +15,10 @@ import {
   hybridSearch,
   type SearchMode,
 } from '../../search/hybrid-search.js'
+import {
+  escapePathPatternLiteral,
+  resolveCanonicalSourceRoot,
+} from '../../search/path-matcher.js'
 import { isAdvancedQuery } from '../../search/query-parser.js'
 import { search, searchContent } from '../../search/searcher.js'
 import type { SummarizableResult } from '../../summarization/index.js'
@@ -29,6 +33,7 @@ import {
   renderHybridOutput,
   renderIndexInfo,
   renderKeywordOutput,
+  renderNoIndexedPathGuidance,
   renderSemanticOutput,
 } from './search-output.js'
 import { filterResultsByRefineTerms } from './search-refine.js'
@@ -36,7 +41,7 @@ import { runSummarization } from './search-summarization.js'
 
 export interface SearchCommandInput {
   readonly query: string
-  readonly path: string
+  readonly path: Option.Option<string>
   readonly keyword: boolean
   readonly headingOnly: boolean
   readonly mode: Option.Option<'hybrid' | 'semantic' | 'keyword'>
@@ -66,6 +71,7 @@ interface ExecutionContext {
   readonly input: SearchCommandInput
   readonly session: GenerationReadSession
   readonly sourceRoot: string
+  readonly pathPattern: string | undefined
   readonly config: MdmConfig
   readonly indexInfo: IndexInfo
   readonly effectiveLimit: number
@@ -80,6 +86,11 @@ const summarizationConfig = (context: ExecutionContext) => ({
   mode: context.config.aiSummarization.mode,
   provider: context.config.aiSummarization.provider,
 })
+
+const pathScopeOptions = (
+  pathPattern: string | undefined,
+): { readonly pathPattern?: string } =>
+  pathPattern === undefined ? {} : { pathPattern }
 
 const runHybridMode = (context: ExecutionContext) =>
   Effect.gen(function* () {
@@ -103,6 +114,7 @@ const runHybridMode = (context: ExecutionContext) =>
           | undefined,
         contextBefore: context.contextBefore,
         contextAfter: context.contextAfter,
+        ...pathScopeOptions(context.pathPattern),
       },
     )
     let results = rawResults
@@ -171,10 +183,12 @@ const runKeywordMode = (context: ExecutionContext) =>
       ? yield* search(context.session, context.sourceRoot, {
           heading: input.query,
           limit: fetchLimit,
+          ...pathScopeOptions(context.pathPattern),
         })
       : yield* searchContent(context.session, context.sourceRoot, {
           content: input.query,
           limit: fetchLimit,
+          ...pathScopeOptions(context.pathPattern),
           contextBefore: context.contextBefore,
           contextAfter: context.contextAfter,
           fuzzy: input.fuzzy,
@@ -245,6 +259,7 @@ const runSemanticMode = (context: ExecutionContext) =>
         hyde: input.hyde,
         contextBefore: context.contextBefore,
         contextAfter: context.contextAfter,
+        ...pathScopeOptions(context.pathPattern),
       },
     )
     let { results } = searchResult
@@ -354,7 +369,6 @@ export const runSearchCommand = (
   session: GenerationReadSession,
 ) =>
   Effect.gen(function* () {
-    const resolvedDir = path.resolve(input.path)
     if (input.threshold < 0 || input.threshold > 1) {
       return yield* Effect.fail(
         new CliValidationError({
@@ -379,6 +393,23 @@ export const runSearchCommand = (
       yield* initializeSearchReranker()
       return
     }
+    const requestedPath = Option.isSome(input.path)
+      ? yield* resolveCanonicalSourceRoot(path.resolve(input.path.value))
+      : undefined
+    const directoryName =
+      requestedPath === undefined ? '' : path.basename(requestedPath)
+    const sourceRoot =
+      requestedPath === undefined
+        ? path.resolve('.')
+        : directoryName
+          ? path.dirname(requestedPath)
+          : requestedPath
+    const pathPattern =
+      requestedPath === undefined
+        ? undefined
+        : directoryName
+          ? `${escapePathPatternLiteral(directoryName)}/**`
+          : '**'
     const config = yield* Effect.serviceOption(ConfigService).pipe(
       Effect.map(Option.getOrElse(() => defaultConfig)),
     )
@@ -391,10 +422,24 @@ export const runSearchCommand = (
       () => config.search.autoIndexThreshold,
     )
     const indexInfo = yield* getIndexInfo(session)
+    if (requestedPath !== undefined && pathPattern !== undefined) {
+      const indexedScope = yield* search(session, sourceRoot, {
+        pathPattern,
+        limit: 1,
+      })
+      if (indexedScope.length === 0) {
+        yield* renderNoIndexedPathGuidance(
+          requestedPath,
+          input.json,
+          input.pretty,
+        )
+        return
+      }
+    }
     const resolvedMode = yield* resolveMode(
       input,
       session,
-      resolvedDir,
+      requestedPath ?? sourceRoot,
       autoIndexThreshold,
     )
     if (!resolvedMode) return
@@ -404,7 +449,8 @@ export const runSearchCommand = (
     const execution: ExecutionContext = {
       input,
       session,
-      sourceRoot: resolvedDir,
+      sourceRoot,
+      pathPattern,
       config,
       indexInfo,
       effectiveLimit,

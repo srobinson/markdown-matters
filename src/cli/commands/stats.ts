@@ -7,7 +7,6 @@
 import * as path from 'node:path'
 import { Args, Command } from '@effect/cli'
 import { Console, Effect } from 'effect'
-import { withCurrentGeneration } from '../../db/generation-reader.js'
 import { getEmbeddingStats } from '../../embeddings/semantic-search.js'
 import { resolveMdmHome } from '../../home.js'
 import {
@@ -16,7 +15,11 @@ import {
   loadSectionIndex,
 } from '../../index/storage.js'
 import { jsonOption, prettyOption } from '../options.js'
-import { formatJson } from '../utils.js'
+import {
+  formatJson,
+  renderNoIndexGuidance,
+  withCurrentGenerationGuidance,
+} from '../utils.js'
 
 interface IndexStats {
   documentCount: number
@@ -42,7 +45,7 @@ export const statsCommand = Command.make(
     pretty: prettyOption,
   },
   ({ path: dirPath, json, pretty }) =>
-    withCurrentGeneration(resolveMdmHome(), (session) =>
+    withCurrentGenerationGuidance(resolveMdmHome(), json, pretty, (session) =>
       Effect.gen(function* () {
         const sourceRoot = path.resolve(dirPath)
         const storage = createStorage(sourceRoot, session.indexRoot)
@@ -53,12 +56,7 @@ export const statsCommand = Command.make(
 
         // Handle case where index doesn't exist
         if (!docIndex || !sectionIndex) {
-          if (json) {
-            yield* Console.log(formatJson({ error: 'No index found' }, pretty))
-          } else {
-            yield* Console.log('No index found.')
-            yield* Console.log("Run 'mdm index <path>' to create an index.")
-          }
+          yield* renderNoIndexGuidance(json, pretty)
           return
         }
 

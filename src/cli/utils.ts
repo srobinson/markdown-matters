@@ -6,8 +6,12 @@
 
 import * as fsPromises from 'node:fs/promises'
 import * as path from 'node:path'
-import { Effect } from 'effect'
-import type { GenerationReadSession } from '../db/generation-reader.js'
+import { Console, Effect } from 'effect'
+import { GenerationReadError } from '../db/generation-errors.js'
+import {
+  type GenerationReadSession,
+  withCurrentGeneration,
+} from '../db/generation-reader.js'
 import { listNamespaces } from '../embeddings/embedding-namespace.js'
 import { getEmbeddingStats } from '../embeddings/semantic-search.js'
 import {
@@ -23,6 +27,47 @@ import { createStorage, loadSectionIndex } from '../index/storage.js'
 export const formatJson = (obj: unknown, pretty: boolean): string => {
   return pretty ? JSON.stringify(obj, null, 2) : JSON.stringify(obj)
 }
+
+export const renderNoIndexGuidance = (
+  json: boolean,
+  pretty: boolean,
+): Effect.Effect<void> =>
+  json
+    ? Console.log(
+        formatJson(
+          {
+            error: 'No index found.',
+            guidance: 'Run: mdm index /path/to/docs',
+            hint: 'Add --embed for semantic search capabilities',
+          },
+          pretty,
+        ),
+      )
+    : Effect.gen(function* () {
+        yield* Console.log('No index found.')
+        yield* Console.log('')
+        yield* Console.log('Run: mdm index /path/to/docs')
+        yield* Console.log('  Add --embed for semantic search capabilities')
+      })
+
+export const withCurrentGenerationGuidance = <A, E>(
+  home: string,
+  json: boolean,
+  pretty: boolean,
+  use: (session: GenerationReadSession) => Effect.Effect<A, E>,
+  renderMissingGeneration: (
+    json: boolean,
+    pretty: boolean,
+  ) => Effect.Effect<void> = renderNoIndexGuidance,
+) =>
+  withCurrentGeneration(home, use).pipe(
+    Effect.catchIf(
+      (error): error is GenerationReadError =>
+        error instanceof GenerationReadError &&
+        error.reason === 'NoCurrentGeneration',
+      () => renderMissingGeneration(json, pretty),
+    ),
+  )
 
 /**
  * Check if filename is a markdown file
