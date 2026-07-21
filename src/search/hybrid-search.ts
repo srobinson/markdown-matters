@@ -26,6 +26,7 @@ import type {
   IndexCorruptedError,
   VectorStoreError,
 } from '../errors/index.js'
+import type { ManifestError } from '../manifest.js'
 import {
   type BM25SearchResult,
   bm25IndexExists,
@@ -36,10 +37,7 @@ import {
   type RerankerError,
   rerankResults,
 } from './cross-encoder.js'
-import {
-  matchesDocumentPath,
-  resolveCanonicalSourceRoot,
-} from './path-matcher.js'
+import { prepareUserPathFilter } from './path-matcher.js'
 
 // ============================================================================
 // Types
@@ -114,6 +112,7 @@ export type HybridSearchError =
   | EmbeddingError
   | VectorStoreError
   | RerankerError
+  | ManifestError
 
 export interface SearchChannels {
   readonly semanticResults: readonly SemanticSearchResult[]
@@ -271,6 +270,11 @@ export const collectSearchChannels = (
   threshold: number,
 ): Effect.Effect<SearchChannels, HybridSearchError> =>
   Effect.gen(function* () {
+    const pathFilter = yield* prepareUserPathFilter(
+      session,
+      sourceRoot,
+      options.pathPattern,
+    )
     const hasBM25 = yield* bm25IndexExists(session.indexRoot)
     let hasEmbeddings = false
     let semanticResults: readonly SemanticSearchResult[] = []
@@ -281,6 +285,7 @@ export const collectSearchChannels = (
           limit: limit * 2,
           threshold,
           pathPattern: options.pathPattern,
+          preparedPathFilter: pathFilter,
           quality: options.quality,
           contextBefore: options.contextBefore,
           contextAfter: options.contextAfter,
@@ -295,18 +300,9 @@ export const collectSearchChannels = (
     let keywordResults: readonly BM25SearchResult[] = []
     if (hasBM25 && options.mode !== 'semantic') {
       const rawResults = yield* bm25Search(session.indexRoot, query, limit * 2)
-      const scopeRoot = options.pathPattern
-        ? yield* resolveCanonicalSourceRoot(sourceRoot)
-        : sourceRoot
-      keywordResults = options.pathPattern
-        ? rawResults.filter((result) =>
-            matchesDocumentPath(
-              scopeRoot,
-              result.documentPath,
-              options.pathPattern,
-            ),
-          )
-        : rawResults
+      keywordResults = rawResults.filter((result) =>
+        pathFilter(result.documentPath),
+      )
     }
 
     return { semanticResults, keywordResults, hasEmbeddings, hasBM25 }

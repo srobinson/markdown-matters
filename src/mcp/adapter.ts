@@ -5,13 +5,10 @@
  * MCP CallToolResult responses, plus path validation at the MCP boundary.
  */
 
-import * as fs from 'node:fs/promises'
-import * as path from 'node:path'
-
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { Effect, Schema } from 'effect'
 
-import { isPathWithin } from '../db/canonical.js'
+import { resolvePathWithinRoot } from '../db/canonical.js'
 
 // ============================================================================
 // MCP Result Constructors
@@ -112,32 +109,8 @@ export const resolveAndValidatePath = async (
   rootPath: string,
   filePath: string,
 ): Promise<string | CallToolResult> => {
-  const normalizedRoot = path.resolve(rootPath)
-  const resolved = path.isAbsolute(filePath)
-    ? path.resolve(filePath)
-    : path.resolve(normalizedRoot, filePath)
-
-  // Lexical check: catch obvious traversal without filesystem access
-  if (!isPathWithin(resolved, normalizedRoot, true)) {
-    return pathTraversalError(filePath)
-  }
-
-  // Canonicalize via realpath to detect symlinks pointing outside root.
-  // Both the root and the target must be canonicalized: if the workspace
-  // root itself is a symlink, comparing a canonicalized target against
-  // the non-canonical root rejects every valid path.
-  // If the target does not exist (e.g. index creation on a new directory),
-  // realpath throws ENOENT and the lexical check above is sufficient.
-  try {
-    const canonical = await fs.realpath(resolved)
-    const canonicalRoot = await fs.realpath(normalizedRoot)
-    if (!isPathWithin(canonical, canonicalRoot, true)) {
-      return pathTraversalError(filePath)
-    }
-    return canonical
-  } catch {
-    return resolved
-  }
+  const resolved = await resolvePathWithinRoot(rootPath, filePath)
+  return resolved ?? pathTraversalError(filePath)
 }
 
 const pathTraversalError = (filePath: string): CallToolResult => ({

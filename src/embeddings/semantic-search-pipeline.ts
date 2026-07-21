@@ -24,15 +24,13 @@ import {
 } from '../errors/index.js'
 import { createStorage, loadSectionIndex } from '../index/storage.js'
 import type { SectionEntry } from '../index/types.js'
+import type { ManifestError } from '../manifest.js'
 import type {
   CapabilityNotSupported,
   ProviderId,
   ProviderNotFound,
 } from '../providers/index.js'
-import {
-  matchesDocumentPath,
-  resolveCanonicalSourceRoot,
-} from '../search/path-matcher.js'
+import { prepareUserPathFilter } from '../search/path-matcher.js'
 import { getRecommendedDimensions, supportsMatryoshka } from './dimensions.js'
 import { createEmbeddingClient } from './embed-batched.js'
 import {
@@ -406,17 +404,15 @@ export const postProcessResults = (
   limit: number,
 ): Effect.Effect<
   { results: readonly SemanticSearchResult[]; totalAvailable: number },
-  FileReadError | IndexCorruptedError
+  FileReadError | IndexCorruptedError | ManifestError
 > =>
   Effect.gen(function* () {
-    // Apply path filter if specified
-    let filteredResults = rawResults
-    if (options.pathPattern) {
-      const scopeRoot = yield* resolveCanonicalSourceRoot(sourceRoot)
-      filteredResults = rawResults.filter((r) =>
-        matchesDocumentPath(scopeRoot, r.documentPath, options.pathPattern),
-      )
-    }
+    const pathFilter =
+      options.preparedPathFilter ??
+      (yield* prepareUserPathFilter(session, sourceRoot, options.pathPattern))
+    const filteredResults = rawResults.filter((result) =>
+      pathFilter(result.documentPath),
+    )
 
     // Apply ranking boost (heading + file importance, enabled by default).
     // calculateRankingBoost already clamps the total to TOTAL_BOOST_CAP so

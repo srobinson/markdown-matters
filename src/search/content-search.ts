@@ -1,11 +1,7 @@
 import * as fs from 'node:fs/promises'
 import { Effect, Option } from 'effect'
 import type { ContextLine } from '../core/types.js'
-import {
-  type DocumentKey,
-  resolveCanonicalPathOrFallback,
-  resolveSourceFile,
-} from '../db/canonical.js'
+import { type DocumentKey, resolveSourceFile } from '../db/canonical.js'
 import type { GenerationReadSession } from '../db/generation-reader.js'
 import {
   type CliValidationError,
@@ -18,13 +14,14 @@ import {
   loadSectionIndex,
 } from '../index/storage.js'
 import type { DocumentEntry, SectionEntry } from '../index/types.js'
+import type { ManifestError } from '../manifest.js'
 import {
   buildFuzzyHighlightPattern,
   findMatchesInLine,
   type MatchOptions,
   matchesWithOptions,
 } from './fuzzy-search.js'
-import { matchesDocumentPath } from './path-matcher.js'
+import { prepareUserPathFilter } from './path-matcher.js'
 import {
   buildHighlightPattern,
   evaluateQuery,
@@ -69,6 +66,7 @@ export type SearchReadError =
   | FileReadError
   | IndexCorruptedError
   | CliValidationError
+  | ManifestError
 
 const matchesSectionFilters = (
   section: SectionEntry,
@@ -91,10 +89,14 @@ export const search = (
 ): Effect.Effect<readonly SearchResult[], SearchReadError> =>
   Effect.gen(function* () {
     const storage = createStorage(sourceRoot, session.indexRoot)
-    const canonicalRoot = resolveCanonicalPathOrFallback(storage.sourceRoot)
     const documentIndex = yield* loadDocumentIndex(storage)
     const sectionIndex = yield* loadSectionIndex(storage)
     if (!documentIndex || !sectionIndex) return []
+    const pathFilter = yield* prepareUserPathFilter(
+      session,
+      sourceRoot,
+      options.pathPattern,
+    )
 
     const results: SearchResult[] = []
     const headingRegex = options.heading
@@ -102,15 +104,7 @@ export const search = (
       : null
     for (const section of Object.values(sectionIndex.sections)) {
       if (!matchesSectionFilters(section, options, headingRegex)) continue
-      if (
-        !matchesDocumentPath(
-          canonicalRoot,
-          section.documentPath,
-          options.pathPattern,
-        )
-      ) {
-        continue
-      }
+      if (!pathFilter(section.documentPath)) continue
       const document = documentIndex.documents[section.documentPath]
       if (document) results.push({ section, document })
       if (options.limit !== undefined && results.length >= options.limit) break
@@ -293,10 +287,14 @@ export const searchContent = (
 ): Effect.Effect<readonly SearchResult[], SearchReadError> =>
   Effect.gen(function* () {
     const storage = createStorage(sourceRoot, session.indexRoot)
-    const canonicalRoot = resolveCanonicalPathOrFallback(storage.sourceRoot)
     const documentIndex = yield* loadDocumentIndex(storage)
     const sectionIndex = yield* loadSectionIndex(storage)
     if (!documentIndex || !sectionIndex) return []
+    const pathFilter = yield* prepareUserPathFilter(
+      session,
+      sourceRoot,
+      options.pathPattern,
+    )
 
     const query = yield* prepareContentQuery(options)
     const headingRegex = options.heading
@@ -307,11 +305,7 @@ export const searchContent = (
     for (const [documentPath, sections] of groupSections(
       sectionIndex.sections,
     )) {
-      if (
-        !matchesDocumentPath(canonicalRoot, documentPath, options.pathPattern)
-      ) {
-        continue
-      }
+      if (!pathFilter(documentPath)) continue
       const document = documentIndex.documents[documentPath]
       if (!document) continue
 

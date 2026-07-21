@@ -27,7 +27,7 @@ export const tools: Tool[] = [
         path_filter: {
           type: 'string',
           description:
-            "Glob pattern to filter files (e.g., '*.md', 'docs/**/*.md')",
+            "Canonical absolute path, relative glob, or bare path segment to filter files (e.g., '/docs/guide.md', 'docs/**/*.md', 'docs')",
         },
         threshold: {
           type: 'number',
@@ -88,7 +88,8 @@ export const tools: Tool[] = [
         },
         path_filter: {
           type: 'string',
-          description: 'Glob pattern to filter files',
+          description:
+            'Canonical absolute path, relative glob, or bare path segment to filter files',
         },
         has_code: {
           type: 'boolean',

@@ -6,6 +6,7 @@ import type { Redacted } from 'effect'
 import type { ContextLine } from '../core/types.js'
 import type { CANONICAL_SCHEMA_VERSION, DocumentKey } from '../db/canonical.js'
 import type { OpenAICompatibleProviderId } from '../providers/index.js'
+import type { PreparedPathFilter } from '../search/path-matcher.js'
 
 export type { ContextLine } from '../core/types.js'
 
@@ -135,6 +136,8 @@ export interface SemanticSearchOptions {
   readonly threshold?: number | undefined
   /** Filter by document path pattern */
   readonly pathPattern?: string | undefined
+  /** Canonical filter prepared by a coordinating search pipeline. */
+  readonly preparedPathFilter?: PreparedPathFilter | undefined
   /** Search quality mode: fast, balanced (default), or thorough */
   readonly quality?: SearchQuality | undefined
   /** Provider configuration override */
