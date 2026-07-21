@@ -23,8 +23,8 @@ A machine with hundreds or thousands of markdown files scattered across many
 directories, each following its own (or no) convention. The user **knows their
 locations** (the operative word is plural), but does not want to move files,
 consolidate them, or re-index a directory more than once. v1 could only index and
-search one directory tree at a time, forcing consolidation into `~/.mdx` — bending
-the user's life around the tool. That is why it was abandoned.
+search one directory tree at a time, forcing consolidation into `~/knowledge` and
+bending the user's life around the tool. That is why it was abandoned.
 
 The value of mdm is **making sense of the markdown that already lives scattered
 across your machine, in place.** You declare the directories you care about, mdm
@@ -54,8 +54,8 @@ sense of it all, even across providers" view.
   Search and comprehension filter the one index to those prefixes plus, optionally,
   the project's own files. The config is the scope; there is no per-query `--in`.
 - **Reuse is free.** Ingest a directory once; a same-signature directory that
-  already has an mdm index (e.g. `~/.mdx`) is imported by **re-inserting its
-  existing vectors** — no re-embedding, no API cost (Section 6.2). Re-embedding
+  already has an mdm index (e.g. `~/knowledge`) is imported by **re-inserting its
+  existing vectors** with no re-embedding or API cost (Section 6.2). Re-embedding
   happens only on explicit, costed opt-in (Section 6.1).
 - **Everything across signatures is a federated read.** Because a database is
   signature-homogeneous, the "make sense of *everything*, even across providers"
@@ -171,7 +171,7 @@ the db. Legacy per-project `.mdm/` indexes are import sources (Section 18).
 ```toml
 # $MDM_HOME/manifest.toml
 [[dir]]
-path = "~/.mdx"
+path = "~/knowledge"
 recurse = true          # default true
 [[dir]]
 path = "~/work/clientA/notes"
@@ -340,7 +340,7 @@ rerank = true
 # .mdm.local.toml   — gitignored, machine-local.
 [project]
 home = "~/work-db"                 # optional: pin this project's db (a path, not a name)
-dirs = ["~/.mdx", "~/work/clientA/notes"]   # the partition: canonical prefixes
+dirs = ["~/knowledge", "~/work/clientA/notes"]   # the partition: canonical prefixes
 include_local = "off"              # off | read | ingest  (Section 8.1)
 ```
 
@@ -488,7 +488,7 @@ on first ingest/import.
 ## 14. MCP surface
 
 - The server resolves `MDM_HOME` + the project partition from cwd at startup and
-  serves the db; the partition is the default filter. Removes the `cd ~/.mdx` hack.
+  serves the db; the partition is the default filter. Removes the `cd ~/knowledge` hack.
 - `md_search` / `md_context` gain an optional prefix selector and return path-keyed,
   origin-attributed refs that round-trip into `md_context`. (`md_search` moves from
   `semanticSearch` to the filtered hybrid engine — a called-out change.)
@@ -563,7 +563,7 @@ The target is the whole system; sequencing keeps each step verifiable and green.
    `dbIndexDir` + config merge (§5); `canonical.ts` (the keystone) with the shared
    `resolveSourceFile` and the `path.join` migration; `manifest.toml`; ingest into
    one db; **signature detect + enforcement UX** (6.1); **same-signature vector
-   import** (6.2, validate on `~/.mdx` first); nested-ignore re-anchoring (6.3);
+   import** (6.2, validate on `~/knowledge` first); nested-ignore re-anchoring (6.3);
    generation swap (7.2). Refactor `embedding-namespace.ts` and `vector-store.ts`
    seams first.
 1b. **Thin whole-db `mdm map --all`** (cluster + label + near-dup, no partition
@@ -577,20 +577,20 @@ The target is the whole system; sequencing keeps each step verifiable and green.
    misfiled flag, `manifest suggest`.
 4. **MCP.** Home + partition resolution, filtered hybrid engine, bounded LRU,
    per-partition security, refs (incl. not-ingested + signature-mismatch); remove
-   the `cd ~/.mdx` hack.
+   the `cd ~/knowledge` hack.
 5. **Freshness.** `--embed --watch` embedding refresh; `manifest refresh`.
 6. **Cross-db read.** Signature-aware view: per-signature embedding, **union
    rerank**, dual-channel floors, deterministic tiebreak. `mdm map --across` (the
    across-signature "everything" view) ships in scope; full cross-db search ranking
    is the sole deferred follow-up.
 
-Each step ships behind real verification (tests + dogfood on `~/.mdx` and this repo)
+Each step ships behind real verification (tests + dogfood on `~/knowledge` and this repo)
 and an adversarial review pass **run through the warroom**.
 
 ## 18. No migration, no backwards compatibility
 
 By design. The product is pre-release with **no users and no data worth
-preserving** — any pre-existing v1 index (e.g. the old `~/.mdx/.mdm`) is deleted and
+preserving**. Any pre-existing v1 index (e.g. the old `~/knowledge/.mdm`) is deleted and
 rebuilt fresh under the new layout. There is **no** `[[sources]]` import, **no**
 relative-to-canonical key migration, **no** vector import from old indexes, and
 **no** rehome migration. Stores are written in the canonical schema from the first
@@ -603,7 +603,7 @@ content-hash caching (Section 6) avoids re-embedding unchanged files on later ru
 ## 19. Open questions
 
 1. Clustering algorithm and default cluster-count selection (k-means + silhouette vs
-   HDBSCAN) — a small spike on the real `~/.mdx` corpus during step 1b.
+   HDBSCAN). Run a small spike on the real `~/knowledge` corpus during step 1b.
 2. Whether `mdm map` labels are cached per db or recomputed on demand.
 3. `vectors.meta.bin` memory: inline embeddings make the payload large (0.5–1 GB
    read whole into RAM at 100k+ entries; `save()` already warns >100 MB). Whether to
