@@ -342,7 +342,7 @@ describe('CLI positional search empty guidance', () => {
       runSearch('search absent-marker scoped --keyword --json'),
     ])
     const guidance =
-      'no matches for "absent-marker" among the 1 documents matching your path_filter'
+      'no matches for "absent-marker" among the 1 document matching your path_filter'
 
     expect(text.exitCode).toBe(0)
     expect(text.stdout).toContain('Results: 0')
