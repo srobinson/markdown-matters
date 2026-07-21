@@ -8,15 +8,12 @@ import * as fsPromises from 'node:fs/promises'
 import * as path from 'node:path'
 import { Effect } from 'effect'
 import type { GenerationReadSession } from '../db/generation-reader.js'
-import type { EmbeddingNamespaceError } from '../embeddings/embedding-namespace.js'
 import { listNamespaces } from '../embeddings/embedding-namespace.js'
 import { getEmbeddingStats } from '../embeddings/semantic-search.js'
 import {
-  type DimensionMismatchError,
   DirectoryWalkError,
   FileReadError,
   type IndexCorruptedError,
-  type VectorStoreError,
 } from '../errors/index.js'
 import { createStorage, loadSectionIndex } from '../index/storage.js'
 
@@ -140,14 +137,7 @@ export interface IndexInfo {
 
 export const getIndexInfo = (
   session: GenerationReadSession,
-): Effect.Effect<
-  IndexInfo,
-  | FileReadError
-  | IndexCorruptedError
-  | VectorStoreError
-  | EmbeddingNamespaceError
-  | DimensionMismatchError
-> =>
+): Effect.Effect<IndexInfo, FileReadError | IndexCorruptedError> =>
   Effect.gen(function* () {
     const storage = createStorage(session.indexRoot, session.indexRoot)
     const sectionIndex = yield* loadSectionIndex(storage)

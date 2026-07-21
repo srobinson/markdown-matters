@@ -11,6 +11,7 @@ import {
 import {
   errorCode,
   GenerationReadError,
+  type GenerationReadErrorReason,
   type GenerationReadOperation,
   type ProcessIdentityError,
 } from './generation-errors.js'
@@ -86,10 +87,12 @@ const generationReadError = (
   operation: GenerationReadOperation,
   targetPath: string,
   cause: unknown,
+  reason?: GenerationReadErrorReason,
 ): GenerationReadError =>
   new GenerationReadError({
     operation,
     path: portablePath(targetPath),
+    ...(reason !== undefined && { reason }),
     message: `${operation} generation read failed for ${portablePath(
       targetPath,
     )}: ${cause instanceof Error ? cause.message : String(cause)}`,
@@ -250,6 +253,7 @@ const acquireLease = (
             'read-current',
             homeLayout.current,
             new Error('No current generation exists'),
+            'NoCurrentGeneration',
           ),
         )
       }

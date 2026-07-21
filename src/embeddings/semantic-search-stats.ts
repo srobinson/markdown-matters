@@ -9,13 +9,8 @@
 
 import { Effect } from 'effect'
 import type { GenerationReadSession } from '../db/generation-reader.js'
-import type {
-  DimensionMismatchError,
-  VectorStoreError,
-} from '../errors/index.js'
 import {
   type ActiveProvider,
-  type EmbeddingNamespaceError,
   generateNamespace,
   getActiveNamespace,
 } from './embedding-namespace.js'
@@ -48,25 +43,39 @@ const emptyStats: EmbeddingStats = {
   totalTokens: 0,
 }
 
+const warnAndReturn = <A>(
+  operation: string,
+  error: unknown,
+  fallback: A,
+): Effect.Effect<A> =>
+  Effect.logWarning(
+    `Embedding statistics unavailable during ${operation}: ${
+      error instanceof Error ? error.message : String(error)
+    }`,
+  ).pipe(Effect.as(fallback))
+
 /**
  * Get statistics about stored embeddings.
  * Uses the active namespace to find the current embedding index.
  *
  * @param indexRoot - Root directory containing embeddings
  * @returns Embedding statistics (count, provider, costs)
- *
- * @throws VectorStoreError - Cannot load vector index metadata
  */
 export const getEmbeddingStats = (
   session: GenerationReadSession,
-): Effect.Effect<
-  EmbeddingStats,
-  VectorStoreError | EmbeddingNamespaceError | DimensionMismatchError
-> =>
+): Effect.Effect<EmbeddingStats> =>
   Effect.gen(function* () {
     // Get the active namespace to find where embeddings are stored
     const activeProvider: ActiveProvider | null = yield* getActiveNamespace(
       session.indexRoot,
+    ).pipe(
+      Effect.catchAll((error) =>
+        warnAndReturn(
+          'active provider read',
+          error,
+          null as ActiveProvider | null,
+        ),
+      ),
     )
 
     if (!activeProvider) {
@@ -90,7 +99,13 @@ export const getEmbeddingStats = (
         activeProvider.dimensions,
       )
 
-      const loadResult: VectorStoreLoadResult = yield* freshStore.load()
+      const loadResult: VectorStoreLoadResult = yield* freshStore.load().pipe(
+        Effect.catchAll((error) =>
+          warnAndReturn('vector store load', error, {
+            loaded: false,
+          } as VectorStoreLoadResult),
+        ),
+      )
 
       if (!loadResult.loaded) {
         return emptyStats

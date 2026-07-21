@@ -124,6 +124,33 @@ describe('mdm CLI e2e', () => {
     })
   })
 
+  describe('first run search', () => {
+    it('prints index guidance without exposing a generation read failure', async () => {
+      const firstRunHome = await fs.mkdtemp(
+        path.join(os.tmpdir(), 'mdm-first-search-'),
+      )
+      try {
+        const { stdout, stderr } = await execAsync(
+          `${CLI} search needle . --keyword`,
+          {
+            cwd: testFixtureDir,
+            env: { ...process.env, MDM_HOME: firstRunHome },
+            encoding: 'utf-8',
+            timeout: 60_000,
+          },
+        )
+
+        expect(stdout).toContain('No index found.')
+        expect(stdout).toContain('Run: mdm index /path/to/docs')
+        expect(`${stdout}\n${stderr}`).not.toMatch(
+          /GenerationReadError|No current generation exists/,
+        )
+      } finally {
+        await fs.rm(firstRunHome, { recursive: true, force: true })
+      }
+    }, 60_000)
+  })
+
   describe('--help', () => {
     it('shows help with all commands', async () => {
       const output = await run('--help')
@@ -442,7 +469,7 @@ describe('mdm CLI e2e', () => {
       ).rejects.toThrow()
 
       const estimate = await Effect.runPromise(
-        estimateEmbeddingCost(testFixtureDir),
+        estimateEmbeddingCost(testFixtureDir, { indexRoot: testHomeDir }),
       )
       expect(estimate.totalFiles).toBe(3)
       expect(estimate.totalSections).toBeGreaterThan(0)

@@ -1,5 +1,5 @@
 import * as path from 'node:path'
-import { Console, Effect, Option } from 'effect'
+import { Effect, Option } from 'effect'
 import {
   ConfigService,
   defaultConfig,
@@ -317,6 +317,7 @@ const resolveMode = (
         !modes.hasEmbeddings &&
         !(yield* handleMissingEmbeddings(
           sourceRoot,
+          session.indexRoot,
           autoIndexThreshold,
           input.json,
         ))
@@ -391,13 +392,6 @@ export const runSearchCommand = (
       () => config.search.autoIndexThreshold,
     )
     const indexInfo = yield* getIndexInfo(session)
-    if (!indexInfo.exists && !input.json) {
-      yield* Console.log('No index found.')
-      yield* Console.log('')
-      yield* Console.log('Run: mdm index /path/to/docs')
-      yield* Console.log('  Add --embed for semantic search capabilities')
-      return
-    }
     const resolvedMode = yield* resolveMode(
       input,
       session,

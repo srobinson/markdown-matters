@@ -56,9 +56,11 @@ export const initializeSearchReranker = (): Effect.Effect<void, Error> =>
 
 const buildSemanticIndex = (
   resolvedDir: string,
+  indexRoot: string,
   json: boolean,
 ): Effect.Effect<BuildEmbeddingsResult | null, Error> =>
   buildEmbeddings(resolvedDir, {
+    indexRoot,
     force: false,
     onFileProgress: (progress) => {
       if (!json) {
@@ -84,11 +86,14 @@ const reportBuiltIndex = (
 
 export const handleMissingEmbeddings = (
   resolvedDir: string,
+  indexRoot: string,
   autoIndexThreshold: number,
   json: boolean,
 ): Effect.Effect<boolean, Error> =>
   Effect.gen(function* () {
-    const estimate = yield* estimateEmbeddingCost(resolvedDir).pipe(
+    const estimate = yield* estimateEmbeddingCost(resolvedDir, {
+      indexRoot,
+    }).pipe(
       Effect.map((result): EmbeddingEstimate | null => result),
       Effect.catchTags(createCostEstimateErrorHandler()),
     )
@@ -106,7 +111,7 @@ export const handleMissingEmbeddings = (
           `Creating semantic index (~${estimate.estimatedTimeSeconds}s, ~$${estimate.totalCost.toFixed(4)})...`,
         )
       }
-      const result = yield* buildSemanticIndex(resolvedDir, json)
+      const result = yield* buildSemanticIndex(resolvedDir, indexRoot, json)
       if (!result) return false
       yield* reportBuiltIndex(result, json)
       return true
@@ -130,7 +135,7 @@ export const handleMissingEmbeddings = (
         yield* Console.log('')
         yield* Console.log('Building embeddings...')
       }
-      const result = yield* buildSemanticIndex(resolvedDir, json)
+      const result = yield* buildSemanticIndex(resolvedDir, indexRoot, json)
       if (!result) return false
       yield* reportBuiltIndex(result, json)
       return true

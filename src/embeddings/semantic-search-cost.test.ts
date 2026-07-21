@@ -6,6 +6,17 @@ import { expect, it } from 'vitest'
 import { buildIndex } from '../index/indexer.js'
 import { estimateEmbeddingCost } from './semantic-search-cost.js'
 
+it('keeps embedding build and estimate roots explicit', async () => {
+  const sources = await Promise.all([
+    fs.readFile(new URL('./semantic-search-build.ts', import.meta.url), 'utf8'),
+    fs.readFile(new URL('./semantic-search-cost.ts', import.meta.url), 'utf8'),
+  ])
+
+  for (const source of sources) {
+    expect(source).not.toMatch(/resolveMdmHome|dbIndexDir|indexRoot\s*\?\?/)
+  }
+})
+
 it('excludes source relative path patterns from the estimate', async () => {
   const parent = await fs.mkdtemp(path.join(os.tmpdir(), 'mdm-cost-path-'))
   const sourceRoot = path.join(parent, 'source')

@@ -77,11 +77,14 @@ export type GenerationReadOperation =
   | 'release-lease'
   | 'verify-lease'
 
+export type GenerationReadErrorReason = 'NoCurrentGeneration'
+
 export class GenerationReadError extends Data.TaggedError(
   'GenerationReadError',
 )<{
   readonly operation: GenerationReadOperation
   readonly path: string
+  readonly reason?: GenerationReadErrorReason
   readonly message: string
   readonly cause?: unknown
 }> {}

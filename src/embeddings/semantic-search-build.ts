@@ -19,7 +19,6 @@ import {
   IndexNotFoundError,
   type VectorStoreError,
 } from '../errors/index.js'
-import { dbIndexDir, resolveMdmHome } from '../home.js'
 import {
   createStorage,
   loadDocumentIndex,
@@ -108,7 +107,7 @@ export interface EmbeddingProviderConfig {
 
 export interface BuildEmbeddingsOptions {
   readonly force?: boolean | undefined
-  readonly indexRoot?: string | undefined
+  readonly indexRoot: string
   /**
    * Test-only escape hatch to inject a pre-built `EmbeddingClient`,
    * bypassing runtime construction. Production callers leave this unset
@@ -494,7 +493,7 @@ const embedSections = (
  */
 export const buildEmbeddings = (
   rootPath: string,
-  options: BuildEmbeddingsOptions = {},
+  options: BuildEmbeddingsOptions,
 ): Effect.Effect<
   BuildEmbeddingsResult,
   | IndexNotFoundError
@@ -512,8 +511,7 @@ export const buildEmbeddings = (
   Effect.gen(function* () {
     const startTime = Date.now()
     const resolvedRoot = yield* resolveCanonicalSourceRoot(rootPath)
-    const indexRoot = options.indexRoot ?? dbIndexDir(resolveMdmHome())
-    const storage = createStorage(resolvedRoot, indexRoot)
+    const storage = createStorage(resolvedRoot, options.indexRoot)
 
     const docIndex = yield* loadDocumentIndex(storage)
     const sectionIndex = yield* loadSectionIndex(storage)
