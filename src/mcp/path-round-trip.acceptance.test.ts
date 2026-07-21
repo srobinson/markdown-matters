@@ -287,9 +287,29 @@ const queryMissPointer = (query: string, matchingDocuments?: number): string =>
     ? `no matches for "${query}" across ${fixture.documentCount} indexed documents`
     : `no matches for "${query}" among the ${matchingDocuments} documents matching your path_filter`
 
+const normalizePathDependentSummaryTokens = (
+  results: readonly CallToolResult[],
+): readonly CallToolResult[] =>
+  results.map(
+    (result): CallToolResult => ({
+      ...result,
+      content: result.content.map((item) =>
+        item.type === 'text'
+          ? {
+              ...item,
+              text: item.text.replace(
+                /^Tokens: \d+ \(/m,
+                'Tokens: <path-dependent> (',
+              ),
+            }
+          : item,
+      ),
+    }),
+  )
+
 const expectedSourceInspection = (): readonly CallToolResult[] => [
   mcpText(
-    `# Search Source\nPath: ${fixture.source}\nTokens: 99 (89% reduction from 19)\n\n**Topics:** search source\n\n# Search Source [L1-3]\nTarget`,
+    `# Search Source\nPath: ${fixture.source}\nTokens: <path-dependent> (89% reduction from 19)\n\n**Topics:** search source\n\n# Search Source [L1-3]\nTarget`,
   ),
   mcpText(
     `# Search Source\nPath: ${fixture.source}\nTotal tokens: 19\n\n# Search Source (${fixture.sourceSectionTokenCount} tokens)\n`,
@@ -363,9 +383,11 @@ describe('MCP multi-root search path filters', () => {
       expect(results.every((result) => !result.isError)).toBe(true)
     }
 
-    expect(await inspectWithEveryPathTool(fixture.source)).toEqual(
-      expectedSourceInspection(),
-    )
+    expect(
+      normalizePathDependentSummaryTokens(
+        await inspectWithEveryPathTool(fixture.source),
+      ),
+    ).toEqual(expectedSourceInspection())
   })
 
   it('reuses every displayed absolute search path as a canonical filter', async () => {
@@ -633,14 +655,18 @@ describe('MCP multi-root path inspection', () => {
     const canonical = await inspectWithEveryPathTool(fixture.source)
     const alias = await inspectWithEveryPathTool(fixture.sourceAlias)
 
-    expect(canonical).toEqual(expectedSourceInspection())
-    expect(alias).toEqual(expectedSourceInspection())
+    expect(alias).toEqual(canonical)
+    expect(normalizePathDependentSummaryTokens(canonical)).toEqual(
+      expectedSourceInspection(),
+    )
   })
 
   it('resolves relative paths against every served root instead of process CWD', async () => {
     const results = await inspectWithEveryPathTool('content/search-source.md')
 
-    expect(results).toEqual(expectedSourceInspection())
+    expect(normalizePathDependentSummaryTokens(results)).toEqual(
+      expectedSourceInspection(),
+    )
   })
 
   it('returns a clear typed signal for a path outside the indexed corpus', async () => {
