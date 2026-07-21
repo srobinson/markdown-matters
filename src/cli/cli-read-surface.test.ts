@@ -156,7 +156,6 @@ describe('CLI positional search path', () => {
       fs.mkdir(emptyPath, { recursive: true }),
       fs.mkdir(unindexedPath, { recursive: true }),
       fs.mkdir(consumerPath, { recursive: true }),
-      fs.mkdir(literalPath, { recursive: true }),
       fs.mkdir(path.join(sourceRoot, 'literal-decoyX'), { recursive: true }),
       fs.mkdir(home, { recursive: true }),
     ])
@@ -174,14 +173,17 @@ describe('CLI positional search path', () => {
         '# Unindexed\n\nscope-marker shared content\n',
       ),
       fs.writeFile(
-        path.join(literalPath, 'inside.md'),
-        '# Literal\n\nliteral-marker shared content\n',
-      ),
-      fs.writeFile(
         path.join(sourceRoot, 'literal-decoyX', 'outside.md'),
         '# Literal decoy\n\nliteral-marker shared content\n',
       ),
     ])
+    if (process.platform !== 'win32') {
+      await fs.mkdir(literalPath, { recursive: true })
+      await fs.writeFile(
+        path.join(literalPath, 'inside.md'),
+        '# Literal\n\nliteral-marker shared content\n',
+      )
+    }
 
     const indexed = await executeCli('index . --force --no-embed', {
       cwd: sourceRoot,
@@ -242,19 +244,23 @@ describe('CLI positional search path', () => {
     ])
   })
 
-  it('treats glob metacharacters in an explicit path literally', async () => {
-    const result = await runSearch(
-      "search literal-marker 'literal*?' --keyword --json",
-    )
+  // Windows forbids * and ? in directory names; path-matcher.test.ts covers portable escaping.
+  it.skipIf(process.platform === 'win32')(
+    'treats glob metacharacters in an explicit path literally',
+    async () => {
+      const result = await runSearch(
+        "search literal-marker 'literal*?' --keyword --json",
+      )
 
-    expect(result.exitCode).toBe(0)
-    const output = JSON.parse(result.stdout) as {
-      readonly results: readonly { readonly path: string }[]
-    }
-    expect(output.results.map((entry) => entry.path)).toEqual([
-      await fs.realpath(path.join(literalPath, 'inside.md')),
-    ])
-  })
+      expect(result.exitCode).toBe(0)
+      const output = JSON.parse(result.stdout) as {
+        readonly results: readonly { readonly path: string }[]
+      }
+      expect(output.results.map((entry) => entry.path)).toEqual([
+        await fs.realpath(path.join(literalPath, 'inside.md')),
+      ])
+    },
+  )
 
   it('guides an existing unindexed directory without corpus leakage', async () => {
     const result = await runSearch('search scope-marker ../unindexed --keyword')
