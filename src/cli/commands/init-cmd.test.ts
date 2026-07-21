@@ -76,6 +76,7 @@ describe('mdm init --local', () => {
   it('creates only project config in the target directory', async () => {
     const result = await runInit('--local --yes', tempDir)
     expect(result.code).toBe(0)
+    expect(result.stdout).toContain('Run "mdm index ."')
     expect(fs.existsSync(path.join(tempDir, '.mdm.toml'))).toBe(true)
     expect(fs.existsSync(path.join(tempDir, '.mdm'))).toBe(false)
     expect(fs.existsSync(path.join(tempDir, '.gitignore'))).toBe(false)
@@ -104,6 +105,7 @@ describe('mdm init --local', () => {
     )
     const result = await runInit('--local --yes', tempDir)
     expect(result.stdout).toContain('Already initialized locally')
+    expect(result.stdout).toContain('Run "mdm index ."')
   })
 
   it('ignores an obsolete local index when creating project config', async () => {
@@ -136,8 +138,9 @@ describe('mdm init --local', () => {
 
 describe('mdm init --global', () => {
   it('creates ~/.mdm/ directory', async () => {
-    await runInit('--global --yes', tempDir)
+    const result = await runInit('--global --yes', tempDir)
     expect(fs.existsSync(path.join(fakeHome, '.mdm'))).toBe(true)
+    expect(result.stdout).toContain('Run "mdm index ."')
   })
 
   it('creates ~/.mdm/.mdm.toml', async () => {
@@ -208,12 +211,13 @@ describe('mdm init with existing global', () => {
     fs.mkdirSync(path.join(fakeHome, '.mdm'), { recursive: true })
     fs.writeFileSync(path.join(fakeHome, '.mdm', '.mdm.toml'), '')
 
-    await runInit('--yes', tempDir)
+    const result = await runInit('--yes', tempDir)
     const content = fs.readFileSync(
       manifestPath(path.join(fakeHome, '.mdm')),
       'utf-8',
     )
     // Paths are normalized to forward slashes in TOML output.
     expect(content).toContain(`path = "${tempDir.replace(/\\/g, '/')}"`)
+    expect(result.stdout).toContain('Run "mdm index ."')
   })
 })

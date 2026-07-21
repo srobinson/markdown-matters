@@ -51,7 +51,6 @@ export interface SearchCommandInput {
   readonly quality: Option.Option<'fast' | 'balanced' | 'thorough'>
   readonly hyde: boolean
   readonly rerankInit: boolean
-  readonly timeout: Option.Option<number>
   readonly json: boolean
   readonly pretty: boolean
   readonly summarize: boolean
@@ -239,7 +238,7 @@ const runSemanticMode = (context: ExecutionContext) =>
       {
         limit: fetchLimit,
         threshold: context.effectiveThreshold,
-        providerConfig: resolveProviderConfig(input.provider, input.timeout),
+        providerConfig: resolveProviderConfig(input.provider),
         quality: Option.getOrUndefined(input.quality) as
           | SearchQuality
           | undefined,

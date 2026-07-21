@@ -1,3 +1,5 @@
+import { MANIFEST_WATCH_UNAVAILABLE_DESCRIPTION } from './flag-schemas.js'
+
 export const shouldUseColor = (): boolean => {
   if (process.env.NO_COLOR !== undefined) return false
   if (process.argv.includes('--no-color')) return false
@@ -57,7 +59,7 @@ export const helpContent: Record<string, CommandHelp> = {
       'mdm index                    # Refresh the existing manifest',
       'mdm index docs/              # Append docs/ then refresh all roots',
       'mdm index --embed            # Refresh and build embeddings',
-      'mdm index --watch            # Show manifest watch guidance',
+      'mdm index --watch            # Fails; manifest watch is unavailable',
       'mdm index --force            # Bypass cache, re-process all files',
       '',
       '# Alternative embedding providers:',
@@ -87,12 +89,24 @@ export const helpContent: Record<string, CommandHelp> = {
         description: 'Custom API base URL for the provider',
       },
       {
-        name: '-t, --timeout <ms>',
-        description: 'Embedding API timeout in milliseconds (default: 30000)',
+        name: '-x, --exclude <patterns>',
+        description: 'Additional comma-separated exclusion patterns',
+      },
+      {
+        name: '--no-gitignore',
+        description: 'Do not apply .gitignore patterns',
+      },
+      {
+        name: '--hnsw-m <n>',
+        description: 'HNSW maximum connections per node',
+      },
+      {
+        name: '--hnsw-ef-construction <n>',
+        description: 'HNSW construction search width',
       },
       {
         name: '-w, --watch',
-        description: 'Rejected until multi-root manifest watching is available',
+        description: MANIFEST_WATCH_UNAVAILABLE_DESCRIPTION,
       },
       {
         name: '-f, --force',
@@ -213,12 +227,24 @@ export const helpContent: Record<string, CommandHelp> = {
           'Similarity threshold 0-1 for semantic search (default: 0.35)',
       },
       {
-        name: '--provider <name>',
-        description: 'Embedding provider for semantic search',
+        name: '-f, --fuzzy',
+        description: 'Enable fuzzy matching for typo tolerance',
       },
       {
-        name: '--timeout <ms>',
-        description: 'Embedding API timeout in milliseconds (default: 30000)',
+        name: '--stem',
+        description: 'Match word variants such as fail, failed, and failing',
+      },
+      {
+        name: '--fuzzy-distance <n>',
+        description: 'Maximum edit distance for --fuzzy (default: 2)',
+      },
+      {
+        name: '--auto-index-threshold <seconds>',
+        description: 'Auto-create embeddings within this time estimate',
+      },
+      {
+        name: '--provider <name>',
+        description: 'Embedding provider for semantic search',
       },
       {
         name: '-r, --rerank',
@@ -605,7 +631,7 @@ ${c.yellow('WORKFLOWS')}
   mdm index --embed && mdm search "authentication flow"
 
   ${c.dim('# Set up project')}
-  mdm init && mdm index
+  mdm init && mdm index .
 
   ${c.dim('# Repair malformed frontmatter')}
   mdm fix docs/ && mdm fix docs/ --write

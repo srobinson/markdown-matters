@@ -128,4 +128,13 @@ describe('index --force flag', () => {
     expect(`${result.stdout}\n${result.stderr}`).toContain('--all')
     expect(`${result.stdout}\n${result.stderr}`).toContain('manifest watching')
   })
+
+  it.each([
+    '--timeout 30000',
+    '-t 30000',
+  ])('rejects the removed timeout option %s', async (option) => {
+    const result = await runIndex(tempDir, option)
+    expect(result.code).not.toBe(0)
+    expect(`${result.stdout}\n${result.stderr}`).toContain('Unknown option')
+  })
 })

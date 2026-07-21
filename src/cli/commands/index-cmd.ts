@@ -1,6 +1,7 @@
 import { Args, Command, Options } from '@effect/cli'
 import { Option } from 'effect'
 
+import { MANIFEST_WATCH_UNAVAILABLE_DESCRIPTION } from '../flag-schemas.js'
 import { forceOption, jsonOption, prettyOption } from '../options.js'
 import { runIndexCommand } from './index-run.js'
 
@@ -70,19 +71,9 @@ const hnswEfConstructionOption = Options.integer('hnsw-ef-construction').pipe(
   Options.optional,
 )
 
-const timeoutOption = Options.integer('timeout').pipe(
-  Options.withAlias('t'),
-  Options.withDescription(
-    'Request timeout in milliseconds for embedding API calls (default: 30000)',
-  ),
-  Options.optional,
-)
-
 const watchOption = Options.boolean('watch').pipe(
   Options.withAlias('w'),
-  Options.withDescription(
-    'Reject until multi-root manifest watching is available',
-  ),
+  Options.withDescription(MANIFEST_WATCH_UNAVAILABLE_DESCRIPTION),
   Options.withDefault(false),
 )
 
@@ -99,7 +90,6 @@ export const indexCommand = Command.make(
     providerModel: providerModelOption,
     hnswM: hnswMOption,
     hnswEfConstruction: hnswEfConstructionOption,
-    timeout: timeoutOption,
     watch: watchOption,
     force: forceOption,
     json: jsonOption,
@@ -117,7 +107,6 @@ export const indexCommand = Command.make(
       providerModel: Option.getOrUndefined(input.providerModel),
       hnswM: Option.getOrUndefined(input.hnswM),
       hnswEfConstruction: Option.getOrUndefined(input.hnswEfConstruction),
-      timeout: Option.getOrUndefined(input.timeout),
       watch: input.watch,
       force: input.force,
       json: input.json,

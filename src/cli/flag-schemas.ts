@@ -36,6 +36,9 @@ export interface CommandSchema {
   flags: FlagSpec[]
 }
 
+export const MANIFEST_WATCH_UNAVAILABLE_DESCRIPTION =
+  'Fails until multi-root manifest watching is available'
+
 // ============================================================================
 // Shared Flags (used by multiple commands)
 // ============================================================================
@@ -125,7 +128,7 @@ export const indexSchema: CommandSchema = {
       name: 'watch',
       type: 'boolean',
       alias: 'w',
-      description: 'Deferred until multi-root manifest watching is available',
+      description: MANIFEST_WATCH_UNAVAILABLE_DESCRIPTION,
     },
     forceFlag,
     jsonFlag,
@@ -152,7 +155,7 @@ export const searchSchema: CommandSchema = {
       name: 'mode',
       type: 'string',
       alias: 'm',
-      description: 'Force search mode (semantic or keyword)',
+      description: 'Force search mode (semantic, keyword, or hybrid)',
     },
     {
       name: 'limit',
@@ -228,11 +231,6 @@ export const searchSchema: CommandSchema = {
       name: 'rerank-init',
       type: 'boolean',
       description: 'Initialize re-ranking model',
-    },
-    {
-      name: 'timeout',
-      type: 'string',
-      description: 'Search timeout in milliseconds',
     },
     {
       name: 'summarize',
