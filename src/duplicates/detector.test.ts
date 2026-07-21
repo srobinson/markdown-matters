@@ -8,6 +8,7 @@ import * as path from 'node:path'
 import { Effect } from 'effect'
 import { describe, expect, it } from 'vitest'
 import type { DocumentKey } from '../db/canonical.js'
+import { testGenerationSession } from '../db/generation-test-fixture.js'
 import { buildIndex } from '../index/indexer.js'
 import {
   collapseDuplicates,
@@ -213,7 +214,7 @@ describe('detectExactDuplicates', () => {
 
       await Effect.runPromise(buildIndex(sourceRoot, { indexRoot }))
       const result = await Effect.runPromise(
-        detectExactDuplicates(sourceRoot, {
+        detectExactDuplicates(testGenerationSession(indexRoot), sourceRoot, {
           minContentLength: 20,
           pathPattern: 'docs/*.md',
         }),
@@ -262,7 +263,9 @@ describe('detectExactDuplicates', () => {
 
       await Effect.runPromise(buildIndex(sourceRoot, { indexRoot }))
       const result = await Effect.runPromise(
-        detectExactDuplicates(sourceRoot, { minContentLength: 20 }),
+        detectExactDuplicates(testGenerationSession(indexRoot), sourceRoot, {
+          minContentLength: 20,
+        }),
       )
       const paths = result.groups.flatMap(({ primary, duplicates }) => [
         primary.documentPath,

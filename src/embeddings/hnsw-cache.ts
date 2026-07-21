@@ -1,7 +1,7 @@
 /**
  * Module-level HNSW vector store cache, shared between the build and
- * search paths. Keyed by `${resolvedRoot}::${namespace}` so multiple
- * roots and provider/model/dimensions tuples can coexist.
+ * search paths. Keyed by `${home}::${namespace}::${generation}` so multiple
+ * logical homes, generations, and provider/model/dimensions tuples coexist.
  *
  * Per-process only, not persisted. Invalidated per-key after
  * `buildEmbeddings` writes new vectors for that namespace, and via
@@ -10,12 +10,32 @@
 
 import * as path from 'node:path'
 import { Effect } from 'effect'
+import type { GenerationName } from '../db/generation-types.js'
 import type { HnswMismatchWarning, VectorStore } from './vector-store.js'
 
 const hnswCache = new Map<string, VectorStore>()
 
-export const hnswCacheKey = (indexRoot: string, namespace: string): string =>
-  `${path.resolve(indexRoot)}::${namespace}`
+export const hnswCacheKey = (
+  home: string,
+  namespace: string,
+  generation: GenerationName,
+): string => `${home}::${namespace}::${generation}`
+
+const generationCoordinates = (
+  indexRoot: string,
+): { readonly home: string; readonly generation: GenerationName } => {
+  const parsed = path.parse(indexRoot)
+  return {
+    home: parsed.dir,
+    generation: parsed.base as GenerationName,
+  }
+}
+
+const matchesGeneration = (
+  key: string,
+  home: string,
+  generation: GenerationName,
+): boolean => key.startsWith(`${home}::`) && key.endsWith(`::${generation}`)
 
 export const getHnswCacheEntry = (key: string): VectorStore | undefined =>
   hnswCache.get(key)
@@ -32,13 +52,23 @@ export const invalidateHnswCache = (
   indexRoot: string,
   namespace: string,
 ): void => {
-  hnswCache.delete(hnswCacheKey(indexRoot, namespace))
+  const { home, generation } = generationCoordinates(indexRoot)
+  hnswCache.delete(hnswCacheKey(home, namespace, generation))
 }
 
 export const evictHnswIndexRoot = (indexRoot: string): void => {
-  const prefix = `${path.resolve(indexRoot)}::`
+  const { home, generation } = generationCoordinates(indexRoot)
   for (const key of hnswCache.keys()) {
-    if (key.startsWith(prefix)) hnswCache.delete(key)
+    if (matchesGeneration(key, home, generation)) hnswCache.delete(key)
+  }
+}
+
+export const evictHnswGeneration = (
+  home: string,
+  generation: GenerationName,
+): void => {
+  for (const key of hnswCache.keys()) {
+    if (matchesGeneration(key, home, generation)) hnswCache.delete(key)
   }
 }
 

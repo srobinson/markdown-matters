@@ -255,7 +255,12 @@ describe('HyDE behavior integration', () => {
     await runEffect(
       buildIndex(TEST_DIR, { indexRoot: TEST_DIR, force: shouldRebuild }),
     )
-    await runEffect(buildEmbeddings(TEST_DIR, { force: shouldRebuild }))
+    await runEffect(
+      buildEmbeddings(TEST_DIR, {
+        indexRoot: TEST_DIR,
+        force: shouldRebuild,
+      }),
+    )
   }, 300000)
 
   afterAll(async () => {

@@ -14,6 +14,7 @@ import { Effect, Option } from 'effect'
 import type { MdmConfig } from '../config/schema.js'
 import type { MdSection } from '../core/types.js'
 import { expandDeclaredPath } from '../db/canonical.js'
+import { withCurrentGeneration } from '../db/generation-reader.js'
 import { semanticSearch } from '../embeddings/semantic-search.js'
 import { resolveMdmHome } from '../home.js'
 import {
@@ -67,24 +68,28 @@ export const handleMdSearch = async (
   }
 
   return effectToMcpResult(
-    semanticSearch(rootPath, query, {
-      limit,
-      threshold,
-      pathPattern: pathFilter,
-      providerConfig,
-    }),
-    (results) => {
-      const formatted = results.map((r, i) => {
-        const similarity = (r.similarity * 100).toFixed(1)
-        return `${i + 1}. **${r.heading}** (${similarity}% match)\n   ${r.documentPath}`
-      })
+    withCurrentGeneration(resolveMdmHome(), (session) =>
+      semanticSearch(session, rootPath, query, {
+        limit,
+        threshold,
+        pathPattern: pathFilter,
+        providerConfig,
+      }).pipe(
+        Effect.map((results) => {
+          const formatted = results.map((r, i) => {
+            const similarity = (r.similarity * 100).toFixed(1)
+            return `${i + 1}. **${r.heading}** (${similarity}% match)\n   ${r.documentPath}`
+          })
 
-      return mcpText(
-        formatted.length > 0
-          ? `Found ${formatted.length} results for "${query}":\n\n${formatted.join('\n\n')}`
-          : `No results found for "${query}"`,
-      )
-    },
+          return mcpText(
+            formatted.length > 0
+              ? `Found ${formatted.length} results for "${query}":\n\n${formatted.join('\n\n')}`
+              : `No results found for "${query}"`,
+          )
+        }),
+      ),
+    ),
+    (result) => result,
   )
 }
 
@@ -171,31 +176,35 @@ export const handleMdKeywordSearch = async (
   const limit = validated.limit ?? 20
 
   return effectToMcpResult(
-    search(rootPath, {
-      heading,
-      pathPattern: pathFilter,
-      hasCode,
-      hasList,
-      hasTable,
-      limit,
-    }),
-    (results) => {
-      const formatted = results.map((r, i) => {
-        const meta: string[] = []
-        if (r.section.hasCode) meta.push('code')
-        if (r.section.hasList) meta.push('list')
-        if (r.section.hasTable) meta.push('table')
-        const metaStr = meta.length > 0 ? ` [${meta.join(', ')}]` : ''
+    withCurrentGeneration(resolveMdmHome(), (session) =>
+      search(session, rootPath, {
+        heading,
+        pathPattern: pathFilter,
+        hasCode,
+        hasList,
+        hasTable,
+        limit,
+      }).pipe(
+        Effect.map((results) => {
+          const formatted = results.map((r, i) => {
+            const meta: string[] = []
+            if (r.section.hasCode) meta.push('code')
+            if (r.section.hasList) meta.push('list')
+            if (r.section.hasTable) meta.push('table')
+            const metaStr = meta.length > 0 ? ` [${meta.join(', ')}]` : ''
 
-        return `${i + 1}. **${r.section.heading}**${metaStr}\n   ${r.section.documentPath} (${r.section.tokenCount} tokens)`
-      })
+            return `${i + 1}. **${r.section.heading}**${metaStr}\n   ${r.section.documentPath} (${r.section.tokenCount} tokens)`
+          })
 
-      return mcpText(
-        formatted.length > 0
-          ? `Found ${formatted.length} sections:\n\n${formatted.join('\n\n')}`
-          : 'No sections found matching criteria',
-      )
-    },
+          return mcpText(
+            formatted.length > 0
+              ? `Found ${formatted.length} sections:\n\n${formatted.join('\n\n')}`
+              : 'No sections found matching criteria',
+          )
+        }),
+      ),
+    ),
+    (result) => result,
   )
 }
 
@@ -252,18 +261,22 @@ export const handleMdLinks = async (
   if (isPathError(resolvedPath)) return resolvedPath
 
   return effectToMcpResult(
-    Effect.all({
-      documentKey: resolveIndexedDocumentKey(rootPath, resolvedPath),
-      links: getOutgoingLinks(rootPath, resolvedPath),
-    }),
-    ({ documentKey, links }) => {
-      const displayPath = documentKey ?? resolvedPath
-      return mcpText(
-        links.length > 0
-          ? `Outgoing links from ${displayPath}:\n\n${links.map((l) => `  -> ${l}`).join('\n')}\n\nTotal: ${links.length} links`
-          : `No outgoing links from ${displayPath}`,
-      )
-    },
+    withCurrentGeneration(resolveMdmHome(), (session) =>
+      Effect.all({
+        documentKey: resolveIndexedDocumentKey(session, resolvedPath),
+        links: getOutgoingLinks(session, resolvedPath),
+      }).pipe(
+        Effect.map(({ documentKey, links }) => {
+          const displayPath = documentKey ?? resolvedPath
+          return mcpText(
+            links.length > 0
+              ? `Outgoing links from ${displayPath}:\n\n${links.map((l) => `  -> ${l}`).join('\n')}\n\nTotal: ${links.length} links`
+              : `No outgoing links from ${displayPath}`,
+          )
+        }),
+      ),
+    ),
+    (result) => result,
   )
 }
 
@@ -283,17 +296,21 @@ export const handleMdBacklinks = async (
   if (isPathError(resolvedPath)) return resolvedPath
 
   return effectToMcpResult(
-    Effect.all({
-      documentKey: resolveIndexedDocumentKey(rootPath, resolvedPath),
-      links: getIncomingLinks(rootPath, resolvedPath),
-    }),
-    ({ documentKey, links }) => {
-      const displayPath = documentKey ?? resolvedPath
-      return mcpText(
-        links.length > 0
-          ? `Incoming links to ${displayPath}:\n\n${links.map((l) => `  <- ${l}`).join('\n')}\n\nTotal: ${links.length} backlinks`
-          : `No incoming links to ${displayPath}`,
-      )
-    },
+    withCurrentGeneration(resolveMdmHome(), (session) =>
+      Effect.all({
+        documentKey: resolveIndexedDocumentKey(session, resolvedPath),
+        links: getIncomingLinks(session, resolvedPath),
+      }).pipe(
+        Effect.map(({ documentKey, links }) => {
+          const displayPath = documentKey ?? resolvedPath
+          return mcpText(
+            links.length > 0
+              ? `Incoming links to ${displayPath}:\n\n${links.map((l) => `  <- ${l}`).join('\n')}\n\nTotal: ${links.length} backlinks`
+              : `No incoming links to ${displayPath}`,
+          )
+        }),
+      ),
+    ),
+    (result) => result,
   )
 }

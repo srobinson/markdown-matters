@@ -3,6 +3,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { Effect } from 'effect'
 import { afterEach, expect, it, vi } from 'vitest'
+import { testGenerationSession } from '../db/generation-test-fixture.js'
 import { getActiveProviderPath } from './embedding-namespace.js'
 import {
   clearHnswCache,
@@ -61,8 +62,13 @@ it('invalidates every cached namespace when clearing semantic state', async () =
     path.join(os.tmpdir(), 'mdm-embedding-clear-'),
   )
   const vectorStore = {} as VectorStore
-  const first = hnswCacheKey(indexRoot, 'openai_first_2')
-  const second = hnswCacheKey(indexRoot, 'voyage_second_2')
+  const session = testGenerationSession(indexRoot)
+  const first = hnswCacheKey(session.home, 'openai_first_2', session.generation)
+  const second = hnswCacheKey(
+    session.home,
+    'voyage_second_2',
+    session.generation,
+  )
   setHnswCacheEntry(first, vectorStore)
   setHnswCacheEntry(second, vectorStore)
 

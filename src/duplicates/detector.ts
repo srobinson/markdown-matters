@@ -9,8 +9,8 @@ import * as crypto from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import { Effect, Option } from 'effect'
 import { type DocumentKey, resolveSourceFile } from '../db/canonical.js'
+import type { GenerationReadSession } from '../db/generation-reader.js'
 import { FileReadError, type IndexCorruptedError } from '../errors/index.js'
-import { dbIndexDir, resolveMdmHome } from '../home.js'
 import { createStorage, loadSectionIndex } from '../index/storage.js'
 import {
   matchesDocumentPath,
@@ -193,7 +193,8 @@ const extractSectionFromContent = (
  * This is fast and doesn't require embeddings.
  */
 export const detectExactDuplicates = (
-  rootPath: string,
+  session: GenerationReadSession,
+  sourceRoot: string,
   options: DuplicateDetectionOptions = {},
 ): Effect.Effect<
   DuplicateDetectionResult,
@@ -201,8 +202,8 @@ export const detectExactDuplicates = (
 > =>
   Effect.gen(function* () {
     const minContentLength = options.minContentLength ?? 50
-    const sourceRoot = yield* resolveCanonicalSourceRoot(rootPath)
-    const storage = createStorage(sourceRoot, dbIndexDir(resolveMdmHome()))
+    const canonicalRoot = yield* resolveCanonicalSourceRoot(sourceRoot)
+    const storage = createStorage(canonicalRoot, session.indexRoot)
 
     // Load section index
     const sectionIndex = yield* loadSectionIndex(storage)
@@ -221,7 +222,7 @@ export const detectExactDuplicates = (
     const filteredSections = options.pathPattern
       ? sections.filter((section) =>
           matchesDocumentPath(
-            sourceRoot,
+            canonicalRoot,
             section.documentPath,
             options.pathPattern,
           ),
@@ -402,7 +403,8 @@ export const collapseDuplicates = <
  * This is the main entry point for duplicate detection.
  */
 export const detectDuplicates = (
-  rootPath: string,
+  session: GenerationReadSession,
+  sourceRoot: string,
   options: DuplicateDetectionOptions = {},
 ): Effect.Effect<
   DuplicateDetectionResult,
@@ -410,5 +412,5 @@ export const detectDuplicates = (
 > => {
   // For now, we only support exact duplicate detection via content hashing.
   // Future: Add embedding-based similarity detection for near-duplicates.
-  return detectExactDuplicates(rootPath, options)
+  return detectExactDuplicates(session, sourceRoot, options)
 }

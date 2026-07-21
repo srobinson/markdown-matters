@@ -39,6 +39,7 @@ import { scheduleGenerationReap } from './generation-reaper.js'
 import type {
   GenerationBuildContext,
   GenerationName,
+  GenerationPreflight,
   PublishedGeneration,
 } from './generation-types.js'
 import {
@@ -49,8 +50,9 @@ import { type WriterLockOptions, withWriterLock } from './writer-lock.js'
 
 export type { GenerationBuildContext, PublishedGeneration }
 
-export interface GenerationWriteOptions<A, E, V> {
+export interface GenerationWriteOptions<A, E, V, P = never> {
   readonly home: string
+  readonly preflight?: GenerationPreflight<P>
   readonly prepare?: () => Effect.Effect<void, E>
   readonly build: (context: GenerationBuildContext) => Effect.Effect<A, E>
   readonly validate: (
@@ -270,14 +272,14 @@ const listFinalizedGenerations = (
     ),
   )
 
-const transactGeneration = <A, E, V>(
-  options: GenerationWriteOptions<A, E, V>,
+const transactGeneration = <A, E, V, P>(
+  options: GenerationWriteOptions<A, E, V, P>,
   fileSystem: GenerationWriterFileSystem,
   state: WriteState,
   scheduleReap: (home: string) => void,
 ): Effect.Effect<
   PublishedGeneration<A>,
-  E | V | GenerationValidationFailure | GenerationWriteError
+  E | V | P | GenerationValidationFailure | GenerationWriteError
 > => {
   const homeLayout = generationHomeLayout(options.home)
   const transaction = Effect.gen(function* () {
@@ -286,6 +288,9 @@ const transactGeneration = <A, E, V>(
       homeLayout.current,
       readCurrentGeneration(homeLayout.home),
     )
+    if (options.preflight) {
+      yield* options.preflight({ home: homeLayout.home, current: previous })
+    }
     if (options.prepare) yield* options.prepare()
 
     const existing = yield* listFinalizedGenerations(
@@ -369,13 +374,14 @@ const transactGeneration = <A, E, V>(
   )
 }
 
-export const writeGeneration = <A, E, V>(
-  options: GenerationWriteOptions<A, E, V>,
+export const writeGeneration = <A, E, V, P = never>(
+  options: GenerationWriteOptions<A, E, V, P>,
   runtime: GenerationWriterRuntime = {},
 ): Effect.Effect<
   PublishedGeneration<A>,
   | E
   | V
+  | P
   | GenerationValidationFailure
   | GenerationWriteError
   | WriterLockError

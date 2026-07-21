@@ -6,9 +6,9 @@ import {
 } from '../embeddings/embedding-namespace.js'
 import { EmbeddingNamespaceError } from '../embeddings/embedding-namespace-types.js'
 import {
-  buildEmbeddings,
   type BuildEmbeddingsOptions,
   type BuildEmbeddingsResult,
+  buildEmbeddings,
 } from '../embeddings/semantic-search.js'
 import { loadVectorIndex } from '../embeddings/vector-store-codec.js'
 import {

@@ -4,6 +4,7 @@ import * as path from 'node:path'
 import { Effect } from 'effect'
 import { expect, it } from 'vitest'
 import type { DocumentKey } from '../db/canonical.js'
+import { testGenerationSession } from '../db/generation-test-fixture.js'
 import {
   createEmptyDocumentIndex,
   createStorage,
@@ -44,10 +45,11 @@ it('filters semantic results with a source relative path pattern', async () => {
 
     const result = await Effect.runPromise(
       postProcessResults(
+        testGenerationSession(indexRoot),
+        sourceRoot,
         rawResults,
         'guide',
         { pathPattern: 'docs/*.md', headingBoost: false },
-        sourceRoot,
         10,
       ),
     )

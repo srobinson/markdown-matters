@@ -6,12 +6,12 @@ import {
   resolveCanonicalPathOrFallback,
   resolveSourceFile,
 } from '../db/canonical.js'
+import type { GenerationReadSession } from '../db/generation-reader.js'
 import {
   type CliValidationError,
   FileReadError,
   type IndexCorruptedError,
 } from '../errors/index.js'
-import { dbIndexDir, resolveMdmHome } from '../home.js'
 import {
   createStorage,
   loadDocumentIndex,
@@ -65,6 +65,11 @@ export interface SearchResult {
   readonly matches?: readonly ContentMatch[]
 }
 
+export type SearchReadError =
+  | FileReadError
+  | IndexCorruptedError
+  | CliValidationError
+
 const matchesSectionFilters = (
   section: SectionEntry,
   options: SearchOptions,
@@ -80,15 +85,13 @@ const matchesSectionFilters = (
   )
 
 export const search = (
-  rootPath: string,
+  session: GenerationReadSession,
+  sourceRoot: string,
   options: SearchOptions = {},
-): Effect.Effect<
-  readonly SearchResult[],
-  FileReadError | IndexCorruptedError | CliValidationError
-> =>
+): Effect.Effect<readonly SearchResult[], SearchReadError> =>
   Effect.gen(function* () {
-    const storage = createStorage(rootPath, dbIndexDir(resolveMdmHome()))
-    const sourceRoot = resolveCanonicalPathOrFallback(storage.sourceRoot)
+    const storage = createStorage(sourceRoot, session.indexRoot)
+    const canonicalRoot = resolveCanonicalPathOrFallback(storage.sourceRoot)
     const documentIndex = yield* loadDocumentIndex(storage)
     const sectionIndex = yield* loadSectionIndex(storage)
     if (!documentIndex || !sectionIndex) return []
@@ -101,7 +104,7 @@ export const search = (
       if (!matchesSectionFilters(section, options, headingRegex)) continue
       if (
         !matchesDocumentPath(
-          sourceRoot,
+          canonicalRoot,
           section.documentPath,
           options.pathPattern,
         )
@@ -284,15 +287,13 @@ const matchSectionContent = (
 }
 
 export const searchContent = (
-  rootPath: string,
+  session: GenerationReadSession,
+  sourceRoot: string,
   options: SearchOptions = {},
-): Effect.Effect<
-  readonly SearchResult[],
-  FileReadError | IndexCorruptedError | CliValidationError
-> =>
+): Effect.Effect<readonly SearchResult[], SearchReadError> =>
   Effect.gen(function* () {
-    const storage = createStorage(rootPath, dbIndexDir(resolveMdmHome()))
-    const sourceRoot = resolveCanonicalPathOrFallback(storage.sourceRoot)
+    const storage = createStorage(sourceRoot, session.indexRoot)
+    const canonicalRoot = resolveCanonicalPathOrFallback(storage.sourceRoot)
     const documentIndex = yield* loadDocumentIndex(storage)
     const sectionIndex = yield* loadSectionIndex(storage)
     if (!documentIndex || !sectionIndex) return []
@@ -306,7 +307,9 @@ export const searchContent = (
     for (const [documentPath, sections] of groupSections(
       sectionIndex.sections,
     )) {
-      if (!matchesDocumentPath(sourceRoot, documentPath, options.pathPattern)) {
+      if (
+        !matchesDocumentPath(canonicalRoot, documentPath, options.pathPattern)
+      ) {
         continue
       }
       const document = documentIndex.documents[documentPath]
@@ -358,14 +361,12 @@ export const searchContent = (
   })
 
 export const searchWithContent = (
-  rootPath: string,
+  session: GenerationReadSession,
+  sourceRoot: string,
   options: SearchOptions = {},
-): Effect.Effect<
-  readonly SearchResult[],
-  FileReadError | IndexCorruptedError | CliValidationError
-> =>
+): Effect.Effect<readonly SearchResult[], SearchReadError> =>
   Effect.gen(function* () {
-    const results = yield* search(rootPath, options)
+    const results = yield* search(session, sourceRoot, options)
     const withContent: SearchResult[] = []
     for (const result of results) {
       const filePath = resolveSourceFile(result.section.documentPath)

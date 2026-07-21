@@ -203,16 +203,13 @@ describe('BuildEmbeddingsOptions HNSW support', () => {
 
   it('should accept hnswOptions in BuildEmbeddingsOptions interface', async () => {
     // Type-level test: if this compiles, the interface has the field
-    type BuildEmbeddingsOptions =
-      typeof import('./semantic-search.js').buildEmbeddings extends (
-        path: string,
-        options?: infer O,
-      ) => unknown
-        ? O
-        : never
+    type BuildEmbeddingsOptions = Parameters<
+      typeof import('./semantic-search.js').buildEmbeddings
+    >[1]
 
     // This verifies the type accepts hnswOptions
     const options: BuildEmbeddingsOptions = {
+      indexRoot: '/test/index',
       hnswOptions: { m: 24, efConstruction: 256 },
     }
     expect(options.hnswOptions?.m).toBe(24)

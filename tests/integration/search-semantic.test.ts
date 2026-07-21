@@ -205,6 +205,7 @@ Database migrations cannot be automatically rolled back.
 
     await runEffect(
       buildEmbeddings(TEST_DIR, {
+        indexRoot: TEST_DIR,
         force: shouldRebuild,
       }),
     )

@@ -350,12 +350,14 @@ describe.skipIf(CHILD_HOME !== undefined)('generation reaper safety', () => {
     const gen1 = await createGeneration(home, 'gen-1')
     const gen2 = await createGeneration(home, 'gen-2')
     await setCurrent(home, gen2.name)
-    const key = hnswCacheKey(gen1.root, 'provider_model_8')
-    const retainedKey = hnswCacheKey(gen2.root, 'provider_model_8')
+    const key = hnswCacheKey(gen1.home, 'provider_model_8', gen1.name)
+    const retainedKey = hnswCacheKey(gen2.home, 'provider_model_8', gen2.name)
     setHnswCacheEntry(key, {} as VectorStore)
     setHnswCacheEntry(retainedKey, {} as VectorStore)
 
-    await Effect.runPromise(reapGeneration(home, gen1.name, { graceMs: 0 }))
+    await expect(
+      Effect.runPromise(reapGeneration(home, gen1.name, { graceMs: 0 })),
+    ).resolves.toEqual({ generation: gen1.name, status: 'reaped' })
 
     expect(getHnswCacheEntry(key)).toBeUndefined()
     expect(getHnswCacheEntry(retainedKey)).toBeDefined()

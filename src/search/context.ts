@@ -1,14 +1,15 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { Effect, Option } from 'effect'
-import type { DocumentKey } from '../db/canonical.js'
+import { resolveCanonicalPathOrFallback } from '../db/canonical.js'
+import type { GenerationReadSession } from '../db/generation-reader.js'
 import {
   DocumentNotFoundError,
   FileReadError,
   type IndexCorruptedError,
   IndexNotFoundError,
 } from '../errors/index.js'
-import { dbIndexDir, resolveMdmHome } from '../home.js'
+import { resolveDocumentKeyFromIndex } from '../index/link-index.js'
 import {
   createStorage,
   loadDocumentIndex,
@@ -40,7 +41,8 @@ export interface SectionContext {
 }
 
 export const getContext = (
-  rootPath: string,
+  session: GenerationReadSession,
+  sourceRoot: string,
   filePath: string,
   options: ContextOptions = {},
 ): Effect.Effect<
@@ -51,9 +53,12 @@ export const getContext = (
   | IndexCorruptedError
 > =>
   Effect.gen(function* () {
-    const storage = createStorage(rootPath, dbIndexDir(resolveMdmHome()))
-    const resolvedFile = path.resolve(filePath)
-    const relativePath = path.relative(storage.sourceRoot, resolvedFile)
+    const storage = createStorage(sourceRoot, session.indexRoot)
+    const resolvedFile = resolveCanonicalPathOrFallback(filePath)
+    const relativePath = path.relative(
+      resolveCanonicalPathOrFallback(storage.sourceRoot),
+      resolvedFile,
+    )
     const documentIndex = yield* loadDocumentIndex(storage)
     const sectionIndex = yield* loadSectionIndex(storage)
     if (!documentIndex || !sectionIndex) {
@@ -62,7 +67,13 @@ export const getContext = (
       )
     }
 
-    const document = documentIndex.documents[resolvedFile as DocumentKey]
+    const documentKey = yield* resolveDocumentKeyFromIndex(
+      documentIndex,
+      resolvedFile,
+    )
+    const document = documentKey
+      ? documentIndex.documents[documentKey]
+      : undefined
     if (!document) {
       return yield* Effect.fail(
         new DocumentNotFoundError({

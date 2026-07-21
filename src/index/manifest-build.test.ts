@@ -9,8 +9,12 @@ import { type DocumentKey, expandDeclaredPath } from '../db/canonical.js'
 import { readCurrentGeneration } from '../db/generation-paths.js'
 import type { VectorEntry } from '../embeddings/types.js'
 import { createNamespacedVectorStore } from '../embeddings/vector-store.js'
-import { appendManifestDirectory, type MdmManifest } from '../manifest.js'
-import { EmbeddingError, type EmbeddingClient } from '../providers/index.js'
+import {
+  appendManifestDirectory,
+  type MdmManifest,
+  manifestPath,
+} from '../manifest.js'
+import { type EmbeddingClient, EmbeddingError } from '../providers/index.js'
 import { bm25Search } from '../search/bm25-store.js'
 import { buildManifestIndex } from './manifest-build.js'
 import { refreshManifestIndex } from './manifest-refresh.js'
@@ -63,6 +67,27 @@ afterEach(async () => {
         retryDelay: 100,
       }),
     ),
+  )
+})
+
+it('runs preflight before a requested directory is appended', async () => {
+  const { home, first, second } = await makeManifestRoots()
+  await Effect.runPromise(appendManifestDirectory(home, { path: first }))
+  const before = await fs.readFile(manifestPath(home), 'utf8')
+  const failure = new Error('preflight rejected')
+
+  await expect(
+    Effect.runPromise(
+      refreshManifestIndex(home, second, {
+        preflight: () => Effect.fail(failure),
+      }),
+    ),
+  ).rejects.toThrow('preflight rejected')
+
+  expect(await fs.readFile(manifestPath(home), 'utf8')).toBe(before)
+  expect(await Effect.runPromise(readCurrentGeneration(home))).toBeNull()
+  expect((await fs.readdir(home)).filter((name) => /^gen-/.test(name))).toEqual(
+    [],
   )
 })
 

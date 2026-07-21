@@ -10,14 +10,19 @@ import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { Effect } from 'effect'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { testGenerationSession } from '../../src/db/generation-test-fixture.js'
 import { buildIndex } from '../../src/index/indexer.js'
-import { searchContent } from '../../src/search/searcher.js'
+import { type SearchOptions, searchContent } from '../../src/search/searcher.js'
 
 const TEST_DIR = path.join(process.cwd(), 'tests', 'fixtures', 'context-search')
+const TEST_SESSION = testGenerationSession(TEST_DIR)
 const originalMdmHome = process.env.MDM_HOME
 
 const runEffect = <A, E>(effect: Effect.Effect<A, E>) =>
   Effect.runPromise(effect)
+
+const searchTestContent = (options: SearchOptions) =>
+  searchContent(TEST_SESSION, TEST_DIR, options)
 
 describe('keyword search context flags', () => {
   beforeAll(async () => {
@@ -101,7 +106,7 @@ End of list.
   describe('-C flag (context around matches)', () => {
     it('should include context lines when -C is specified', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchTestContent({
           content: 'TARGET',
           contextBefore: 2,
           contextAfter: 2,
@@ -125,7 +130,7 @@ End of list.
 
     it('should show exactly the requested number of context lines', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchTestContent({
           content: 'TARGET',
           pathPattern: 'example.md',
           contextBefore: 2,
@@ -155,7 +160,7 @@ End of list.
 
     it('should work with -C 0 (no context)', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchTestContent({
           content: 'TARGET',
           pathPattern: 'example.md',
           contextBefore: 0,
@@ -176,7 +181,7 @@ End of list.
 
     it('should work with large context values', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchTestContent({
           content: 'TARGET',
           pathPattern: 'example.md',
           contextBefore: 10,
@@ -195,7 +200,7 @@ End of list.
   describe('-B flag (before context)', () => {
     it('should include only lines before match when -B is specified', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchTestContent({
           content: 'TARGET',
           pathPattern: 'example.md',
           contextBefore: 3,
@@ -223,7 +228,7 @@ End of list.
   describe('-A flag (after context)', () => {
     it('should include only lines after match when -A is specified', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchTestContent({
           content: 'TARGET',
           pathPattern: 'example.md',
           contextBefore: 0,
@@ -250,7 +255,7 @@ End of list.
   describe('context line content validation', () => {
     it('should preserve exact line content in context', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchTestContent({
           content: 'TARGET',
           pathPattern: 'example.md',
           contextBefore: 1,
@@ -282,7 +287,7 @@ End of list.
 
     it('should have correct line numbers in context', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchTestContent({
           content: 'TARGET',
           pathPattern: 'example.md',
           contextBefore: 2,
@@ -312,7 +317,7 @@ End of list.
   describe('edge cases', () => {
     it('should handle match at start of section (limited before context)', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchTestContent({
           content: 'Only one line above',
           contextBefore: 5,
           contextAfter: 1,
@@ -335,7 +340,7 @@ End of list.
 
     it('should handle match at end of section (limited after context)', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchTestContent({
           content: 'Only one line below',
           contextBefore: 1,
           contextAfter: 5,
@@ -359,7 +364,7 @@ End of list.
 
     it('should handle multiple matches in same section', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchTestContent({
           content: 'TARGET',
           pathPattern: 'example.md',
           contextBefore: 1,
@@ -385,7 +390,7 @@ End of list.
   describe('default context behavior', () => {
     it('should use default context of 1 when not specified', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchTestContent({
           content: 'TARGET',
           pathPattern: 'example.md',
         }),
@@ -413,7 +418,7 @@ End of list.
   describe('context with code blocks', () => {
     it('should include context lines in code blocks', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchTestContent({
           content: 'TARGET',
           pathPattern: 'multiline.md',
           contextBefore: 2,
@@ -436,7 +441,7 @@ End of list.
   describe('CRITICAL: -C flag must show context (regression test)', () => {
     it('MUST FAIL if context lines are missing when -C is specified', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchTestContent({
           content: 'TARGET',
           pathPattern: 'example.md',
           contextBefore: 2,

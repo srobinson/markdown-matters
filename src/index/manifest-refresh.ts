@@ -5,7 +5,10 @@ import type {
   ProcessIdentityError,
   WriterLockError,
 } from '../db/generation-errors.js'
-import type { PublishedGeneration } from '../db/generation-types.js'
+import type {
+  GenerationPreflight,
+  PublishedGeneration,
+} from '../db/generation-types.js'
 import type { GenerationValidationFailure } from '../db/generation-validation.js'
 import { writeGeneration } from '../db/generation-writer.js'
 import type { BuildEmbeddingsResult } from '../embeddings/semantic-search.js'
@@ -34,12 +37,13 @@ export interface ManifestRefreshResult
   readonly semantic: BuildEmbeddingsResult | null
 }
 
-export interface ManifestRefreshOptions
+export interface ManifestRefreshOptions<P = never>
   extends Omit<IndexOptions, 'indexRoot'> {
   readonly semantic?: SemanticRefreshOptions | undefined
+  readonly preflight?: GenerationPreflight<P> | undefined
 }
 
-export type ManifestRefreshError =
+export type ManifestRefreshError<P = never> =
   | ManifestError
   | GenerationWriteError
   | WriterLockError
@@ -47,50 +51,54 @@ export type ManifestRefreshError =
   | GenerationValidationFailure
   | Effect.Effect.Error<ReturnType<typeof buildManifestIndex>>
   | SemanticRefreshError
+  | P
 
-export const refreshManifestIndex = (
+export const refreshManifestIndex = <P = never>(
   home: string,
   requestedPath: string | undefined,
-  options: ManifestRefreshOptions,
-): Effect.Effect<ManifestRefreshResult, ManifestRefreshError> => {
-  const { semantic = { mode: 'active' }, ...indexOptions } = options
-  return writeGeneration<ManifestGenerationResult, ManifestRefreshError, never>(
-    {
-      home,
-      ...(requestedPath === undefined
-        ? {}
-        : {
-            prepare: () =>
-              appendManifestDirectory(home, { path: requestedPath }),
-          }),
-      build: (generation) =>
-        Effect.gen(function* () {
-          const manifest = yield* loadManifest(home)
-          if (manifest.directories.length === 0) {
-            return yield* Effect.fail(
-              new ManifestError({
-                path: manifestPath(home),
-                message:
-                  'Manifest has no directories. Run mdm index <dir> first.',
-              }),
-            )
-          }
-
-          const index = yield* buildManifestIndex(manifest, {
-            ...indexOptions,
-            indexRoot: generation.indexRoot,
-            reconcileVectors: semantic.mode !== 'skip',
-          })
-          const semanticResult = yield* refreshSemanticGeneration(
-            home,
-            generation.indexRoot,
-            semantic,
-          )
-          return { index, semantic: semanticResult }
+  options: ManifestRefreshOptions<P>,
+): Effect.Effect<ManifestRefreshResult, ManifestRefreshError<P>> => {
+  const { semantic = { mode: 'active' }, preflight, ...indexOptions } = options
+  return writeGeneration<
+    ManifestGenerationResult,
+    ManifestRefreshError<P>,
+    never,
+    P
+  >({
+    home,
+    ...(preflight ? { preflight } : {}),
+    ...(requestedPath === undefined
+      ? {}
+      : {
+          prepare: () => appendManifestDirectory(home, { path: requestedPath }),
         }),
-      validate: () => Effect.void,
-    },
-  ).pipe(
+    build: (generation) =>
+      Effect.gen(function* () {
+        const manifest = yield* loadManifest(home)
+        if (manifest.directories.length === 0) {
+          return yield* Effect.fail(
+            new ManifestError({
+              path: manifestPath(home),
+              message:
+                'Manifest has no directories. Run mdm index <dir> first.',
+            }),
+          )
+        }
+
+        const index = yield* buildManifestIndex(manifest, {
+          ...indexOptions,
+          indexRoot: generation.indexRoot,
+          reconcileVectors: semantic.mode !== 'skip',
+        })
+        const semanticResult = yield* refreshSemanticGeneration(
+          home,
+          generation.indexRoot,
+          semantic,
+        )
+        return { index, semantic: semanticResult }
+      }),
+    validate: () => Effect.void,
+  }).pipe(
     Effect.map((published) => ({
       generation: published.generation,
       indexRoot: published.indexRoot,

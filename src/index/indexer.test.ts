@@ -11,6 +11,7 @@ import * as path from 'node:path'
 import { Effect } from 'effect'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { DocumentKey } from '../db/canonical.js'
+import { testGenerationSession } from '../db/generation-test-fixture.js'
 import {
   buildIndex,
   getBrokenLinks,
@@ -62,21 +63,23 @@ const runBuildIndex = (
 
 const runGetOutgoingLinks = (rootPath: string, filePath: string) =>
   Effect.runPromise(
-    getOutgoingLinks(rootPath, filePath).pipe(
+    getOutgoingLinks(testGenerationSession(rootPath), filePath).pipe(
       Effect.catchAll((e) => Effect.die(e)),
     ),
   )
 
 const runGetIncomingLinks = (rootPath: string, filePath: string) =>
   Effect.runPromise(
-    getIncomingLinks(rootPath, filePath).pipe(
+    getIncomingLinks(testGenerationSession(rootPath), filePath).pipe(
       Effect.catchAll((e) => Effect.die(e)),
     ),
   )
 
 const runGetBrokenLinks = (rootPath: string) =>
   Effect.runPromise(
-    getBrokenLinks(rootPath).pipe(Effect.catchAll((e) => Effect.die(e))),
+    getBrokenLinks(testGenerationSession(rootPath)).pipe(
+      Effect.catchAll((e) => Effect.die(e)),
+    ),
   )
 
 // ============================================================================
