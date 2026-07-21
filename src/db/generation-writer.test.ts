@@ -28,6 +28,7 @@ import {
   nodeGenerationWriterFileSystem,
   writeGeneration,
 } from './generation-writer.js'
+import type { ProcessInspector } from './process-identity.js'
 
 const cleanup: string[] = []
 
@@ -255,11 +256,42 @@ describe('writeGeneration validation', () => {
     const home = await createHome()
     await seedCurrent(home)
     const events: string[] = []
+    const inspector: ProcessInspector = {
+      current: () =>
+        Effect.sync(() => {
+          events.push('lock')
+          return { pid: process.pid, startedAt: 'test', bootId: 'test' }
+        }),
+      inspect: () => Effect.succeed(null),
+    }
+    let staged = false
+    const fileSystem: GenerationWriterFileSystem = {
+      ...nodeGenerationWriterFileSystem,
+      makeDirectory: async (directoryPath, recursive) => {
+        if (
+          !staged &&
+          !recursive &&
+          directoryPath.split(path.sep).includes('staging')
+        ) {
+          staged = true
+          events.push('stage')
+        }
+        await nodeGenerationWriterFileSystem.makeDirectory(
+          directoryPath,
+          recursive,
+        )
+      },
+      rename: async (sourcePath, targetPath) => {
+        if (path.basename(targetPath) === 'gen-2') events.push('publish')
+        await nodeGenerationWriterFileSystem.rename(sourcePath, targetPath)
+      },
+    }
 
     await Effect.runPromise(
       writeGeneration(
         {
           home,
+          preflight: () => Effect.sync(() => events.push('preflight')),
           prepare: () => Effect.sync(() => events.push('prepare')),
           build: (context) =>
             Effect.sync(() => events.push('build')).pipe(
@@ -271,11 +303,53 @@ describe('writeGeneration validation', () => {
               Effect.asVoid,
             ),
         },
+        testRuntime({ fileSystem, writerLock: { inspector } }),
+      ),
+    )
+
+    expect(events).toEqual([
+      'lock',
+      'preflight',
+      'prepare',
+      'stage',
+      'build',
+      'validate',
+      'publish',
+    ])
+  })
+
+  it('runs preflight before prepare and creates no state when it rejects', async () => {
+    const home = await createHome()
+    await seedCurrent(home)
+    const manifest = path.join(home, 'manifest.toml')
+    await fs.writeFile(manifest, 'before')
+    const beforeManifest = await fs.readFile(manifest, 'utf8')
+    const beforeEntries = (await fs.readdir(home)).sort()
+    const currentPath = generationHomeLayout(home).current
+    const beforeCurrent = await fs.readFile(currentPath, 'utf8')
+    const failure = new Error('preflight rejected')
+
+    const exit = await Effect.runPromiseExit(
+      writeGeneration(
+        {
+          home,
+          preflight: () => Effect.fail(failure),
+          prepare: () =>
+            Effect.promise(() => fs.appendFile(manifest, 'changed')),
+          build: (context) => writeTitle(context, 'unreachable'),
+          validate: () => Effect.void,
+        },
         testRuntime(),
       ),
     )
 
-    expect(events).toEqual(['prepare', 'build', 'validate'])
+    expect(exit).toMatchObject({
+      _tag: 'Failure',
+      cause: { _tag: 'Fail', error: failure },
+    })
+    expect(await fs.readFile(manifest, 'utf8')).toBe(beforeManifest)
+    expect((await fs.readdir(home)).sort()).toEqual(beforeEntries)
+    expect(await fs.readFile(currentPath, 'utf8')).toBe(beforeCurrent)
   })
 
   it.each([

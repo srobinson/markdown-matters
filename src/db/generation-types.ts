@@ -1,3 +1,5 @@
+import type { Effect } from 'effect'
+
 declare const GenerationNameBrand: unique symbol
 
 export type GenerationName = string & {
@@ -46,6 +48,15 @@ export interface GenerationBuildContext {
   readonly generation: GenerationName
   readonly indexRoot: string
 }
+
+export interface GenerationPreflightContext {
+  readonly home: string
+  readonly current: GenerationName | null
+}
+
+export type GenerationPreflight<P> = (
+  context: GenerationPreflightContext,
+) => Effect.Effect<void, P>
 
 export interface PublishedGeneration<A> {
   readonly generation: GenerationName
