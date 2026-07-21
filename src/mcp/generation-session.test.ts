@@ -61,7 +61,7 @@ it('acquires a fresh generation session for every MCP request', async () => {
   ).resolves.toEqual([])
 })
 
-it('does not lease source-only MCP handlers', () => {
-  expect(handleMdm.toString()).not.toContain('withCurrentGeneration')
-  expect(handleMdStructure.toString()).not.toContain('withCurrentGeneration')
+it('leases source handlers for corpus path resolution', () => {
+  expect(handleMdm.toString()).toContain('withCurrentGeneration')
+  expect(handleMdStructure.toString()).toContain('withCurrentGeneration')
 })

@@ -21,7 +21,6 @@ import {
   getIncomingLinks,
   getOutgoingLinks,
   refreshManifestIndex,
-  resolveIndexedDocumentKey,
 } from '../index/indexer.js'
 import { parseFile } from '../parser/parser.js'
 import { search } from '../search/searcher.js'
@@ -34,6 +33,7 @@ import {
   resolveAndValidatePath,
   validateArgs,
 } from './adapter.js'
+import { resolveMcpDocumentPath } from './path-resolution.js'
 import {
   MdBacklinksArgs,
   MdIndexArgs,
@@ -99,7 +99,6 @@ export const handleMdSearch = async (
 
 export const handleMdm = async (
   args: Record<string, unknown>,
-  rootPath: string,
 ): Promise<CallToolResult> => {
   const validated = await validateArgs(MdmArgs, args)
   if (isValidationError(validated)) return validated
@@ -107,11 +106,15 @@ export const handleMdm = async (
   const filePath = validated.path
   const level = validated.level ?? 'brief'
 
-  const resolvedPath = await resolveAndValidatePath(rootPath, filePath)
-  if (isPathError(resolvedPath)) return resolvedPath
-
-  return effectToMcpResult(summarizeFile(resolvedPath, { level }), (result) =>
-    mcpText(formatSummary(result)),
+  return effectToMcpResult(
+    withCurrentGeneration(resolveMdmHome(), (session) =>
+      resolveMcpDocumentPath(session, filePath).pipe(
+        Effect.flatMap((resolvedPath) =>
+          summarizeFile(resolvedPath, { level }),
+        ),
+      ),
+    ),
+    (result) => mcpText(formatSummary(result)),
   )
 }
 
@@ -121,40 +124,42 @@ export const handleMdm = async (
 
 export const handleMdStructure = async (
   args: Record<string, unknown>,
-  rootPath: string,
 ): Promise<CallToolResult> => {
   const validated = await validateArgs(MdStructureArgs, args)
   if (isValidationError(validated)) return validated
 
   const filePath = validated.path
-  const resolvedPath = await resolveAndValidatePath(rootPath, filePath)
-  if (isPathError(resolvedPath)) return resolvedPath
 
-  return effectToMcpResult(parseFile(resolvedPath), (result) => {
-    const formatSection = (section: MdSection, depth: number = 0): string => {
-      const indent = '  '.repeat(depth)
-      const marker = '#'.repeat(section.level)
-      const meta: string[] = []
-      if (section.metadata.hasCode) meta.push('code')
-      if (section.metadata.hasList) meta.push('list')
-      if (section.metadata.hasTable) meta.push('table')
-      const metaStr = meta.length > 0 ? ` [${meta.join(', ')}]` : ''
+  return effectToMcpResult(
+    withCurrentGeneration(resolveMdmHome(), (session) =>
+      resolveMcpDocumentPath(session, filePath).pipe(Effect.flatMap(parseFile)),
+    ),
+    (result) => {
+      const formatSection = (section: MdSection, depth: number = 0): string => {
+        const indent = '  '.repeat(depth)
+        const marker = '#'.repeat(section.level)
+        const meta: string[] = []
+        if (section.metadata.hasCode) meta.push('code')
+        if (section.metadata.hasList) meta.push('list')
+        if (section.metadata.hasTable) meta.push('table')
+        const metaStr = meta.length > 0 ? ` [${meta.join(', ')}]` : ''
 
-      let output = `${indent}${marker} ${section.heading}${metaStr} (${section.metadata.tokenCount} tokens)\n`
+        let output = `${indent}${marker} ${section.heading}${metaStr} (${section.metadata.tokenCount} tokens)\n`
 
-      for (const child of section.children) {
-        output += formatSection(child, depth + 1)
+        for (const child of section.children) {
+          output += formatSection(child, depth + 1)
+        }
+
+        return output
       }
 
-      return output
-    }
+      const structure = result.sections.map((s) => formatSection(s)).join('')
 
-    const structure = result.sections.map((s) => formatSection(s)).join('')
-
-    return mcpText(
-      `# ${result.title}\nPath: ${result.path}\nTotal tokens: ${result.metadata.tokenCount}\n\n${structure}`,
-    )
-  })
+      return mcpText(
+        `# ${result.title}\nPath: ${result.path}\nTotal tokens: ${result.metadata.tokenCount}\n\n${structure}`,
+      )
+    },
+  )
 }
 
 // ============================================================================
@@ -251,27 +256,24 @@ export const handleMdIndex = async (
 
 export const handleMdLinks = async (
   args: Record<string, unknown>,
-  rootPath: string,
 ): Promise<CallToolResult> => {
   const validated = await validateArgs(MdLinksArgs, args)
   if (isValidationError(validated)) return validated
 
   const filePath = validated.path
-  const resolvedPath = await resolveAndValidatePath(rootPath, filePath)
-  if (isPathError(resolvedPath)) return resolvedPath
-
   return effectToMcpResult(
     withCurrentGeneration(resolveMdmHome(), (session) =>
-      Effect.all({
-        documentKey: resolveIndexedDocumentKey(session, resolvedPath),
-        links: getOutgoingLinks(session, resolvedPath),
-      }).pipe(
-        Effect.map(({ documentKey, links }) => {
-          const displayPath = documentKey ?? resolvedPath
+      resolveMcpDocumentPath(session, filePath).pipe(
+        Effect.flatMap((resolvedPath) =>
+          getOutgoingLinks(session, resolvedPath).pipe(
+            Effect.map((links) => ({ links, resolvedPath })),
+          ),
+        ),
+        Effect.map(({ links, resolvedPath }) => {
           return mcpText(
             links.length > 0
-              ? `Outgoing links from ${displayPath}:\n\n${links.map((l) => `  -> ${l}`).join('\n')}\n\nTotal: ${links.length} links`
-              : `No outgoing links from ${displayPath}`,
+              ? `Outgoing links from ${resolvedPath}:\n\n${links.map((l) => `  -> ${l}`).join('\n')}\n\nTotal: ${links.length} links`
+              : `No outgoing links from ${resolvedPath}`,
           )
         }),
       ),
@@ -286,27 +288,24 @@ export const handleMdLinks = async (
 
 export const handleMdBacklinks = async (
   args: Record<string, unknown>,
-  rootPath: string,
 ): Promise<CallToolResult> => {
   const validated = await validateArgs(MdBacklinksArgs, args)
   if (isValidationError(validated)) return validated
 
   const filePath = validated.path
-  const resolvedPath = await resolveAndValidatePath(rootPath, filePath)
-  if (isPathError(resolvedPath)) return resolvedPath
-
   return effectToMcpResult(
     withCurrentGeneration(resolveMdmHome(), (session) =>
-      Effect.all({
-        documentKey: resolveIndexedDocumentKey(session, resolvedPath),
-        links: getIncomingLinks(session, resolvedPath),
-      }).pipe(
-        Effect.map(({ documentKey, links }) => {
-          const displayPath = documentKey ?? resolvedPath
+      resolveMcpDocumentPath(session, filePath).pipe(
+        Effect.flatMap((resolvedPath) =>
+          getIncomingLinks(session, resolvedPath).pipe(
+            Effect.map((links) => ({ links, resolvedPath })),
+          ),
+        ),
+        Effect.map(({ links, resolvedPath }) => {
           return mcpText(
             links.length > 0
-              ? `Incoming links to ${displayPath}:\n\n${links.map((l) => `  <- ${l}`).join('\n')}\n\nTotal: ${links.length} backlinks`
-              : `No incoming links to ${displayPath}`,
+              ? `Incoming links to ${resolvedPath}:\n\n${links.map((l) => `  <- ${l}`).join('\n')}\n\nTotal: ${links.length} backlinks`
+              : `No incoming links to ${resolvedPath}`,
           )
         }),
       ),

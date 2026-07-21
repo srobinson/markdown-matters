@@ -96,17 +96,17 @@ export const createServer = (rootPath: string, config: MdmConfig) => {
       case 'md_search':
         return handleMdSearch(args ?? {}, rootPath, config)
       case 'md_context':
-        return handleMdm(args ?? {}, rootPath)
+        return handleMdm(args ?? {})
       case 'md_structure':
-        return handleMdStructure(args ?? {}, rootPath)
+        return handleMdStructure(args ?? {})
       case 'md_keyword_search':
         return handleMdKeywordSearch(args ?? {}, rootPath)
       case 'md_index':
         return handleMdIndex(args ?? {}, rootPath)
       case 'md_links':
-        return handleMdLinks(args ?? {}, rootPath)
+        return handleMdLinks(args ?? {})
       case 'md_backlinks':
-        return handleMdBacklinks(args ?? {}, rootPath)
+        return handleMdBacklinks(args ?? {})
       default:
         return {
           content: [{ type: 'text', text: `Unknown tool: ${name}` }],
