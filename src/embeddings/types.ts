@@ -10,6 +10,7 @@ import type {
   ProviderId,
 } from '../providers/index.js'
 import type { PreparedPathFilter } from '../search/path-matcher.js'
+import type { ActiveProvider } from './embedding-namespace-types.js'
 
 export type { ContextLine } from '../core/types.js'
 
@@ -240,6 +241,11 @@ export interface SemanticSearchOptions {
   readonly contextBefore?: number | undefined
   /** Lines of context after matches */
   readonly contextAfter?: number | undefined
+}
+
+export interface ResolvedSemanticSearchOptions extends SemanticSearchOptions {
+  readonly providerConfig: EmbeddingProviderConfig
+  readonly activeProvider: ActiveProvider
 }
 
 export interface SemanticSearchResult {

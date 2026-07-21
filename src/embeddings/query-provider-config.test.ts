@@ -8,6 +8,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { defaultConfig } from '../config/schema.js'
 import type { DocumentKey } from '../db/canonical.js'
 import { testGenerationSession } from '../db/generation-test-fixture.js'
+import { buildBM25Index } from '../index/bm25-build.js'
 import { buildIndex } from '../index/indexer.js'
 import {
   createStorage,
@@ -17,11 +18,15 @@ import {
 import {
   type EmbeddingClient,
   EmbeddingError as ProviderEmbeddingError,
+  type ProviderId,
 } from '../providers/index.js'
 import { clearRegistry, registerProvider } from '../providers/registry.js'
 import { hybridSearch } from '../search/hybrid-search.js'
 import { writeActiveProvider } from './embedding-namespace.js'
-import { generateNamespace } from './embedding-namespace-paths.js'
+import {
+  generateNamespace,
+  getActiveProviderPath,
+} from './embedding-namespace-paths.js'
 import { resolveQueryProviderConfig } from './query-provider-config.js'
 import { createNamespacedVectorStore } from './vector-store.js'
 
@@ -38,7 +43,7 @@ const { createEmbedClient } = await import(
 const createEmbedClientMock = vi.mocked(createEmbedClient)
 const cleanup: string[] = []
 
-const createFixture = async () => {
+const createFixture = async (provider: ProviderId = 'openai') => {
   const parent = await fs.mkdtemp(path.join(os.tmpdir(), 'mdm-query-config-'))
   cleanup.push(parent)
   const sourceRoot = path.join(parent, 'source')
@@ -49,9 +54,10 @@ const createFixture = async () => {
   ])
   await fs.writeFile(
     path.join(sourceRoot, 'guide.md'),
-    '# Guide\n\nprivate provider query configuration with sufficient searchable words',
+    '# Guide\n\nprivate provider query configuration has sufficient searchable words for the keyword index and resilient hybrid fallback behavior',
   )
   await Effect.runPromise(buildIndex(sourceRoot, { indexRoot }))
+  await Effect.runPromise(buildBM25Index(indexRoot, { force: true }))
   const storage = createStorage(sourceRoot, indexRoot)
   const [documents, sections] = await Promise.all([
     Effect.runPromise(loadDocumentIndex(storage)),
@@ -67,7 +73,7 @@ const createFixture = async () => {
   const dimensions = 2
   const store = createNamespacedVectorStore(
     indexRoot,
-    'openai',
+    provider,
     model,
     dimensions,
     undefined,
@@ -88,8 +94,8 @@ const createFixture = async () => {
   await Effect.runPromise(store.save())
   await Effect.runPromise(
     writeActiveProvider(indexRoot, {
-      namespace: generateNamespace('openai', model, dimensions),
-      provider: 'openai',
+      namespace: generateNamespace(provider, model, dimensions),
+      provider,
       model,
       dimensions,
       activatedAt: new Date().toISOString(),
@@ -124,10 +130,18 @@ it('uses persisted query metadata and config endpoint precedence', async () => {
     resolveQueryProviderConfig(fixture.session, defaultConfig.embeddings),
   )
   expect(persisted).toEqual({
-    provider: 'openai',
-    baseURL: fixture.baseURL,
-    model: fixture.model,
-    dimensions: fixture.dimensions,
+    providerConfig: {
+      provider: 'openai',
+      baseURL: fixture.baseURL,
+      model: fixture.model,
+      dimensions: fixture.dimensions,
+    },
+    activeProvider: expect.objectContaining({
+      provider: 'openai',
+      model: fixture.model,
+      dimensions: fixture.dimensions,
+    }),
+    vectorCount: 1,
   })
 
   const configured = await Effect.runPromise(
@@ -136,11 +150,13 @@ it('uses persisted query metadata and config endpoint precedence', async () => {
       baseURL: Option.some('http://config-override.example/v1'),
     }),
   )
-  expect(configured.baseURL).toBe('http://config-override.example/v1')
+  expect(configured.providerConfig.baseURL).toBe(
+    'http://config-override.example/v1',
+  )
 })
 
 it('routes a hybrid provider override through the complete query config', async () => {
-  const fixture = await createFixture()
+  const fixture = await createFixture('ollama')
   const publicOpenAIEmbed = vi.fn(() =>
     Effect.die(new Error('Public OpenAI runtime must not be used')),
   )
@@ -156,18 +172,13 @@ it('routes a hybrid provider override through the complete query config', async 
       }),
   }
   createEmbedClientMock.mockReturnValue(Effect.succeed(privateClient))
-  const providerConfig = await Effect.runPromise(
-    resolveQueryProviderConfig(
-      fixture.session,
-      defaultConfig.embeddings,
-      'ollama',
-    ),
-  )
-
   const result = await Effect.runPromise(
     hybridSearch(fixture.session, fixture.sourceRoot, 'private provider', {
       mode: 'hybrid',
-      providerConfig,
+      queryProvider: {
+        config: defaultConfig.embeddings,
+        providerOverride: 'ollama',
+      },
     }),
   )
 
@@ -192,14 +203,10 @@ it('reports query embedding failure without hiding stored vectors', async () => 
         ),
     }),
   )
-  const providerConfig = await Effect.runPromise(
-    resolveQueryProviderConfig(fixture.session, defaultConfig.embeddings),
-  )
-
   const result = await Effect.runPromise(
     hybridSearch(fixture.session, fixture.sourceRoot, 'private provider', {
       mode: 'hybrid',
-      providerConfig,
+      queryProvider: { config: defaultConfig.embeddings },
     }),
   )
 
@@ -208,4 +215,56 @@ it('reports query embedding failure without hiding stored vectors', async () => 
     reason: 'EmbeddingError',
     message: 'private provider unavailable',
   })
+})
+
+it('rejects a provider override that does not match the active index', async () => {
+  const fixture = await createFixture('openai')
+
+  const result = await Effect.runPromise(
+    Effect.either(
+      resolveQueryProviderConfig(
+        fixture.session,
+        defaultConfig.embeddings,
+        'ollama',
+      ),
+    ),
+  )
+
+  expect(result._tag).toBe('Left')
+  if (result._tag === 'Left') {
+    expect(result.left).toMatchObject({
+      _tag: 'EmbeddingNamespaceError',
+      operation: 'resolveQueryProviderConfig',
+    })
+    expect(result.left.message).toContain(
+      'does not match the active index provider openai',
+    )
+  }
+})
+
+it('degrades corrupt provider metadata while retaining keyword results', async () => {
+  const fixture = await createFixture()
+  await fs.writeFile(
+    getActiveProviderPath(fixture.session.indexRoot),
+    '{corrupt-json',
+  )
+
+  const result = await Effect.runPromise(
+    hybridSearch(fixture.session, fixture.sourceRoot, 'private provider', {
+      mode: 'hybrid',
+      queryProvider: { config: defaultConfig.embeddings },
+    }),
+  )
+
+  expect(
+    result.results.some((entry) => entry.sources.includes('keyword')),
+  ).toBe(true)
+  expect(result.stats.keywordResults).toBeGreaterThan(0)
+  expect(result.stats.embeddingsAvailable).toBe(true)
+  expect(result.stats.semanticDegradation).toMatchObject({
+    reason: 'EmbeddingNamespaceError',
+  })
+  expect(result.stats.semanticDegradation?.message).toContain(
+    'Failed to parse active provider',
+  )
 })

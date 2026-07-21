@@ -9,13 +9,15 @@
  */
 
 import { Effect } from 'effect'
+import type { EmbeddingsConfig } from '../config/schema.js'
 import type { ContextLine } from '../core/types.js'
 import type { DocumentKey } from '../db/canonical.js'
 import type { GenerationReadSession } from '../db/generation-reader.js'
 import { listNamespaces } from '../embeddings/embedding-namespace.js'
+import { EmbeddingNamespaceError } from '../embeddings/embedding-namespace-types.js'
+import { resolveQueryProviderConfig } from '../embeddings/query-provider-config.js'
 import { semanticSearch } from '../embeddings/semantic-search.js'
 import type {
-  EmbeddingProviderConfig,
   SearchQuality,
   SemanticSearchResult,
 } from '../embeddings/types.js'
@@ -28,6 +30,7 @@ import type {
   VectorStoreError,
 } from '../errors/index.js'
 import type { ManifestError } from '../manifest.js'
+import type { ProviderId } from '../providers/index.js'
 import {
   type BM25SearchResult,
   bm25IndexExists,
@@ -38,13 +41,21 @@ import {
   type RerankerError,
   rerankResults,
 } from './cross-encoder.js'
-import { prepareUserPathFilter } from './path-matcher.js'
+import {
+  prepareUserPathFilter,
+  type PreparedPathFilter,
+} from './path-matcher.js'
 
 // ============================================================================
 // Types
 // ============================================================================
 
 export type SearchMode = 'hybrid' | 'semantic' | 'keyword'
+
+export interface QueryProviderSelection {
+  readonly config: EmbeddingsConfig
+  readonly providerOverride?: ProviderId | undefined
+}
 
 export interface HybridSearchOptions {
   /** Maximum number of results */
@@ -69,8 +80,8 @@ export interface HybridSearchOptions {
   readonly contextBefore?: number | undefined
   /** Lines of context after matches */
   readonly contextAfter?: number | undefined
-  /** Complete query provider configuration resolved by the caller. */
-  readonly providerConfig?: EmbeddingProviderConfig | undefined
+  /** Inputs resolved inside the semantic degradation boundary. */
+  readonly queryProvider?: QueryProviderSelection | undefined
 }
 
 export interface HybridSearchResult {
@@ -135,15 +146,99 @@ type ProjectionOptions = Required<
   Pick<HybridSearchOptions, 'limit' | 'bm25Weight' | 'semanticWeight' | 'rrfK'>
 >
 
-const activeEmbeddingsExist = (indexRoot: string) =>
+const embeddingAvailability = (indexRoot: string) =>
   listNamespaces(indexRoot).pipe(
-    Effect.map((namespaces) =>
-      namespaces.some(
+    Effect.map((namespaces) => ({
+      stored: namespaces.some((namespace) => namespace.vectorCount > 0),
+      active: namespaces.some(
         (namespace) => namespace.isActive && namespace.vectorCount > 0,
       ),
-    ),
-    Effect.catchAll(() => Effect.succeed(false)),
+    })),
+    Effect.catchAll(() => Effect.succeed({ stored: false, active: false })),
   )
+
+const asSemanticDegradation = (error: {
+  readonly _tag: string
+  readonly message: string
+}): SemanticDegradation => ({ reason: error._tag, message: error.message })
+
+const resolveHybridQueryProvider = (
+  session: GenerationReadSession,
+  selection: QueryProviderSelection | undefined,
+) =>
+  selection === undefined
+    ? Effect.fail(
+        new EmbeddingNamespaceError({
+          operation: 'hybridSearch',
+          message: 'Semantic search requires resolved query provider inputs',
+        }),
+      )
+    : resolveQueryProviderConfig(
+        session,
+        selection.config,
+        selection.providerOverride,
+      )
+
+interface SemanticChannel {
+  readonly results: readonly SemanticSearchResult[]
+  readonly hasEmbeddings: boolean
+  readonly degradation?: SemanticDegradation | undefined
+}
+
+const collectSemanticChannel = (
+  session: GenerationReadSession,
+  sourceRoot: string,
+  query: string,
+  options: HybridSearchOptions,
+  limit: number,
+  threshold: number,
+  pathFilter: PreparedPathFilter,
+): Effect.Effect<SemanticChannel, never> =>
+  Effect.gen(function* () {
+    if (options.mode === 'keyword') {
+      const availability = yield* embeddingAvailability(session.indexRoot)
+      return { results: [], hasEmbeddings: availability.active }
+    }
+
+    const resolution = yield* Effect.either(
+      resolveHybridQueryProvider(session, options.queryProvider),
+    )
+    if (resolution._tag === 'Left') {
+      const availability = yield* embeddingAvailability(session.indexRoot)
+      return {
+        results: [],
+        hasEmbeddings: availability.stored,
+        degradation: asSemanticDegradation(resolution.left),
+      }
+    }
+    if (resolution.right.vectorCount === 0) {
+      return { results: [], hasEmbeddings: false }
+    }
+
+    const semanticTry = yield* Effect.either(
+      semanticSearch(session, sourceRoot, query, {
+        limit: limit * 2,
+        threshold,
+        pathPattern: options.pathPattern,
+        preparedPathFilter: pathFilter,
+        quality: options.quality,
+        contextBefore: options.contextBefore,
+        contextAfter: options.contextAfter,
+        providerConfig: resolution.right.providerConfig,
+        activeProvider: resolution.right.activeProvider,
+      }),
+    )
+    return semanticTry._tag === 'Right'
+      ? {
+          results: semanticTry.right,
+          hasEmbeddings: true,
+        }
+      : {
+          results: [],
+          hasEmbeddings: true,
+          degradation: asSemanticDegradation(semanticTry.left),
+        }
+  })
 
 // ============================================================================
 // RRF Fusion
@@ -296,32 +391,15 @@ export const collectSearchChannels = (
       options.pathPattern,
     )
     const hasBM25 = yield* bm25IndexExists(session.indexRoot)
-    const hasEmbeddings = yield* activeEmbeddingsExist(session.indexRoot)
-    let semanticResults: readonly SemanticSearchResult[] = []
-    let semanticDegradation: SemanticDegradation | undefined
-
-    if (options.mode !== 'keyword' && hasEmbeddings) {
-      const semanticTry = yield* Effect.either(
-        semanticSearch(session, sourceRoot, query, {
-          limit: limit * 2,
-          threshold,
-          pathPattern: options.pathPattern,
-          preparedPathFilter: pathFilter,
-          quality: options.quality,
-          contextBefore: options.contextBefore,
-          contextAfter: options.contextAfter,
-          providerConfig: options.providerConfig,
-        }),
-      )
-      if (semanticTry._tag === 'Right') {
-        semanticResults = semanticTry.right
-      } else {
-        semanticDegradation = {
-          reason: semanticTry.left._tag,
-          message: semanticTry.left.message,
-        }
-      }
-    }
+    const semantic = yield* collectSemanticChannel(
+      session,
+      sourceRoot,
+      query,
+      options,
+      limit,
+      threshold,
+      pathFilter,
+    )
 
     let keywordResults: readonly BM25SearchResult[] = []
     if (hasBM25 && options.mode !== 'semantic') {
@@ -332,11 +410,13 @@ export const collectSearchChannels = (
     }
 
     return {
-      semanticResults,
+      semanticResults: semantic.results,
       keywordResults,
-      hasEmbeddings,
+      hasEmbeddings: semantic.hasEmbeddings,
       hasBM25,
-      ...(semanticDegradation ? { semanticDegradation } : {}),
+      ...(semantic.degradation
+        ? { semanticDegradation: semantic.degradation }
+        : {}),
     }
   })
 
@@ -512,7 +592,8 @@ export const detectSearchModes = (
     const hasBM25 = yield* bm25IndexExists(session.indexRoot)
 
     // Check embeddings by looking for namespaced vector stores
-    const hasEmbeddings = yield* activeEmbeddingsExist(session.indexRoot)
+    const hasEmbeddings = (yield* embeddingAvailability(session.indexRoot))
+      .active
 
     let recommendedMode: SearchMode
     if (hasBM25 && hasEmbeddings) {

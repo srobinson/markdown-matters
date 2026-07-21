@@ -32,7 +32,7 @@ import {
   prepareSearchPipeline,
 } from './semantic-search-pipeline.js'
 import type {
-  SemanticSearchOptions,
+  ResolvedSemanticSearchOptions,
   SemanticSearchResult,
   SemanticSearchResultWithStats,
 } from './types.js'
@@ -111,7 +111,7 @@ export const semanticSearch = (
   session: GenerationReadSession,
   sourceRoot: string,
   query: string,
-  options: SemanticSearchOptions = {},
+  options: ResolvedSemanticSearchOptions,
 ): Effect.Effect<readonly SemanticSearchResult[], SemanticSearchError> =>
   Effect.gen(function* () {
     const ctx = yield* prepareSearchPipeline(
@@ -161,7 +161,7 @@ export const semanticSearchWithStats = (
   session: GenerationReadSession,
   sourceRoot: string,
   query: string,
-  options: SemanticSearchOptions = {},
+  options: ResolvedSemanticSearchOptions,
 ): Effect.Effect<SemanticSearchResultWithStats, SemanticSearchError> =>
   Effect.gen(function* () {
     const ctx = yield* prepareSearchPipeline(
@@ -217,7 +217,7 @@ export const semanticSearchWithContent = (
   session: GenerationReadSession,
   sourceRoot: string,
   query: string,
-  options: SemanticSearchOptions = {},
+  options: ResolvedSemanticSearchOptions,
 ): Effect.Effect<readonly SemanticSearchResult[], SemanticSearchError> =>
   Effect.gen(function* () {
     const results = yield* semanticSearch(session, sourceRoot, query, options)

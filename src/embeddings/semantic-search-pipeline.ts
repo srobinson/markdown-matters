@@ -36,7 +36,6 @@ import { createEmbeddingClient } from './embed-batched.js'
 import {
   type ActiveProvider,
   generateNamespace,
-  getActiveNamespace,
 } from './embedding-namespace.js'
 import {
   checkHnswMismatch,
@@ -49,6 +48,7 @@ import { resolveHydeOptions } from './hyde-options.js'
 import { calculateRankingBoost, preprocessQuery } from './ranking.js'
 import {
   QUALITY_EF_SEARCH,
+  type ResolvedSemanticSearchOptions,
   type SemanticSearchOptions,
   type SemanticSearchResult,
 } from './types.js'
@@ -189,7 +189,7 @@ export const prepareSearchPipeline = (
   session: GenerationReadSession,
   sourceRoot: string,
   query: string,
-  options: SemanticSearchOptions,
+  options: ResolvedSemanticSearchOptions,
 ): Effect.Effect<
   SearchPipelineContext,
   | EmbeddingsNotFoundError
@@ -202,19 +202,8 @@ export const prepareSearchPipeline = (
   | DimensionMismatchError
 > =>
   Effect.gen(function* () {
-    // Get active namespace to determine which embedding index to use
-    const activeProvider = yield* getActiveNamespace(session.indexRoot).pipe(
-      Effect.catchAll(() => Effect.succeed(null as ActiveProvider | null)),
-    )
-
-    if (!activeProvider) {
-      return yield* Effect.fail(
-        new EmbeddingsNotFoundError({ path: session.indexRoot }),
-      )
-    }
-
-    // Resolve provider config and build the runtime client for query embedding.
-    const queryProviderConfig = options.providerConfig ?? { provider: 'openai' }
+    const activeProvider = options.activeProvider
+    const queryProviderConfig = options.providerConfig
     const currentProviderName: ProviderId = queryProviderConfig.provider
     const queryModel = queryProviderConfig.model ?? 'text-embedding-3-small'
     const dimensions =

@@ -126,7 +126,7 @@ export const handleMdSearch = async (
         query,
         pathFilter,
         Effect.gen(function* () {
-          const providerConfig = yield* resolveQueryProviderConfig(
+          const queryProvider = yield* resolveQueryProviderConfig(
             session,
             config.embeddings,
           )
@@ -134,7 +134,8 @@ export const handleMdSearch = async (
             limit,
             threshold,
             pathPattern: pathFilter,
-            providerConfig,
+            providerConfig: queryProvider.providerConfig,
+            activeProvider: queryProvider.activeProvider,
           })
         }),
         (results) => {

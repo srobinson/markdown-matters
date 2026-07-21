@@ -127,11 +127,6 @@ const runHybridMode = (context: ExecutionContext) =>
       refineTerms.length > 0
         ? context.effectiveLimit * 5
         : context.effectiveLimit
-    const providerConfig = yield* resolveQueryProviderConfig(
-      context.session,
-      context.config.embeddings,
-      Option.getOrUndefined(input.provider),
-    )
     const { results: rawResults, stats } = yield* hybridSearch(
       context.session,
       context.sourceRoot,
@@ -147,7 +142,10 @@ const runHybridMode = (context: ExecutionContext) =>
         contextBefore: context.contextBefore,
         contextAfter: context.contextAfter,
         ...pathScopeOptions(context.pathPattern),
-        providerConfig,
+        queryProvider: {
+          config: context.config.embeddings,
+          providerOverride: Option.getOrUndefined(input.provider),
+        },
       },
     )
     let results = rawResults
@@ -282,7 +280,7 @@ const runSemanticMode = (context: ExecutionContext) =>
       refineTerms.length > 0
         ? context.effectiveLimit * 5
         : context.effectiveLimit
-    const providerConfig = yield* resolveQueryProviderConfig(
+    const queryProvider = yield* resolveQueryProviderConfig(
       context.session,
       context.config.embeddings,
       Option.getOrUndefined(input.provider),
@@ -294,7 +292,8 @@ const runSemanticMode = (context: ExecutionContext) =>
       {
         limit: fetchLimit,
         threshold: context.effectiveThreshold,
-        providerConfig,
+        providerConfig: queryProvider.providerConfig,
+        activeProvider: queryProvider.activeProvider,
         quality: Option.getOrUndefined(input.quality) as
           | SearchQuality
           | undefined,
