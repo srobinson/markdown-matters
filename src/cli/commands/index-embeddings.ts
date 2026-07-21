@@ -18,7 +18,6 @@ export interface EmbeddingRefreshInput {
   readonly providerModel: string | undefined
   readonly hnswM: number | undefined
   readonly hnswEfConstruction: number | undefined
-  readonly timeout: number | undefined
 }
 
 const providerConfig = (
@@ -29,12 +28,9 @@ const providerConfig = (
       provider: input.provider,
       baseURL: input.providerBaseUrl,
       model: input.providerModel,
-      timeout: input.timeout,
     }
   }
-  return input.timeout === undefined
-    ? undefined
-    : { provider: 'openai', timeout: input.timeout }
+  return undefined
 }
 
 const hnswOptions = (input: EmbeddingRefreshInput) =>

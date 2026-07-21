@@ -192,20 +192,38 @@ describe('mdm CLI e2e', () => {
       })
     }
 
-    it('index help shows embedding and watch options', async () => {
+    it('index help shows every working index option', async () => {
       const output = await run('index --help')
       expect(output).toContain('--embed')
       expect(output).toContain('--watch')
       expect(output).toContain('manifest watching')
+      expect(output).toContain('--exclude')
+      expect(output).toContain('--no-gitignore')
+      expect(output).toContain('--hnsw-m')
+      expect(output).toContain('--hnsw-ef-construction')
       expect(output).toContain('--force')
       expect(output).not.toContain('--all')
+      expect(output).not.toContain('--timeout')
     })
 
-    it('search help shows keyword and limit options', async () => {
+    it('search help shows every working search option', async () => {
       const output = await run('search --help')
       expect(output).toContain('--keyword')
       expect(output).toContain('--limit')
       expect(output).toContain('--threshold')
+      expect(output).toContain('semantic, keyword, or hybrid')
+      expect(output).toContain('--fuzzy')
+      expect(output).toContain('--stem')
+      expect(output).toContain('--fuzzy-distance')
+      expect(output).toContain('--auto-index-threshold')
+      expect(output).not.toContain('--timeout')
+    })
+
+    it('search rejects the removed timeout option', async () => {
+      const output = await run('search --timeout 30000 query', {
+        expectError: true,
+      })
+      expect(output).toContain("Unknown option '--timeout'")
     })
 
     it('context help shows token budget option', async () => {

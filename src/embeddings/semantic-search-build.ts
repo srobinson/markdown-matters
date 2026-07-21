@@ -93,16 +93,13 @@ export interface EmbeddingBatchProgress {
  * HyDE inherits this value via `resolveHydeOptions` so a custom host
  * applied here automatically carries across to query expansion.
  * `dimensions` is forwarded to the transport when set; otherwise the
- * consumer derives a recommended value from the model. `timeout` is
- * currently ignored on the embed path; the transport uses the OpenAI
- * SDK default.
+ * consumer derives a recommended value from the model.
  */
 export interface EmbeddingProviderConfig {
   readonly provider: ProviderId
   readonly baseURL?: string | undefined
   readonly model?: string | undefined
   readonly dimensions?: number | undefined
-  readonly timeout?: number | undefined
 }
 
 export interface BuildEmbeddingsOptions {

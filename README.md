@@ -54,31 +54,32 @@ Initialize mdm in a directory. Supports both local project setup and global shar
 
 ```bash
 mdm init                        # Interactive setup (prompts for local or global)
-mdm init --local                # Initialize locally (.mdm/ in current directory)
-mdm init --global               # Initialize globally (~/.mdm/)
+mdm init --local                # Create only .mdm.toml in the current directory
+mdm init --global               # Initialize the active MDM_HOME (default: ~/.mdm)
 mdm init --yes                  # Accept all defaults without prompting
 ```
 
-Local setup creates `.mdm/` and `.mdm.toml` in your project. Global setup creates `~/.mdm/` with source registration for multi-project indexing.
+Local setup creates only `.mdm.toml`; it does not create an index directory or add the current directory to the manifest. Global setup creates the active home, using `~/.mdm` by default or the `MDM_HOME` override, and appends the current directory to `manifest.toml`.
 
-Config resolution: Local `.mdm.toml` takes precedence over `~/.mdm/.mdm.toml`, which falls back to built-in defaults.
+Config files merge by key in this order: active home `.mdm.toml`, project `.mdm.toml`, then project `.mdm.local.toml`. Environment variables and CLI flags have higher precedence.
 
 ### index
 
 Refresh the active manifest for fast searching.
 
 ```bash
-mdm index                       # Refresh all manifest directories and active embeddings
+mdm index .                     # First index: append cwd, then refresh the manifest
+mdm index                       # Later: refresh all existing manifest directories
 mdm index ./docs                # Append path, then refresh all directories
-mdm index --embed               # Build embeddings for semantic search
+mdm index . --embed             # First index and build semantic embeddings
 mdm index --no-embed            # Leave semantic vectors unchanged
-mdm index --watch               # Show guidance; multi-root watch is deferred
+mdm index --watch               # Fails; multi-root manifest watch is unavailable
 mdm index --force               # Bypass cache, re-process all files
 mdm index --exclude "*.draft.md,research/**"  # Exclude patterns (comma-separated)
 mdm index --no-gitignore        # Ignore .gitignore file
 ```
 
-With a path, `mdm index` appends its absolute declared path to `manifest.toml` before refreshing every directory. Without a path, it refreshes the existing manifest and fails with guidance when the manifest is empty. mdm respects `.gitignore` and `.mdmignore` patterns. Use `--exclude` to add CLI-level patterns.
+With a path, `mdm index` appends its absolute declared path to `manifest.toml` before refreshing every directory. Without a path, it refreshes the existing manifest and fails with guidance when the manifest is empty. After `mdm init --local`, the first index therefore needs a path such as `mdm index .`. mdm respects `.gitignore` and `.mdmignore` patterns. Use `--exclude` to add CLI-level patterns. `--watch` fails with a `ManifestError` until multi-root manifest watching is available.
 
 ### fix
 
@@ -279,14 +280,14 @@ mdm supports multiple embedding providers for semantic search:
 Quick start with OpenAI:
 ```bash
 export OPENAI_API_KEY=sk-...
-mdm index --embed                       # Build embeddings
+mdm index . --embed                     # First index and build embeddings
 mdm search "how to deploy"              # Now works semantically
 ```
 
 Using Ollama (free, local):
 ```bash
 ollama serve && ollama pull nomic-embed-text
-mdm index --embed --provider ollama --provider-model nomic-embed-text
+mdm index . --embed --provider ollama --provider-model nomic-embed-text
 ```
 
 See [docs/CONFIG.md](./docs/CONFIG.md#embedding-providers) for complete provider setup, comparison, and configuration options.
@@ -366,21 +367,27 @@ Configuration precedence: CLI flags > Environment variables > Config file > Defa
 
 ### Index Location
 
-Indexes are stored in `.mdm/` in your project root:
+The database lives in the active `MDM_HOME`, which defaults to `~/.mdm` and can be overridden with the `MDM_HOME` environment variable. Projects do not own separate index trees.
 
 ```
-.mdm/
-  indexes/
-    documents.json    # Document metadata
-    sections.json     # Section index
-    links.json        # Link graph
-    vectors.bin       # Embeddings (if enabled)
+$MDM_HOME/
+  .mdm.toml           # Optional home configuration
+  manifest.toml       # Declared source directories
+  current             # Pointer to the active gen-N
+  staging/            # Unpublished build workspace
+  gen-N/              # Immutable published generation
+    indexes/          # Documents, sections, links, and BM25 data
+    embeddings/       # Semantic vectors when enabled
+    leases/           # Active reader leases
 ```
+
+Each refresh builds and validates a complete generation under `staging/`, renames it to `gen-N`, then atomically replaces the `current` pointer. Readers keep using one complete generation throughout an operation. Older generations remain intact until active reader leases are released and cleanup can remove them.
 
 ### Environment Variables
 
 | Variable | Description |
 |----------|-------------|
+| `MDM_HOME` | Database home containing `manifest.toml` and generations (default: `~/.mdm`) |
 | `OPENAI_API_KEY` | Required for OpenAI semantic search (default provider) |
 | `OPENROUTER_API_KEY` | Required for OpenRouter semantic search |
 | `MDM_*` | Configuration overrides (see [CONFIG.md](./docs/CONFIG.md)) |
@@ -428,13 +435,15 @@ Based on the search results, here are the key findings...
 
 **API Providers (pay-per-use):**
 
-| Provider | Cost per 1M tokens | Notes |
-|----------|-------------------|-------|
-| DeepSeek | $0.14-0.56 | Ultra-cheap |
-| Qwen | $0.03-0.12 | Budget option |
-| Google Gemini | $0.30-2.50 | Balanced |
-| OpenAI GPT | $1.75-14.00 | Premium |
-| Anthropic Claude | $3.00-15.00 | Premium |
+| Provider | Cost per 1M tokens* | Notes |
+|----------|--------------------|-------|
+| [DeepSeek](https://api-docs.deepseek.com/quick_start/pricing/) | $0.14–$0.87 | Ultra-cheap (V4 Flash→Pro) |
+| [Qwen](https://www.alibabacloud.com/help/en/model-studio/model-pricing) | $0.05–$7.50 | Budget (Flash→3.7-Max, intl list) |
+| [Google Gemini](https://ai.google.dev/gemini-api/docs/pricing) | $0.10–$18 | Balanced (2.5 Flash-Lite→3.1 Pro) |
+| [OpenAI GPT](https://developers.openai.com/api/docs/pricing) | $1–$30 | Premium (GPT-5.6 Luna→Sol) |
+| [Anthropic Claude](https://claude.com/pricing) | $1–$50 | Premium (Haiku 4.5→Fable 5) |
+
+*Pricing accurate as of 2026-07-21; standard pay-as-you-go rates, excludes batch/cache/Pro tiers. Provider list prices change frequently. Verify at the linked source.
 
 ### Configuration
 

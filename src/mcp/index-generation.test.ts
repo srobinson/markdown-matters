@@ -155,7 +155,6 @@ it('publishes equivalent semantic generations through CLI and MCP', async () => 
       providerModel: undefined,
       hnswM: undefined,
       hnswEfConstruction: undefined,
-      timeout: undefined,
     }).pipe(Effect.provide(ConfigServiceDefault)),
   )
 

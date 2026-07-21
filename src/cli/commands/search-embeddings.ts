@@ -154,12 +154,4 @@ export type SearchProvider =
 
 export const resolveProviderConfig = (
   provider: Option.Option<SearchProvider>,
-  timeout: Option.Option<number>,
-) => {
-  const timeoutValue = Option.getOrUndefined(timeout)
-  return Option.isSome(provider)
-    ? { provider: provider.value, timeout: timeoutValue }
-    : timeoutValue !== undefined
-      ? { provider: 'openai' as const, timeout: timeoutValue }
-      : undefined
-}
+) => (Option.isSome(provider) ? { provider: provider.value } : undefined)

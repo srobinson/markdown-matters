@@ -39,6 +39,8 @@ const confirm = (question: string, defaultYes = true): Effect.Effect<boolean> =>
     return answer.toLowerCase().startsWith('y')
   })
 
+const INDEX_CURRENT_DIRECTORY_GUIDANCE = 'Run "mdm index ." to build the index.'
+
 // ============================================================================
 // Init Command
 // ============================================================================
@@ -80,7 +82,7 @@ export const initCommand = Command.make(
           yield* Console.log(`Config: ${existingConfig.path}`)
         }
         yield* Console.log('')
-        yield* Console.log('Run "mdm index" to build the index.')
+        yield* Console.log(INDEX_CURRENT_DIRECTORY_GUIDANCE)
         return
       }
 
@@ -95,7 +97,7 @@ export const initCommand = Command.make(
           yield* appendManifestDirectory(globalMdmDir, { path: cwd })
           yield* Console.log(`Added ${cwd} to manifest.`)
           yield* Console.log('')
-          yield* Console.log('Run "mdm index" to build the index.')
+          yield* Console.log(INDEX_CURRENT_DIRECTORY_GUIDANCE)
         }
         return
       }
@@ -142,7 +144,7 @@ const initLocal = (cwd: string): Effect.Effect<void> =>
     }
 
     yield* Console.log('')
-    yield* Console.log('Run "mdm index" to build the index.')
+    yield* Console.log(INDEX_CURRENT_DIRECTORY_GUIDANCE)
   })
 
 const initGlobal = (cwd: string) =>
@@ -160,5 +162,5 @@ const initGlobal = (cwd: string) =>
     yield* Console.log(`Added ${cwd} to manifest.`)
 
     yield* Console.log('')
-    yield* Console.log('Run "mdm index" to build the index.')
+    yield* Console.log(INDEX_CURRENT_DIRECTORY_GUIDANCE)
   })

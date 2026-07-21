@@ -123,12 +123,6 @@ const searchOptions = {
     ),
     Options.withDefault(false),
   ),
-  timeout: Options.integer('timeout').pipe(
-    Options.withDescription(
-      'Request timeout in milliseconds for embedding API calls (default: 30000)',
-    ),
-    Options.optional,
-  ),
   json: jsonOption,
   pretty: prettyOption,
   summarize: Options.boolean('summarize').pipe(
@@ -154,7 +148,7 @@ const searchOptions = {
   ),
   stem: Options.boolean('stem').pipe(
     Options.withDescription(
-      'Enable word stemming (e.g., "fail" matches "failure", "failed", "failing")',
+      'Enable word stemming (e.g., "fail" matches "failed" and "failing")',
     ),
     Options.withDefault(false),
   ),
