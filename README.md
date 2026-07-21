@@ -435,13 +435,15 @@ Based on the search results, here are the key findings...
 
 **API Providers (pay-per-use):**
 
-| Provider | Cost per 1M tokens | Notes |
-|----------|-------------------|-------|
-| DeepSeek | $0.14-0.56 | Ultra-cheap |
-| Qwen | $0.03-0.12 | Budget option |
-| Google Gemini | $0.30-2.50 | Balanced |
-| OpenAI GPT | $1.75-14.00 | Premium |
-| Anthropic Claude | $3.00-15.00 | Premium |
+| Provider | Cost per 1M tokens* | Notes |
+|----------|--------------------|-------|
+| [DeepSeek](https://api-docs.deepseek.com/quick_start/pricing/) | $0.14–$0.87 | Ultra-cheap (V4 Flash→Pro) |
+| [Qwen](https://www.alibabacloud.com/help/en/model-studio/model-pricing) | $0.05–$7.50 | Budget (Flash→3.7-Max, intl list) |
+| [Google Gemini](https://ai.google.dev/gemini-api/docs/pricing) | $0.10–$18 | Balanced (2.5 Flash-Lite→3.1 Pro) |
+| [OpenAI GPT](https://developers.openai.com/api/docs/pricing) | $1–$30 | Premium (GPT-5.6 Luna→Sol) |
+| [Anthropic Claude](https://claude.com/pricing) | $1–$50 | Premium (Haiku 4.5→Fable 5) |
+
+*Pricing accurate as of 2026-07-21; standard pay-as-you-go rates, excludes batch/cache/Pro tiers. Provider list prices change frequently — verify at the linked source.
 
 ### Configuration
 
