@@ -6,6 +6,7 @@ import { Effect } from 'effect'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import type { DocumentKey } from '../db/canonical.js'
+import { removeFileSystemPath } from '../db/fs-durability.js'
 import {
   generationLayout,
   readCurrentGeneration,
@@ -84,9 +85,7 @@ const incoming = (root: string, relativePath: string) =>
 afterEach(async () => {
   clearIndexCache()
   await Promise.all(
-    cleanup
-      .splice(0)
-      .map((root) => fs.rm(root, { recursive: true, force: true })),
+    cleanup.splice(0).map((root) => removeFileSystemPath(root, true)),
   )
 })
 
