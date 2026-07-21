@@ -16,12 +16,15 @@ import * as path from 'node:path'
 import { Effect } from 'effect'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { DocumentKey } from '../../db/canonical.js'
+import { testGenerationSession } from '../../db/generation-test-fixture.js'
+import type { GenerationReadSession } from '../../db/generation-types.js'
 import { seedFreshVectorFixture } from '../../embeddings/vector-store-test-fixture.js'
 import { buildIndex } from '../../index/indexer.js'
 import { createStorage, loadSectionIndex } from '../../index/storage.js'
 import { createBM25Store } from '../bm25-store.js'
 import {
   detectSearchModes,
+  type HybridSearchOptions,
   hybridSearch,
   projectSearchResults,
   type SearchChannels,
@@ -35,6 +38,10 @@ const FIXTURE_CORPUS_PATH = path.join(
 )
 let TEST_SOURCE_PATH: string
 let TEST_INDEX_PATH: string
+let TEST_SESSION: GenerationReadSession
+
+const searchFixture = (query: string, options: HybridSearchOptions = {}) =>
+  hybridSearch(TEST_SESSION, TEST_SOURCE_PATH, query, options)
 
 it('selects hybrid mode and projects overlapping channels', () => {
   const documentPath = '/docs/error-handling.md' as DocumentKey
@@ -72,6 +79,7 @@ beforeAll(async () => {
   TEST_INDEX_PATH = await fs.mkdtemp(
     path.join(os.tmpdir(), 'mdm-hybrid-schema-'),
   )
+  TEST_SESSION = testGenerationSession(TEST_INDEX_PATH)
   await fs.cp(FIXTURE_CORPUS_PATH, TEST_SOURCE_PATH, { recursive: true })
   const docsPath = path.join(TEST_SOURCE_PATH, 'docs')
   await fs.mkdir(docsPath)
@@ -123,7 +131,7 @@ afterAll(async () => {
 
 describe('Index Detection', () => {
   it('should detect both BM25 and embeddings indexes', async () => {
-    const modes = await Effect.runPromise(detectSearchModes(TEST_INDEX_PATH))
+    const modes = await Effect.runPromise(detectSearchModes(TEST_SESSION))
 
     expect(modes.hasBM25).toBe(true)
     expect(modes.hasEmbeddings).toBe(true)
@@ -131,7 +139,7 @@ describe('Index Detection', () => {
   })
 
   it('should recommend hybrid mode when both indexes available', async () => {
-    const modes = await Effect.runPromise(detectSearchModes(TEST_INDEX_PATH))
+    const modes = await Effect.runPromise(detectSearchModes(TEST_SESSION))
 
     expect(modes.recommendedMode).toBe('hybrid')
   })
@@ -141,7 +149,7 @@ describe('Hybrid Search Results', () => {
   it('should combine semantic and keyword results', async () => {
     const query = 'error handling configuration'
     const result = await Effect.runPromise(
-      hybridSearch(TEST_INDEX_PATH, query, {
+      searchFixture(query, {
         limit: 10,
         threshold: 0.2,
         mode: 'hybrid',
@@ -160,7 +168,7 @@ describe('Hybrid Search Results', () => {
   it('should include both exact matches and semantic matches', async () => {
     const query = 'configuration management'
     const result = await Effect.runPromise(
-      hybridSearch(TEST_INDEX_PATH, query, {
+      searchFixture(query, {
         limit: 20,
         threshold: 0.15,
         mode: 'hybrid',
@@ -182,7 +190,7 @@ describe('Hybrid Search Results', () => {
 
   it('should indicate which sources contributed to each result', async () => {
     const result = await Effect.runPromise(
-      hybridSearch(TEST_INDEX_PATH, 'error handling', {
+      searchFixture('error handling', {
         limit: 10,
         threshold: 0.3,
         mode: 'hybrid',
@@ -204,7 +212,7 @@ describe('Hybrid Search Results', () => {
 describe('RRF Scoring', () => {
   it('should rank results by combined RRF score', async () => {
     const result = await Effect.runPromise(
-      hybridSearch(TEST_INDEX_PATH, 'error handling', {
+      searchFixture('error handling', {
         limit: 10,
         threshold: 0.2,
         mode: 'hybrid',
@@ -222,7 +230,7 @@ describe('RRF Scoring', () => {
 
   it('should give higher scores to results found by both methods', async () => {
     const result = await Effect.runPromise(
-      hybridSearch(TEST_INDEX_PATH, 'error handling', {
+      searchFixture('error handling', {
         limit: 15,
         threshold: 0.2,
         mode: 'hybrid',
@@ -244,7 +252,7 @@ describe('RRF Scoring', () => {
 
   it('should include individual scores when available', async () => {
     const result = await Effect.runPromise(
-      hybridSearch(TEST_INDEX_PATH, 'configuration', {
+      searchFixture('configuration', {
         limit: 10,
         threshold: 0.2,
         mode: 'hybrid',
@@ -269,7 +277,7 @@ describe('RRF Scoring', () => {
 describe('Result Format', () => {
   it('should return results with correct structure', async () => {
     const result = await Effect.runPromise(
-      hybridSearch(TEST_INDEX_PATH, 'error', {
+      searchFixture('error', {
         limit: 5,
         threshold: 0.3,
         mode: 'hybrid',
@@ -297,7 +305,7 @@ describe('Result Format', () => {
 
   it('should return stats with search metadata', async () => {
     const result = await Effect.runPromise(
-      hybridSearch(TEST_INDEX_PATH, 'error', {
+      searchFixture('error', {
         limit: 10,
         threshold: 0.2,
         mode: 'hybrid',
@@ -315,7 +323,7 @@ describe('Result Format', () => {
 
   it('should track total available results', async () => {
     const result = await Effect.runPromise(
-      hybridSearch(TEST_INDEX_PATH, 'error', {
+      searchFixture('error', {
         limit: 3,
         threshold: 0.2,
         mode: 'hybrid',
@@ -333,7 +341,7 @@ describe('Result Format', () => {
 describe('Search Modes', () => {
   it('should support explicit hybrid mode', async () => {
     const result = await Effect.runPromise(
-      hybridSearch(TEST_INDEX_PATH, 'configuration', {
+      searchFixture('configuration', {
         limit: 10,
         mode: 'hybrid',
       }),
@@ -345,7 +353,7 @@ describe('Search Modes', () => {
 
   it('should support semantic-only mode', async () => {
     const result = await Effect.runPromise(
-      hybridSearch(TEST_INDEX_PATH, 'error handling', {
+      searchFixture('error handling', {
         limit: 10,
         mode: 'semantic',
       }),
@@ -362,7 +370,7 @@ describe('Search Modes', () => {
 
   it('should support keyword-only mode', async () => {
     const result = await Effect.runPromise(
-      hybridSearch(TEST_INDEX_PATH, 'configuration', {
+      searchFixture('configuration', {
         limit: 10,
         mode: 'keyword',
       }),
@@ -381,7 +389,7 @@ describe('Search Modes', () => {
 describe('Query Variations', () => {
   it('should handle single-word queries', async () => {
     const result = await Effect.runPromise(
-      hybridSearch(TEST_INDEX_PATH, 'error', {
+      searchFixture('error', {
         limit: 10,
         threshold: 0.2,
         mode: 'hybrid',
@@ -394,7 +402,7 @@ describe('Query Variations', () => {
 
   it('should handle multi-word queries', async () => {
     const result = await Effect.runPromise(
-      hybridSearch(TEST_INDEX_PATH, 'error handling configuration', {
+      searchFixture('error handling configuration', {
         limit: 10,
         threshold: 0.3,
         mode: 'hybrid',
@@ -406,7 +414,7 @@ describe('Query Variations', () => {
 
   it('should handle phrase queries', async () => {
     const result = await Effect.runPromise(
-      hybridSearch(TEST_INDEX_PATH, 'distributed systems', {
+      searchFixture('distributed systems', {
         limit: 10,
         threshold: 0.3,
         mode: 'hybrid',
@@ -418,7 +426,7 @@ describe('Query Variations', () => {
 
   it('should handle technical terms', async () => {
     const result = await Effect.runPromise(
-      hybridSearch(TEST_INDEX_PATH, 'automation', {
+      searchFixture('automation', {
         limit: 10,
         threshold: 0.3,
         mode: 'hybrid',
@@ -430,7 +438,7 @@ describe('Query Variations', () => {
 
   it('should return empty results for unrelated queries', async () => {
     const result = await Effect.runPromise(
-      hybridSearch(TEST_INDEX_PATH, 'quantum physics blockchain', {
+      searchFixture('quantum physics blockchain', {
         limit: 10,
         threshold: 0.7,
         mode: 'hybrid',
@@ -445,7 +453,7 @@ describe('Search Parameters', () => {
   it('should respect limit parameter', async () => {
     const limit = 3
     const result = await Effect.runPromise(
-      hybridSearch(TEST_INDEX_PATH, 'configuration', {
+      searchFixture('configuration', {
         limit,
         threshold: 0.2,
         mode: 'hybrid',
@@ -458,7 +466,7 @@ describe('Search Parameters', () => {
   it('should respect threshold parameter', async () => {
     const threshold = 0.7
     const result = await Effect.runPromise(
-      hybridSearch(TEST_INDEX_PATH, 'configuration', {
+      searchFixture('configuration', {
         limit: 20,
         threshold,
         mode: 'hybrid',
@@ -474,7 +482,7 @@ describe('Search Parameters', () => {
 
   it('should support custom RRF weights', async () => {
     const result = await Effect.runPromise(
-      hybridSearch(TEST_INDEX_PATH, 'error handling', {
+      searchFixture('error handling', {
         limit: 10,
         threshold: 0.3,
         mode: 'hybrid',
@@ -489,7 +497,7 @@ describe('Search Parameters', () => {
 
   it('should support custom RRF k constant', async () => {
     const result = await Effect.runPromise(
-      hybridSearch(TEST_INDEX_PATH, 'configuration', {
+      searchFixture('configuration', {
         limit: 10,
         threshold: 0.3,
         mode: 'hybrid',
@@ -502,11 +510,11 @@ describe('Search Parameters', () => {
 
   it('filters hybrid results with a database relative path pattern', async () => {
     const result = await Effect.runPromise(
-      hybridSearch(TEST_INDEX_PATH, 'error', {
+      searchFixture('error', {
         limit: 10,
         threshold: 0.3,
         mode: 'hybrid',
-        pathPattern: '**/docs/*.md',
+        pathPattern: 'docs/*.md',
       }),
     )
 
@@ -528,7 +536,7 @@ describe('Search Parameters', () => {
 
     for (const quality of qualities) {
       const result = await Effect.runPromise(
-        hybridSearch(TEST_INDEX_PATH, 'configuration', {
+        searchFixture('configuration', {
           limit: 10,
           threshold: 0.3,
           mode: 'hybrid',
@@ -544,7 +552,7 @@ describe('Search Parameters', () => {
 describe('Edge Cases', () => {
   it('should handle empty query', async () => {
     const result = await Effect.runPromise(
-      hybridSearch(TEST_INDEX_PATH, '', {
+      searchFixture('', {
         limit: 10,
         threshold: 0.3,
         mode: 'hybrid',
@@ -557,7 +565,7 @@ describe('Edge Cases', () => {
 
   it('should handle very short queries', async () => {
     const result = await Effect.runPromise(
-      hybridSearch(TEST_INDEX_PATH, 'a', {
+      searchFixture('a', {
         limit: 10,
         threshold: 0.3,
         mode: 'hybrid',
@@ -570,7 +578,7 @@ describe('Edge Cases', () => {
 
   it('should handle limit of 1', async () => {
     const result = await Effect.runPromise(
-      hybridSearch(TEST_INDEX_PATH, 'configuration', {
+      searchFixture('configuration', {
         limit: 1,
         threshold: 0.3,
         mode: 'hybrid',
@@ -582,7 +590,7 @@ describe('Edge Cases', () => {
 
   it('should handle high threshold with no results', async () => {
     const result = await Effect.runPromise(
-      hybridSearch(TEST_INDEX_PATH, 'configuration', {
+      searchFixture('configuration', {
         limit: 10,
         threshold: 0.99,
         mode: 'hybrid',
@@ -595,7 +603,7 @@ describe('Edge Cases', () => {
 
   it('should handle large limit values', async () => {
     const result = await Effect.runPromise(
-      hybridSearch(TEST_INDEX_PATH, 'configuration', {
+      searchFixture('configuration', {
         limit: 1000,
         threshold: 0.2,
         mode: 'hybrid',
@@ -616,12 +624,8 @@ describe('Result Consistency', () => {
       mode: 'hybrid' as SearchMode,
     }
 
-    const result1 = await Effect.runPromise(
-      hybridSearch(TEST_INDEX_PATH, query, options),
-    )
-    const result2 = await Effect.runPromise(
-      hybridSearch(TEST_INDEX_PATH, query, options),
-    )
+    const result1 = await Effect.runPromise(searchFixture(query, options))
+    const result2 = await Effect.runPromise(searchFixture(query, options))
 
     expect(result1.results.length).toBe(result2.results.length)
 
@@ -635,7 +639,7 @@ describe('Result Consistency', () => {
 
   it('should maintain score ordering across searches', async () => {
     const result = await Effect.runPromise(
-      hybridSearch(TEST_INDEX_PATH, 'configuration', {
+      searchFixture('configuration', {
         limit: 10,
         threshold: 0.2,
         mode: 'hybrid',
@@ -655,7 +659,7 @@ describe('Performance', () => {
     const startTime = Date.now()
 
     await Effect.runPromise(
-      hybridSearch(TEST_INDEX_PATH, 'error handling configuration', {
+      searchFixture('error handling configuration', {
         limit: 10,
         threshold: 0.3,
         mode: 'hybrid',
@@ -677,7 +681,7 @@ describe('Performance', () => {
 
     const promises = queries.map((query) =>
       Effect.runPromise(
-        hybridSearch(TEST_INDEX_PATH, query, {
+        searchFixture(query, {
           limit: 5,
           threshold: 0.3,
           mode: 'hybrid',

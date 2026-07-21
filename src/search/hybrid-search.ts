@@ -8,10 +8,10 @@
  * k = 60 (standard smoothing constant from research)
  */
 
-import * as path from 'node:path'
 import { Effect } from 'effect'
 import type { ContextLine } from '../core/types.js'
 import type { DocumentKey } from '../db/canonical.js'
+import type { GenerationReadSession } from '../db/generation-reader.js'
 import { listNamespaces } from '../embeddings/embedding-namespace.js'
 import { semanticSearch } from '../embeddings/semantic-search.js'
 import type {
@@ -263,20 +263,21 @@ const fusionRRF = (
 // ============================================================================
 
 export const collectSearchChannels = (
-  rootPath: string,
+  session: GenerationReadSession,
+  sourceRoot: string,
   query: string,
   options: HybridSearchOptions,
   limit: number,
   threshold: number,
 ): Effect.Effect<SearchChannels, HybridSearchError> =>
   Effect.gen(function* () {
-    const hasBM25 = yield* bm25IndexExists(rootPath)
+    const hasBM25 = yield* bm25IndexExists(session.indexRoot)
     let hasEmbeddings = false
     let semanticResults: readonly SemanticSearchResult[] = []
 
     if (options.mode !== 'keyword') {
       const semanticTry = yield* Effect.either(
-        semanticSearch(rootPath, query, {
+        semanticSearch(session, sourceRoot, query, {
           limit: limit * 2,
           threshold,
           pathPattern: options.pathPattern,
@@ -293,10 +294,10 @@ export const collectSearchChannels = (
 
     let keywordResults: readonly BM25SearchResult[] = []
     if (hasBM25 && options.mode !== 'semantic') {
-      const rawResults = yield* bm25Search(rootPath, query, limit * 2)
+      const rawResults = yield* bm25Search(session.indexRoot, query, limit * 2)
       const scopeRoot = options.pathPattern
-        ? yield* resolveCanonicalSourceRoot(rootPath)
-        : rootPath
+        ? yield* resolveCanonicalSourceRoot(sourceRoot)
+        : sourceRoot
       keywordResults = options.pathPattern
         ? rawResults.filter((result) =>
             matchesDocumentPath(
@@ -408,7 +409,8 @@ const rerankProjectedResults = (
  * @returns Ranked list of results with combined scores
  */
 export const hybridSearch = (
-  rootPath: string,
+  session: GenerationReadSession,
+  sourceRoot: string,
   query: string,
   options: HybridSearchOptions = {},
 ): Effect.Effect<
@@ -416,7 +418,6 @@ export const hybridSearch = (
   HybridSearchError
 > =>
   Effect.gen(function* () {
-    const resolvedRoot = path.resolve(rootPath)
     const limit = options.limit ?? 10
     const threshold = options.threshold ?? 0.35
     const projectionOptions: ProjectionOptions = {
@@ -426,7 +427,8 @@ export const hybridSearch = (
       rrfK: options.rrfK ?? 60,
     }
     const channels = yield* collectSearchChannels(
-      resolvedRoot,
+      session,
+      sourceRoot,
       query,
       options,
       limit,
@@ -470,17 +472,16 @@ export const hybridSearch = (
  * Detect available search modes for a directory
  */
 export const detectSearchModes = (
-  rootPath: string,
+  session: GenerationReadSession,
 ): Effect.Effect<
   { hasBM25: boolean; hasEmbeddings: boolean; recommendedMode: SearchMode },
   never
 > =>
   Effect.gen(function* () {
-    const resolvedRoot = path.resolve(rootPath)
-    const hasBM25 = yield* bm25IndexExists(resolvedRoot)
+    const hasBM25 = yield* bm25IndexExists(session.indexRoot)
 
     // Check embeddings by looking for namespaced vector stores
-    const hasEmbeddings = yield* listNamespaces(resolvedRoot).pipe(
+    const hasEmbeddings = yield* listNamespaces(session.indexRoot).pipe(
       Effect.map((namespaces) => namespaces.length > 0),
       Effect.catchAll(() => Effect.succeed(false)),
     )

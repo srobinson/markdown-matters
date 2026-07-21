@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { Effect, Either } from 'effect'
-import { evictHnswIndexRoot } from '../embeddings/hnsw-cache.js'
+import { evictHnswGeneration } from '../embeddings/hnsw-cache.js'
 import { clearIndexCache } from '../index/storage.js'
 import {
   removeFileSystemPath,
@@ -347,7 +347,7 @@ const isProtected = (
   generationOrdinal(generation) >= generationOrdinal(current)
 
 const evictGenerationCaches = (layout: GenerationLayout): void => {
-  evictHnswIndexRoot(layout.root)
+  evictHnswGeneration(layout.home, layout.name)
   clearIndexCache(layout.root)
 }
 

@@ -7,6 +7,8 @@
 import * as path from 'node:path'
 import { Args, Command, Options } from '@effect/cli'
 import { Console, Effect } from 'effect'
+import { withCurrentGeneration } from '../../db/generation-reader.js'
+import { resolveMdmHome } from '../../home.js'
 import {
   getIncomingLinks,
   resolveIndexedDocumentKey,
@@ -28,32 +30,33 @@ export const backlinksCommand = Command.make(
     json: jsonOption,
     pretty: prettyOption,
   },
-  ({ file, root, json, pretty }) =>
-    Effect.gen(function* () {
-      const resolvedRoot = path.resolve(root)
-      const resolvedFile = path.resolve(file)
+  ({ file, root: _root, json, pretty }) =>
+    withCurrentGeneration(resolveMdmHome(), (session) =>
+      Effect.gen(function* () {
+        const resolvedFile = path.resolve(file)
 
-      const links = yield* getIncomingLinks(resolvedRoot, resolvedFile)
-      const documentKey =
-        (yield* resolveIndexedDocumentKey(resolvedRoot, resolvedFile)) ??
-        resolvedFile
+        const links = yield* getIncomingLinks(session, resolvedFile)
+        const documentKey =
+          (yield* resolveIndexedDocumentKey(session, resolvedFile)) ??
+          resolvedFile
 
-      if (json) {
-        yield* Console.log(
-          formatJson({ file: documentKey, backlinks: links }, pretty),
-        )
-      } else {
-        yield* Console.log(`Incoming links to ${documentKey}:`)
-        yield* Console.log('')
-        if (links.length === 0) {
-          yield* Console.log('  (none)')
+        if (json) {
+          yield* Console.log(
+            formatJson({ file: documentKey, backlinks: links }, pretty),
+          )
         } else {
-          for (const link of links) {
-            yield* Console.log(`  <- ${link}`)
+          yield* Console.log(`Incoming links to ${documentKey}:`)
+          yield* Console.log('')
+          if (links.length === 0) {
+            yield* Console.log('  (none)')
+          } else {
+            for (const link of links) {
+              yield* Console.log(`  <- ${link}`)
+            }
           }
+          yield* Console.log('')
+          yield* Console.log(`Total: ${links.length} backlinks`)
         }
-        yield* Console.log('')
-        yield* Console.log(`Total: ${links.length} backlinks`)
-      }
-    }),
+      }),
+    ),
 ).pipe(Command.withDescription('What links to this?'))

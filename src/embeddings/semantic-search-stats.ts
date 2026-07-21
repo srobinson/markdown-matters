@@ -8,10 +8,14 @@
  */
 
 import { Effect } from 'effect'
-import type { VectorStoreError } from '../errors/index.js'
-import { dbIndexDir } from '../home.js'
+import type { GenerationReadSession } from '../db/generation-reader.js'
+import type {
+  DimensionMismatchError,
+  VectorStoreError,
+} from '../errors/index.js'
 import {
   type ActiveProvider,
+  type EmbeddingNamespaceError,
   generateNamespace,
   getActiveNamespace,
 } from './embedding-namespace.js'
@@ -54,14 +58,15 @@ const emptyStats: EmbeddingStats = {
  * @throws VectorStoreError - Cannot load vector index metadata
  */
 export const getEmbeddingStats = (
-  indexRoot: string,
-): Effect.Effect<EmbeddingStats, VectorStoreError> =>
+  session: GenerationReadSession,
+): Effect.Effect<
+  EmbeddingStats,
+  VectorStoreError | EmbeddingNamespaceError | DimensionMismatchError
+> =>
   Effect.gen(function* () {
-    const resolvedRoot = dbIndexDir(indexRoot)
-
     // Get the active namespace to find where embeddings are stored
-    const activeProvider = yield* getActiveNamespace(resolvedRoot).pipe(
-      Effect.catchAll(() => Effect.succeed(null as ActiveProvider | null)),
+    const activeProvider: ActiveProvider | null = yield* getActiveNamespace(
+      session.indexRoot,
     )
 
     if (!activeProvider) {
@@ -74,24 +79,18 @@ export const getEmbeddingStats = (
       activeProvider.model,
       activeProvider.dimensions,
     )
-    const cacheKey = hnswCacheKey(resolvedRoot, namespace)
+    const cacheKey = hnswCacheKey(session.home, namespace, session.generation)
     let vectorStore = getHnswCacheEntry(cacheKey)
 
     if (!vectorStore) {
       const freshStore = createNamespacedVectorStore(
-        resolvedRoot,
+        session.indexRoot,
         activeProvider.provider,
         activeProvider.model,
         activeProvider.dimensions,
       )
 
-      const loadResult = yield* freshStore
-        .load()
-        .pipe(
-          Effect.catchAll(() =>
-            Effect.succeed({ loaded: false } as VectorStoreLoadResult),
-          ),
-        )
+      const loadResult: VectorStoreLoadResult = yield* freshStore.load()
 
       if (!loadResult.loaded) {
         return emptyStats

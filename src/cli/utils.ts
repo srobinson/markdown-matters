@@ -7,10 +7,18 @@
 import * as fsPromises from 'node:fs/promises'
 import * as path from 'node:path'
 import { Effect } from 'effect'
+import type { GenerationReadSession } from '../db/generation-reader.js'
+import type { EmbeddingNamespaceError } from '../embeddings/embedding-namespace.js'
 import { listNamespaces } from '../embeddings/embedding-namespace.js'
-import { DirectoryWalkError } from '../errors/index.js'
-import { dbIndexDir, resolveMdmHome } from '../home.js'
-import { getIndexPaths } from '../index/types.js'
+import { getEmbeddingStats } from '../embeddings/semantic-search.js'
+import {
+  type DimensionMismatchError,
+  DirectoryWalkError,
+  FileReadError,
+  type IndexCorruptedError,
+  type VectorStoreError,
+} from '../errors/index.js'
+import { createStorage, loadSectionIndex } from '../index/storage.js'
 
 /**
  * Format object as JSON string
@@ -130,56 +138,46 @@ export interface IndexInfo {
   vectorCount?: number | undefined
 }
 
-export const getIndexInfo = async (): Promise<IndexInfo> => {
-  const indexRoot = dbIndexDir(resolveMdmHome())
-  const sectionsPath = getIndexPaths(indexRoot).sections
-  let exists = false
-  let lastUpdated: string | undefined
-  let sectionCount: number | undefined
-  let embeddingsExist = false
-  let vectorCount: number | undefined
-
-  try {
-    const stat = await fsPromises.stat(sectionsPath)
-    exists = true
-    lastUpdated = stat.mtime.toISOString()
-
-    const content = await fsPromises.readFile(sectionsPath, 'utf-8')
-    const sections = JSON.parse(content)
-    sectionCount = Object.keys(sections.sections || {}).length
-  } catch {}
-
-  // Check namespaced embeddings
-  try {
-    const namespaces = await Effect.runPromise(
-      listNamespaces(indexRoot).pipe(Effect.catchAll(() => Effect.succeed([]))),
-    )
-
-    if (namespaces.length > 0) {
-      embeddingsExist = true
-      // Find active namespace or use first one
-      const activeNs = namespaces.find((ns) => ns.isActive) ?? namespaces[0]
-      if (activeNs) {
-        vectorCount = activeNs.vectorCount
-        // Use namespace's updatedAt if more recent
-        if (activeNs.updatedAt) {
-          const nsDate = new Date(activeNs.updatedAt)
-          const currentDate = lastUpdated ? new Date(lastUpdated) : new Date(0)
-          if (nsDate > currentDate) {
-            lastUpdated = activeNs.updatedAt
-          }
-        }
+export const getIndexInfo = (
+  session: GenerationReadSession,
+): Effect.Effect<
+  IndexInfo,
+  | FileReadError
+  | IndexCorruptedError
+  | VectorStoreError
+  | EmbeddingNamespaceError
+  | DimensionMismatchError
+> =>
+  Effect.gen(function* () {
+    const storage = createStorage(session.indexRoot, session.indexRoot)
+    const sectionIndex = yield* loadSectionIndex(storage)
+    const embeddingStats = yield* getEmbeddingStats(session)
+    if (!sectionIndex) {
+      return {
+        exists: false,
+        embeddingsExist: embeddingStats.hasEmbeddings,
+        ...(embeddingStats.hasEmbeddings
+          ? { vectorCount: embeddingStats.count }
+          : {}),
       }
     }
-  } catch {
-    // Embeddings don't exist
-  }
 
-  return {
-    exists,
-    lastUpdated,
-    sectionCount,
-    embeddingsExist,
-    vectorCount,
-  }
-}
+    const stat = yield* Effect.tryPromise({
+      try: () => fsPromises.stat(storage.paths.sections),
+      catch: (cause) =>
+        new FileReadError({
+          path: storage.paths.sections,
+          message: `Cannot inspect section index: ${cause instanceof Error ? cause.message : String(cause)}`,
+          cause,
+        }),
+    })
+    return {
+      exists: true,
+      lastUpdated: stat.mtime.toISOString(),
+      sectionCount: Object.keys(sectionIndex.sections).length,
+      embeddingsExist: embeddingStats.hasEmbeddings,
+      ...(embeddingStats.hasEmbeddings
+        ? { vectorCount: embeddingStats.count }
+        : {}),
+    }
+  })

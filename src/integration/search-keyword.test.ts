@@ -14,10 +14,12 @@ import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { Effect } from 'effect'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { testGenerationSession } from '../db/generation-test-fixture.js'
 import { buildIndex } from '../index/indexer.js'
 import { searchContent } from '../search/searcher.js'
 
 const TEST_DIR = path.join(process.cwd(), 'tests', 'fixtures', 'keyword-search')
+const TEST_SESSION = testGenerationSession(TEST_DIR)
 const originalMdmHome = process.env.MDM_HOME
 
 const runEffect = <A, E>(effect: Effect.Effect<A, E>) =>
@@ -121,7 +123,7 @@ Deprecated endpoints remain available for one major version.
   describe('Basic Keyword Search', () => {
     it('should find sections containing a single keyword', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: 'authentication',
         }),
       )
@@ -136,7 +138,7 @@ Deprecated endpoints remain available for one major version.
 
     it('should return results with match details', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: 'authentication',
           pathPattern: 'authentication*',
         }),
@@ -154,14 +156,14 @@ Deprecated endpoints remain available for one major version.
 
     it('should respect case-insensitive matching by default', async () => {
       const lowerResults = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: 'authentication',
           pathPattern: 'authentication*',
         }),
       )
 
       const upperResults = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: 'AUTHENTICATION',
           pathPattern: 'authentication*',
         }),
@@ -173,7 +175,7 @@ Deprecated endpoints remain available for one major version.
 
     it('should find multiple occurrences across sections', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: 'database',
           pathPattern: 'database*',
         }),
@@ -192,7 +194,7 @@ Deprecated endpoints remain available for one major version.
   describe('Boolean Operators', () => {
     it('should support AND operator', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: 'authentication AND token',
         }),
       )
@@ -208,7 +210,7 @@ Deprecated endpoints remain available for one major version.
 
     it('should support OR operator', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: 'OAuth OR SAML',
         }),
       )
@@ -231,13 +233,13 @@ Deprecated endpoints remain available for one major version.
 
     it('should support NOT operator', async () => {
       const allAuthResults = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: 'authentication',
         }),
       )
 
       const noTokenResults = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: 'authentication NOT token',
         }),
       )
@@ -253,7 +255,7 @@ Deprecated endpoints remain available for one major version.
 
     it('should support complex boolean expressions', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content:
             '(authentication AND security) OR (database AND performance)',
         }),
@@ -274,13 +276,13 @@ Deprecated endpoints remain available for one major version.
 
     it('should handle implicit AND between terms', async () => {
       const explicitResults = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: 'query AND builder',
         }),
       )
 
       const implicitResults = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: 'query builder',
         }),
       )
@@ -293,7 +295,7 @@ Deprecated endpoints remain available for one major version.
   describe('Phrase Search', () => {
     it('should find exact phrases with quotes', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: '"authentication system"',
         }),
       )
@@ -310,7 +312,7 @@ Deprecated endpoints remain available for one major version.
 
     it('should not match partial phrases', async () => {
       const phraseResults = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: '"password hashing"',
         }),
       )
@@ -318,7 +320,7 @@ Deprecated endpoints remain available for one major version.
       expect(phraseResults.length).toBeGreaterThan(0)
 
       const wrongOrderResults = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: '"hashing password"',
         }),
       )
@@ -328,7 +330,7 @@ Deprecated endpoints remain available for one major version.
 
     it('should combine phrases with boolean operators', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: '"authentication system" OR "database connection"',
         }),
       )
@@ -351,7 +353,7 @@ Deprecated endpoints remain available for one major version.
 
     it('should handle phrases with special characters', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: '"24 hours"',
         }),
       )
@@ -363,7 +365,7 @@ Deprecated endpoints remain available for one major version.
   describe('Context Lines', () => {
     it('should include context lines before matches', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: 'bcrypt',
           contextBefore: 2,
         }),
@@ -385,7 +387,7 @@ Deprecated endpoints remain available for one major version.
 
     it('should include context lines after matches', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: 'bcrypt',
           contextAfter: 2,
         }),
@@ -407,7 +409,7 @@ Deprecated endpoints remain available for one major version.
 
     it('should include context lines both before and after', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: 'authentication',
           contextBefore: 1,
           contextAfter: 1,
@@ -430,7 +432,7 @@ Deprecated endpoints remain available for one major version.
 
     it('should generate snippet text from context', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: 'authentication',
           contextBefore: 1,
           contextAfter: 1,
@@ -451,7 +453,7 @@ Deprecated endpoints remain available for one major version.
   describe('Result Format', () => {
     it('should include section metadata', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: 'authentication',
           pathPattern: 'authentication*',
         }),
@@ -468,7 +470,7 @@ Deprecated endpoints remain available for one major version.
 
     it('should include document metadata', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: 'authentication',
           pathPattern: 'authentication*',
         }),
@@ -484,7 +486,7 @@ Deprecated endpoints remain available for one major version.
 
     it('should include match line numbers', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: 'authentication',
           pathPattern: 'authentication*',
         }),
@@ -504,7 +506,7 @@ Deprecated endpoints remain available for one major version.
 
     it('should include matching line text', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: 'authentication',
           pathPattern: 'authentication*',
         }),
@@ -522,7 +524,7 @@ Deprecated endpoints remain available for one major version.
 
     it('should populate section content when matches exist', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: 'authentication',
           pathPattern: 'authentication*',
         }),
@@ -542,7 +544,7 @@ Deprecated endpoints remain available for one major version.
   describe('Edge Cases', () => {
     it('should handle search with no matches', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: 'nonexistent_keyword_12345',
         }),
       )
@@ -552,7 +554,7 @@ Deprecated endpoints remain available for one major version.
 
     it('should handle empty search query gracefully', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: '',
         }),
       )
@@ -574,7 +576,7 @@ Test with special chars: foo.bar, test[value], foo(bar)
       )
 
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: 'foo.bar',
         }),
       )
@@ -586,7 +588,7 @@ Test with special chars: foo.bar, test[value], foo(bar)
       const longKeyword = 'a'.repeat(100)
 
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: longKeyword,
         }),
       )
@@ -596,7 +598,7 @@ Test with special chars: foo.bar, test[value], foo(bar)
 
     it('should handle multiple consecutive spaces in query', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: 'authentication    system',
         }),
       )
@@ -608,7 +610,7 @@ Test with special chars: foo.bar, test[value], foo(bar)
   describe('Path Filtering', () => {
     it('should filter results by path pattern', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: 'authentication',
           pathPattern: 'authentication*',
         }),
@@ -623,7 +625,7 @@ Test with special chars: foo.bar, test[value], foo(bar)
 
     it('should return no results when path pattern does not match', async () => {
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: 'authentication',
           pathPattern: 'nonexistent*',
         }),
@@ -634,7 +636,7 @@ Test with special chars: foo.bar, test[value], foo(bar)
 
     it('should combine path filtering with content search', async () => {
       const dbResults = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: 'query',
           pathPattern: 'database*',
         }),
@@ -653,7 +655,7 @@ Test with special chars: foo.bar, test[value], foo(bar)
     it('should respect limit option', async () => {
       const limit = 2
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: 'the',
           limit,
         }),
@@ -664,14 +666,14 @@ Test with special chars: foo.bar, test[value], foo(bar)
 
     it('should return all results when limit is not specified', async () => {
       const limitedResults = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: 'API',
           limit: 1,
         }),
       )
 
       const unlimitedResults = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: 'API',
         }),
       )

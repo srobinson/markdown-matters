@@ -6,6 +6,7 @@ import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { Effect } from 'effect'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { testGenerationSession } from '../db/generation-test-fixture.js'
 import { buildIndex } from '../index/indexer.js'
 import {
   formatContextForLLM,
@@ -16,6 +17,7 @@ import {
 
 // Test fixture directory
 const TEST_DIR = path.join(process.cwd(), 'tests', 'fixtures', 'search')
+const TEST_SESSION = testGenerationSession(TEST_DIR)
 const originalMdmHome = process.env.MDM_HOME
 
 // Helper to run Effect
@@ -102,13 +104,13 @@ Set the configuration options carefully.
 
   describe('search()', () => {
     it('should return all sections without filters', async () => {
-      const results = await runEffect(search(TEST_DIR))
+      const results = await runEffect(search(TEST_SESSION, TEST_DIR))
       expect(results.length).toBeGreaterThan(0)
     })
 
     it('should filter by heading pattern', async () => {
       const results = await runEffect(
-        search(TEST_DIR, { heading: 'Introduction|Overview' }),
+        search(TEST_SESSION, TEST_DIR, { heading: 'Introduction|Overview' }),
       )
       expect(results.length).toBe(2)
       expect(results.map((r) => r.section.heading)).toContain('Introduction')
@@ -117,7 +119,7 @@ Set the configuration options carefully.
 
     it('should filter by path pattern', async () => {
       const results = await runEffect(
-        search(TEST_DIR, { pathPattern: 'doc1*' }),
+        search(TEST_SESSION, TEST_DIR, { pathPattern: 'doc1*' }),
       )
       expect(results.length).toBeGreaterThan(0)
       for (const result of results) {
@@ -126,7 +128,9 @@ Set the configuration options carefully.
     })
 
     it('should filter by hasCode', async () => {
-      const results = await runEffect(search(TEST_DIR, { hasCode: true }))
+      const results = await runEffect(
+        search(TEST_SESSION, TEST_DIR, { hasCode: true }),
+      )
       expect(results.length).toBeGreaterThan(0)
       for (const result of results) {
         expect(result.section.hasCode).toBe(true)
@@ -134,7 +138,9 @@ Set the configuration options carefully.
     })
 
     it('should filter by hasTable', async () => {
-      const results = await runEffect(search(TEST_DIR, { hasTable: true }))
+      const results = await runEffect(
+        search(TEST_SESSION, TEST_DIR, { hasTable: true }),
+      )
       expect(results.length).toBeGreaterThan(0)
       for (const result of results) {
         expect(result.section.hasTable).toBe(true)
@@ -142,7 +148,9 @@ Set the configuration options carefully.
     })
 
     it('should filter by hasList', async () => {
-      const results = await runEffect(search(TEST_DIR, { hasList: true }))
+      const results = await runEffect(
+        search(TEST_SESSION, TEST_DIR, { hasList: true }),
+      )
       expect(results.length).toBeGreaterThan(0)
       for (const result of results) {
         expect(result.section.hasList).toBe(true)
@@ -150,7 +158,9 @@ Set the configuration options carefully.
     })
 
     it('should respect limit', async () => {
-      const results = await runEffect(search(TEST_DIR, { limit: 2 }))
+      const results = await runEffect(
+        search(TEST_SESSION, TEST_DIR, { limit: 2 }),
+      )
       expect(results.length).toBe(2)
     })
   })
@@ -158,7 +168,7 @@ Set the configuration options carefully.
   describe('getContext()', () => {
     it('should return document context', async () => {
       const context = await runEffect(
-        getContext(TEST_DIR, path.join(TEST_DIR, 'doc1.md')),
+        getContext(TEST_SESSION, TEST_DIR, path.join(TEST_DIR, 'doc1.md')),
       )
       expect(context.title).toBe('Document One')
       expect(context.sections.length).toBeGreaterThan(0)
@@ -166,12 +176,12 @@ Set the configuration options carefully.
 
     it('should respect maxTokens', async () => {
       const fullContext = await runEffect(
-        getContext(TEST_DIR, path.join(TEST_DIR, 'doc1.md')),
+        getContext(TEST_SESSION, TEST_DIR, path.join(TEST_DIR, 'doc1.md')),
       )
       // Use a limit that's definitely smaller than the full document
       const limitTokens = Math.max(10, Math.floor(fullContext.totalTokens / 2))
       const limitedContext = await runEffect(
-        getContext(TEST_DIR, path.join(TEST_DIR, 'doc1.md'), {
+        getContext(TEST_SESSION, TEST_DIR, path.join(TEST_DIR, 'doc1.md'), {
           maxTokens: limitTokens,
         }),
       )
@@ -188,7 +198,7 @@ Set the configuration options carefully.
   describe('formatContextForLLM()', () => {
     it('should format context as readable text', async () => {
       const context = await runEffect(
-        getContext(TEST_DIR, path.join(TEST_DIR, 'doc1.md')),
+        getContext(TEST_SESSION, TEST_DIR, path.join(TEST_DIR, 'doc1.md')),
       )
       const formatted = formatContextForLLM(context)
       expect(formatted).toContain('# Document One')
@@ -198,7 +208,7 @@ Set the configuration options carefully.
 
     it('should include content metadata markers', async () => {
       const context = await runEffect(
-        getContext(TEST_DIR, path.join(TEST_DIR, 'doc1.md')),
+        getContext(TEST_SESSION, TEST_DIR, path.join(TEST_DIR, 'doc1.md')),
       )
       const formatted = formatContextForLLM(context)
       expect(formatted).toContain('[code]')
@@ -209,7 +219,7 @@ Set the configuration options carefully.
     it('should match stemmed variations with --stem flag', async () => {
       // Search for "fail" should match "fails", "failed", "failing", "failure"
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: 'fail',
           stem: true,
           pathPattern: 'stem-test*',
@@ -224,7 +234,7 @@ Set the configuration options carefully.
     it('should match typos with --fuzzy flag', async () => {
       // Search for "configration" (typo) should match "configuration"
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: 'configration',
           fuzzy: true,
           pathPattern: 'stem-test*',
@@ -239,7 +249,7 @@ Set the configuration options carefully.
     it('should respect fuzzyDistance option', async () => {
       // With distance 1, "fail" should NOT match "file" (distance 2)
       const strictResults = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: 'fail',
           fuzzy: true,
           fuzzyDistance: 1,
@@ -258,7 +268,7 @@ Set the configuration options carefully.
     it('should not match without fuzzy/stem flags', async () => {
       // Exact search for "fail" should NOT match "failure" or "fails"
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: 'fail',
           pathPattern: 'stem-test*',
         }),
@@ -271,7 +281,7 @@ Set the configuration options carefully.
     it('should combine fuzzy and stem matching', async () => {
       // Both flags together should provide broader matching
       const results = await runEffect(
-        searchContent(TEST_DIR, {
+        searchContent(TEST_SESSION, TEST_DIR, {
           content: 'fail',
           fuzzy: true,
           stem: true,
@@ -286,32 +296,36 @@ Set the configuration options carefully.
   describe('security: ReDoS protection', () => {
     it('rejects classic catastrophic backtracking pattern (a+)+$', async () => {
       await expect(
-        runEffect(searchContent(TEST_DIR, { heading: '(a+)+$' })),
+        runEffect(searchContent(TEST_SESSION, TEST_DIR, { heading: '(a+)+$' })),
       ).rejects.toThrow(/catastrophic backtracking/)
     })
 
     it('rejects nested quantifier pattern (.*a){20}', async () => {
       await expect(
-        runEffect(searchContent(TEST_DIR, { heading: '(.*a){20}' })),
+        runEffect(
+          searchContent(TEST_SESSION, TEST_DIR, { heading: '(.*a){20}' }),
+        ),
       ).rejects.toThrow(/catastrophic backtracking/)
     })
 
     it('rejects overlapping alternation under quantifier (a|a)+', async () => {
       await expect(
-        runEffect(searchContent(TEST_DIR, { heading: '(a|a)+' })),
+        runEffect(searchContent(TEST_SESSION, TEST_DIR, { heading: '(a|a)+' })),
       ).rejects.toThrow(/catastrophic backtracking/)
     })
 
     it('rejects wildcard alternation under quantifier (.|\\s)+', async () => {
       await expect(
-        runEffect(searchContent(TEST_DIR, { heading: '(.|\\s)+' })),
+        runEffect(
+          searchContent(TEST_SESSION, TEST_DIR, { heading: '(.|\\s)+' }),
+        ),
       ).rejects.toThrow(/catastrophic backtracking/)
     })
 
     it('allows safe regex patterns', async () => {
       // Simple patterns without nested quantifiers should pass
       const results = await runEffect(
-        searchContent(TEST_DIR, { heading: 'test.*file' }),
+        searchContent(TEST_SESSION, TEST_DIR, { heading: 'test.*file' }),
       )
       expect(results).toBeDefined()
     })
@@ -319,7 +333,7 @@ Set the configuration options carefully.
     it('allows quantifiers outside groups', async () => {
       // a+ is safe because there is no nesting
       const results = await runEffect(
-        searchContent(TEST_DIR, { heading: 'a+' }),
+        searchContent(TEST_SESSION, TEST_DIR, { heading: 'a+' }),
       )
       expect(results).toBeDefined()
     })

@@ -8,9 +8,9 @@
  */
 
 import * as fs from 'node:fs/promises'
-import * as path from 'node:path'
 import { Effect } from 'effect'
 import { resolveSourceFile } from '../db/canonical.js'
+import type { GenerationReadSession } from '../db/generation-reader.js'
 import type {
   ApiKeyInvalidError,
   ApiKeyMissingError,
@@ -21,7 +21,6 @@ import type {
   IndexCorruptedError,
   VectorStoreError,
 } from '../errors/index.js'
-import { dbIndexDir, resolveMdmHome } from '../home.js'
 import { createStorage, loadSectionIndex } from '../index/storage.js'
 import type {
   CapabilityNotSupported,
@@ -107,12 +106,18 @@ export {
  * @throws DimensionMismatchError - Corpus has different dimensions than current provider
  */
 export const semanticSearch = (
-  rootPath: string,
+  session: GenerationReadSession,
+  sourceRoot: string,
   query: string,
   options: SemanticSearchOptions = {},
 ): Effect.Effect<readonly SemanticSearchResult[], SemanticSearchError> =>
   Effect.gen(function* () {
-    const ctx = yield* prepareSearchPipeline(rootPath, query, options)
+    const ctx = yield* prepareSearchPipeline(
+      session,
+      sourceRoot,
+      query,
+      options,
+    )
 
     const searchResults = yield* ctx.vectorStore.search(
       ctx.queryVector,
@@ -122,10 +127,11 @@ export const semanticSearch = (
     )
 
     const { results } = yield* postProcessResults(
+      session,
+      ctx.sourceRoot,
       searchResults,
       query,
       options,
-      ctx.resolvedRoot,
       ctx.limit,
     )
 
@@ -150,12 +156,18 @@ export const semanticSearch = (
  * @throws DimensionMismatchError - Corpus has different dimensions than current provider
  */
 export const semanticSearchWithStats = (
-  rootPath: string,
+  session: GenerationReadSession,
+  sourceRoot: string,
   query: string,
   options: SemanticSearchOptions = {},
 ): Effect.Effect<SemanticSearchResultWithStats, SemanticSearchError> =>
   Effect.gen(function* () {
-    const ctx = yield* prepareSearchPipeline(rootPath, query, options)
+    const ctx = yield* prepareSearchPipeline(
+      session,
+      sourceRoot,
+      query,
+      options,
+    )
 
     const searchResultWithStats = yield* ctx.vectorStore.searchWithStats(
       ctx.queryVector,
@@ -165,10 +177,11 @@ export const semanticSearchWithStats = (
     )
 
     const { results, totalAvailable } = yield* postProcessResults(
+      session,
+      ctx.sourceRoot,
       searchResultWithStats.results,
       query,
       options,
-      ctx.resolvedRoot,
       ctx.limit,
     )
 
@@ -199,15 +212,15 @@ export const semanticSearchWithStats = (
  * @throws DimensionMismatchError - Corpus has different dimensions than current provider
  */
 export const semanticSearchWithContent = (
-  rootPath: string,
+  session: GenerationReadSession,
+  sourceRoot: string,
   query: string,
   options: SemanticSearchOptions = {},
 ): Effect.Effect<readonly SemanticSearchResult[], SemanticSearchError> =>
   Effect.gen(function* () {
-    const resolvedRoot = path.resolve(rootPath)
-    const results = yield* semanticSearch(resolvedRoot, query, options)
+    const results = yield* semanticSearch(session, sourceRoot, query, options)
 
-    const storage = createStorage(resolvedRoot, dbIndexDir(resolveMdmHome()))
+    const storage = createStorage(sourceRoot, session.indexRoot)
     const sectionIndex = yield* loadSectionIndex(storage)
 
     if (!sectionIndex) {

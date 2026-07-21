@@ -9,9 +9,9 @@
  */
 
 import * as fs from 'node:fs/promises'
-import * as path from 'node:path'
 import { Effect } from 'effect'
 import { type DocumentKey, resolveSourceFile } from '../db/canonical.js'
+import type { GenerationReadSession } from '../db/generation-reader.js'
 import {
   type ApiKeyInvalidError,
   type ApiKeyMissingError,
@@ -22,7 +22,6 @@ import {
   type IndexCorruptedError,
   type VectorStoreError,
 } from '../errors/index.js'
-import { dbIndexDir, resolveMdmHome } from '../home.js'
 import { createStorage, loadSectionIndex } from '../index/storage.js'
 import type { SectionEntry } from '../index/types.js'
 import type {
@@ -67,7 +66,7 @@ import {
 
 /** Prepared state from the shared search pipeline setup steps. */
 export interface SearchPipelineContext {
-  readonly resolvedRoot: string
+  readonly sourceRoot: string
   readonly vectorStore: VectorStore
   readonly queryVector: number[]
   readonly limit: number
@@ -96,7 +95,7 @@ const CANDIDATE_MULTIPLIER_HYDE = 10
  * subsequent calls against the same root+namespace skip the load.
  */
 const loadVectorStoreForActive = (
-  resolvedRoot: string,
+  session: GenerationReadSession,
   activeProvider: ActiveProvider,
 ): Effect.Effect<
   VectorStore,
@@ -108,14 +107,14 @@ const loadVectorStoreForActive = (
       activeProvider.model,
       activeProvider.dimensions,
     )
-    const cacheKey = hnswCacheKey(resolvedRoot, namespace)
+    const cacheKey = hnswCacheKey(session.home, namespace, session.generation)
     const cached = getHnswCacheEntry(cacheKey)
     if (cached) {
       return cached
     }
 
     const freshStore = createNamespacedVectorStore(
-      resolvedRoot,
+      session.indexRoot,
       activeProvider.provider,
       activeProvider.model,
       activeProvider.dimensions,
@@ -124,7 +123,7 @@ const loadVectorStoreForActive = (
 
     if (!loadResult.loaded) {
       return yield* Effect.fail(
-        new EmbeddingsNotFoundError({ path: resolvedRoot }),
+        new EmbeddingsNotFoundError({ path: session.indexRoot }),
       )
     }
 
@@ -189,7 +188,8 @@ const resolveQueryText = (
  * the 10-step preparation sequence.
  */
 export const prepareSearchPipeline = (
-  rootPath: string,
+  session: GenerationReadSession,
+  sourceRoot: string,
   query: string,
   options: SemanticSearchOptions,
 ): Effect.Effect<
@@ -204,16 +204,14 @@ export const prepareSearchPipeline = (
   | DimensionMismatchError
 > =>
   Effect.gen(function* () {
-    const resolvedRoot = path.resolve(rootPath)
-
     // Get active namespace to determine which embedding index to use
-    const activeProvider = yield* getActiveNamespace(resolvedRoot).pipe(
+    const activeProvider = yield* getActiveNamespace(session.indexRoot).pipe(
       Effect.catchAll(() => Effect.succeed(null as ActiveProvider | null)),
     )
 
     if (!activeProvider) {
       return yield* Effect.fail(
-        new EmbeddingsNotFoundError({ path: resolvedRoot }),
+        new EmbeddingsNotFoundError({ path: session.indexRoot }),
       )
     }
 
@@ -234,15 +232,12 @@ export const prepareSearchPipeline = (
           providerDimensions: dimensions,
           corpusProvider: `${activeProvider.provider}:${activeProvider.model}`,
           currentProvider: currentProviderName,
-          path: resolvedRoot,
+          path: session.indexRoot,
         }),
       )
     }
 
-    const vectorStore = yield* loadVectorStoreForActive(
-      resolvedRoot,
-      activeProvider,
-    )
+    const vectorStore = yield* loadVectorStoreForActive(session, activeProvider)
 
     const textToEmbed = yield* resolveQueryText(query, options)
 
@@ -294,7 +289,7 @@ export const prepareSearchPipeline = (
     // returns readonly number[] from embed. Copy once here so the rest of
     // the pipeline can pass the vector through unchanged.
     return {
-      resolvedRoot,
+      sourceRoot,
       vectorStore,
       queryVector: [...queryVector],
       limit,
@@ -403,10 +398,11 @@ const addContextLinesToResults = (
  * optionally loads context lines.
  */
 export const postProcessResults = (
+  session: GenerationReadSession,
+  sourceRoot: string,
   rawResults: readonly VectorSearchResult[],
   query: string,
   options: SemanticSearchOptions,
-  resolvedRoot: string,
   limit: number,
 ): Effect.Effect<
   { results: readonly SemanticSearchResult[]; totalAvailable: number },
@@ -416,7 +412,7 @@ export const postProcessResults = (
     // Apply path filter if specified
     let filteredResults = rawResults
     if (options.pathPattern) {
-      const scopeRoot = yield* resolveCanonicalSourceRoot(resolvedRoot)
+      const scopeRoot = yield* resolveCanonicalSourceRoot(sourceRoot)
       filteredResults = rawResults.filter((r) =>
         matchesDocumentPath(scopeRoot, r.documentPath, options.pathPattern),
       )
@@ -452,7 +448,7 @@ export const postProcessResults = (
       options.contextBefore !== undefined ||
       options.contextAfter !== undefined
     ) {
-      const storage = createStorage(resolvedRoot, dbIndexDir(resolveMdmHome()))
+      const storage = createStorage(sourceRoot, session.indexRoot)
       const sectionIndex = yield* loadSectionIndex(storage)
 
       if (sectionIndex) {

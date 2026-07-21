@@ -12,6 +12,19 @@ import {
 } from '../index/storage.js'
 import { createBM25Store } from '../search/bm25-store.js'
 import type { DocumentKey } from './canonical.js'
+import type {
+  GenerationName,
+  GenerationReadSession,
+} from './generation-types.js'
+
+export const testGenerationSession = (
+  indexRoot: string,
+): GenerationReadSession => ({
+  home: path.dirname(indexRoot),
+  generation: path.basename(indexRoot) as GenerationName,
+  indexRoot,
+  leaseId: 'test-lease',
+})
 
 export const seedGenerationArtifacts = async (root: string): Promise<void> => {
   const documentPath = path.join(root, 'document.md') as DocumentKey

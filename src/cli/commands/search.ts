@@ -1,6 +1,8 @@
 /** Search command option declaration and dispatch. */
 
 import { Args, Command, Options } from '@effect/cli'
+import { withCurrentGeneration } from '../../db/generation-reader.js'
+import { resolveMdmHome } from '../../home.js'
 import { jsonOption, prettyOption } from '../options.js'
 import { runSearchCommand } from './search-mode.js'
 
@@ -146,8 +148,8 @@ const searchOptions = {
   ),
 }
 
-export const searchCommand = Command.make(
-  'search',
-  searchOptions,
-  runSearchCommand,
+export const searchCommand = Command.make('search', searchOptions, (input) =>
+  withCurrentGeneration(resolveMdmHome(), (session) =>
+    runSearchCommand(input, session),
+  ),
 ).pipe(Command.withDescription('Search by meaning or structure'))

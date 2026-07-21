@@ -5,10 +5,10 @@ import {
   defaultConfig,
   type MdmConfig,
 } from '../../config/index.js'
+import type { GenerationReadSession } from '../../db/generation-reader.js'
 import { semanticSearchWithStats } from '../../embeddings/semantic-search.js'
 import type { SearchQuality } from '../../embeddings/types.js'
 import { CliValidationError } from '../../errors/index.js'
-import { dbIndexDir, resolveMdmHome } from '../../home.js'
 import { createStorage, loadSectionIndex } from '../../index/storage.js'
 import {
   detectSearchModes,
@@ -65,9 +65,10 @@ export interface SearchCommandInput {
 
 interface ExecutionContext {
   readonly input: SearchCommandInput
+  readonly session: GenerationReadSession
+  readonly sourceRoot: string
   readonly config: MdmConfig
   readonly indexInfo: IndexInfo
-  readonly indexRoot: string
   readonly effectiveLimit: number
   readonly effectiveThreshold: number
   readonly mode: SearchMode
@@ -90,7 +91,8 @@ const runHybridMode = (context: ExecutionContext) =>
         ? context.effectiveLimit * 5
         : context.effectiveLimit
     const { results: rawResults, stats } = yield* hybridSearch(
-      context.indexRoot,
+      context.session,
+      context.sourceRoot,
       input.query,
       {
         limit: fetchLimit,
@@ -107,7 +109,7 @@ const runHybridMode = (context: ExecutionContext) =>
     let results = rawResults
     if (refineTerms.length > 0) {
       const sectionIndex = yield* loadSectionIndex(
-        createStorage(context.indexRoot, dbIndexDir(resolveMdmHome())),
+        createStorage(context.sourceRoot, context.session.indexRoot),
       )
       if (sectionIndex) {
         results = yield* filterResultsByRefineTerms(
@@ -167,11 +169,11 @@ const runKeywordMode = (context: ExecutionContext) =>
         ? context.effectiveLimit * 5
         : context.effectiveLimit
     let results = input.headingOnly
-      ? yield* search(context.indexRoot, {
+      ? yield* search(context.session, context.sourceRoot, {
           heading: input.query,
           limit: fetchLimit,
         })
-      : yield* searchContent(context.indexRoot, {
+      : yield* searchContent(context.session, context.sourceRoot, {
           content: input.query,
           limit: fetchLimit,
           contextBefore: context.contextBefore,
@@ -231,7 +233,8 @@ const runSemanticMode = (context: ExecutionContext) =>
         ? context.effectiveLimit * 5
         : context.effectiveLimit
     const searchResult = yield* semanticSearchWithStats(
-      context.indexRoot,
+      context.session,
+      context.sourceRoot,
       input.query,
       {
         limit: fetchLimit,
@@ -248,7 +251,7 @@ const runSemanticMode = (context: ExecutionContext) =>
     let { results } = searchResult
     if (refineTerms.length > 0) {
       const sectionIndex = yield* loadSectionIndex(
-        createStorage(context.indexRoot, dbIndexDir(resolveMdmHome())),
+        createStorage(context.sourceRoot, context.session.indexRoot),
       )
       if (sectionIndex) {
         results = yield* filterResultsByRefineTerms(
@@ -299,11 +302,12 @@ const runSemanticMode = (context: ExecutionContext) =>
 
 const resolveMode = (
   input: SearchCommandInput,
-  indexRoot: string,
+  session: GenerationReadSession,
+  sourceRoot: string,
   autoIndexThreshold: number,
 ) =>
   Effect.gen(function* () {
-    const modes = yield* detectSearchModes(indexRoot)
+    const modes = yield* detectSearchModes(session)
     const requested = Option.getOrUndefined(input.mode)
     if (requested === 'hybrid') {
       return { mode: 'hybrid' as const, reason: '--mode hybrid' }
@@ -312,7 +316,7 @@ const resolveMode = (
       if (
         !modes.hasEmbeddings &&
         !(yield* handleMissingEmbeddings(
-          indexRoot,
+          sourceRoot,
           autoIndexThreshold,
           input.json,
         ))
@@ -345,7 +349,10 @@ const resolveMode = (
     return { mode: modes.recommendedMode, reason }
   })
 
-export const runSearchCommand = (input: SearchCommandInput) =>
+export const runSearchCommand = (
+  input: SearchCommandInput,
+  session: GenerationReadSession,
+) =>
   Effect.gen(function* () {
     const resolvedDir = path.resolve(input.path)
     if (input.threshold < 0 || input.threshold > 1) {
@@ -383,7 +390,7 @@ export const runSearchCommand = (input: SearchCommandInput) =>
       input.autoIndexThreshold,
       () => config.search.autoIndexThreshold,
     )
-    const indexInfo = yield* Effect.promise(() => getIndexInfo())
+    const indexInfo = yield* getIndexInfo(session)
     if (!indexInfo.exists && !input.json) {
       yield* Console.log('No index found.')
       yield* Console.log('')
@@ -391,10 +398,10 @@ export const runSearchCommand = (input: SearchCommandInput) =>
       yield* Console.log('  Add --embed for semantic search capabilities')
       return
     }
-    const indexRoot = resolvedDir
     const resolvedMode = yield* resolveMode(
       input,
-      indexRoot,
+      session,
+      resolvedDir,
       autoIndexThreshold,
     )
     if (!resolvedMode) return
@@ -403,9 +410,10 @@ export const runSearchCommand = (input: SearchCommandInput) =>
     const context = Option.getOrUndefined(input.context)
     const execution: ExecutionContext = {
       input,
+      session,
+      sourceRoot: resolvedDir,
       config,
       indexInfo,
-      indexRoot,
       effectiveLimit,
       effectiveThreshold,
       mode: resolvedMode.mode,

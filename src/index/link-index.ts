@@ -9,8 +9,8 @@ import {
   fileIdentityKey,
   isPathWithin,
 } from '../db/canonical.js'
+import type { GenerationReadSession } from '../db/generation-reader.js'
 import type { FileReadError, IndexCorruptedError } from '../errors/index.js'
-import { dbIndexDir, resolveMdmHome } from '../home.js'
 import { createStorage, loadDocumentIndex, loadLinkIndex } from './storage.js'
 import type { DocumentIndex } from './types.js'
 
@@ -93,23 +93,23 @@ const resolveDocumentKey = (
   )
 
 export const resolveIndexedDocumentKey = (
-  rootPath: string,
+  session: GenerationReadSession,
   filePath: string,
 ): Effect.Effect<DocumentKey | null, FileReadError | IndexCorruptedError> =>
   Effect.gen(function* () {
     const documentIndex = yield* loadDocumentIndex(
-      createStorage(rootPath, dbIndexDir(resolveMdmHome())),
+      createStorage(session.indexRoot, session.indexRoot),
     )
     return yield* resolveDocumentKey(documentIndex, filePath)
   })
 
 const loadLinksFor = (
-  rootPath: string,
+  session: GenerationReadSession,
   filePath: string,
   direction: 'forward' | 'backward',
 ): Effect.Effect<readonly string[], FileReadError | IndexCorruptedError> =>
   Effect.gen(function* () {
-    const storage = createStorage(rootPath, dbIndexDir(resolveMdmHome()))
+    const storage = createStorage(session.indexRoot, session.indexRoot)
     const [documentIndex, linkIndex] = yield* Effect.all([
       loadDocumentIndex(storage),
       loadLinkIndex(storage),
@@ -120,23 +120,23 @@ const loadLinksFor = (
   })
 
 export const getOutgoingLinks = (
-  rootPath: string,
+  session: GenerationReadSession,
   filePath: string,
 ): Effect.Effect<readonly string[], FileReadError | IndexCorruptedError> =>
-  loadLinksFor(rootPath, filePath, 'forward')
+  loadLinksFor(session, filePath, 'forward')
 
 export const getIncomingLinks = (
-  rootPath: string,
+  session: GenerationReadSession,
   filePath: string,
 ): Effect.Effect<readonly string[], FileReadError | IndexCorruptedError> =>
-  loadLinksFor(rootPath, filePath, 'backward')
+  loadLinksFor(session, filePath, 'backward')
 
 export const getBrokenLinks = (
-  rootPath: string,
+  session: GenerationReadSession,
 ): Effect.Effect<readonly string[], FileReadError | IndexCorruptedError> =>
   Effect.gen(function* () {
     const linkIndex = yield* loadLinkIndex(
-      createStorage(rootPath, dbIndexDir(resolveMdmHome())),
+      createStorage(session.indexRoot, session.indexRoot),
     )
     return linkIndex?.broken ?? []
   })

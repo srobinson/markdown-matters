@@ -6,6 +6,7 @@ import { Effect } from 'effect'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import type { DocumentKey } from '../db/canonical.js'
+import { testGenerationSession } from '../db/generation-test-fixture.js'
 import { buildIndex } from './index-build.js'
 import {
   getIncomingLinks,
@@ -197,22 +198,23 @@ describe('canonical index construction', () => {
     process.env.MDM_HOME = indexRoot
 
     try {
+      const session = testGenerationSession(indexRoot)
       const survivorOutgoing = await Effect.runPromise(
-        getOutgoingLinks(sourceRoot, a),
+        getOutgoingLinks(session, a),
       )
       const survivorIncoming = await Effect.runPromise(
-        getIncomingLinks(sourceRoot, a),
+        getIncomingLinks(session, a),
       )
       expect(survivorOutgoing).toEqual([await fs.realpath(target)])
       expect(survivorIncoming).toEqual([await fs.realpath(inbound)])
-      expect(await Effect.runPromise(getOutgoingLinks(sourceRoot, z))).toEqual(
+      expect(await Effect.runPromise(getOutgoingLinks(session, z))).toEqual(
         survivorOutgoing,
       )
-      expect(await Effect.runPromise(getIncomingLinks(sourceRoot, z))).toEqual(
+      expect(await Effect.runPromise(getIncomingLinks(session, z))).toEqual(
         survivorIncoming,
       )
       expect(
-        await Effect.runPromise(resolveIndexedDocumentKey(sourceRoot, z)),
+        await Effect.runPromise(resolveIndexedDocumentKey(session, z)),
       ).toBe(await fs.realpath(a))
     } finally {
       if (originalMdmHome === undefined) delete process.env.MDM_HOME

@@ -10,14 +10,14 @@ import {
   generationLayout,
   readCurrentGeneration,
 } from '../db/generation-paths.js'
-import { dbIndexDir, resolveMdmHome } from '../home.js'
+import { writeGeneration } from '../db/generation-writer.js'
+import { buildBM25Index } from '../index/bm25-build.js'
 import { buildIndex } from '../index/indexer.js'
 import { appendManifestDirectory } from '../manifest.js'
 import { resolveAndValidatePath, startMcpServer } from './server.js'
 
 const FIXTURES_DIR = path.resolve(__dirname, '../../tests/fixtures/cli')
 
-/** Extract the text from the first content block of a tool result. */
 const getText = (result: Record<string, unknown>): string => {
   const items = result.content as Array<{ type: string; text: string }>
   return items[0]!.text
@@ -79,18 +79,21 @@ describe('MCP Server', () => {
 
     // Build an index for the fixture directory so search/links tools work
     await Effect.runPromise(
-      buildIndex(FIXTURES_DIR, {
-        indexRoot: dbIndexDir(resolveMdmHome()),
-        force: true,
-      }).pipe(
-        Effect.catchAll(() =>
-          Effect.succeed({
-            documentsIndexed: 0,
-            sectionsIndexed: 0,
-            linksIndexed: 0,
-            duration: 0,
-          }),
-        ),
+      writeGeneration(
+        {
+          home: testHome,
+          build: (generation) =>
+            Effect.gen(function* () {
+              const result = yield* buildIndex(FIXTURES_DIR, {
+                indexRoot: generation.indexRoot,
+                force: true,
+              })
+              yield* buildBM25Index(generation.indexRoot, { force: true })
+              return result
+            }),
+          validate: () => Effect.void,
+        },
+        { scheduleReap: () => undefined },
       ),
     )
 
