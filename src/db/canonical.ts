@@ -100,6 +100,57 @@ export const resolveCanonicalPathOrFallbackAsync = async (
   }
 }
 
+export const resolvePathWithinRoot = async (
+  rootPath: string,
+  filePath: string,
+): Promise<string | null> => {
+  const normalizedRoot = path.resolve(rootPath)
+  const resolved = path.isAbsolute(filePath)
+    ? path.resolve(filePath)
+    : path.resolve(normalizedRoot, filePath)
+  let canonicalRoot = normalizedRoot
+  let caseSensitive = true
+
+  try {
+    const source = await inspectCanonicalSource(
+      normalizedRoot,
+      probeCaseSensitivity,
+    )
+    canonicalRoot = source.key
+    caseSensitive = source.caseSensitive
+  } catch {
+    // Missing roots retain strict lexical containment.
+  }
+
+  if (!isPathWithin(resolved, normalizedRoot, caseSensitive)) return null
+
+  try {
+    const canonical = await fs.realpath(resolved)
+    return isPathWithin(canonical, canonicalRoot, caseSensitive)
+      ? canonical
+      : null
+  } catch {
+    return resolved
+  }
+}
+
+export const candidatesWithinRoots = async (
+  roots: readonly string[],
+  filePath: string,
+): Promise<readonly string[]> => {
+  const canonicalRoots = await Promise.all(
+    roots.map(resolveCanonicalPathOrFallbackAsync),
+  )
+  const candidates = await Promise.all(
+    roots.flatMap((root, index) =>
+      [...new Set([root, canonicalRoots[index] ?? root])].map((rootAlias) =>
+        resolvePathWithinRoot(rootAlias, filePath),
+      ),
+    ),
+  )
+  return [...new Set(candidates.filter((candidate) => candidate !== null))]
+}
+
 const asciiCaseVariantInRange = (
   value: string,
   start: number,
@@ -141,28 +192,33 @@ export const probeCaseSensitivity: CaseSensitivityProbe = async (
   }
 }
 
+const inspectCanonicalSource = async (
+  value: string,
+  caseSensitivityProbe: CaseSensitivityProbe,
+): Promise<CanonicalSource> => {
+  const declaredPath = expandDeclaredPath(value)
+  const key = (await resolveCanonicalFilePath(declaredPath)) as DocumentKey
+  const stat = await fs.stat(key, { bigint: true })
+  const caseSensitive = await caseSensitivityProbe(key, stat.dev, stat.ino)
+
+  return {
+    key,
+    declaredPath,
+    comparisonKey: caseSensitive ? key : key.toLowerCase(),
+    identity: {
+      device: String(stat.dev),
+      inode: String(stat.ino),
+    },
+    caseSensitive,
+  }
+}
+
 export const canonicalizeSourceFile = (
   value: string,
   caseSensitivityProbe: CaseSensitivityProbe = probeCaseSensitivity,
 ): Effect.Effect<CanonicalSource, FileReadError> =>
   Effect.tryPromise({
-    try: async () => {
-      const declaredPath = expandDeclaredPath(value)
-      const key = (await resolveCanonicalFilePath(declaredPath)) as DocumentKey
-      const stat = await fs.stat(key, { bigint: true })
-      const caseSensitive = await caseSensitivityProbe(key, stat.dev, stat.ino)
-
-      return {
-        key,
-        declaredPath,
-        comparisonKey: caseSensitive ? key : key.toLowerCase(),
-        identity: {
-          device: String(stat.dev),
-          inode: String(stat.ino),
-        },
-        caseSensitive,
-      }
-    },
+    try: () => inspectCanonicalSource(value, caseSensitivityProbe),
     catch: (cause) =>
       new FileReadError({
         path: value,

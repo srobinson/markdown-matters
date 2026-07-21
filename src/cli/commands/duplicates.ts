@@ -94,7 +94,9 @@ export const duplicatesCommand = Command.make(
     ),
     pathPattern: Options.text('path').pipe(
       Options.withAlias('p'),
-      Options.withDescription('Filter by document path pattern (glob)'),
+      Options.withDescription(
+        'Filter by canonical path, relative glob, or bare path segment',
+      ),
       Options.optional,
     ),
     json: jsonOption,

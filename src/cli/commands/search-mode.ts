@@ -16,7 +16,7 @@ import {
   type SearchMode,
 } from '../../search/hybrid-search.js'
 import {
-  escapePathPatternLiteral,
+  canonicalSubtreePathPattern,
   resolveCanonicalSourceRoot,
 } from '../../search/path-matcher.js'
 import { isAdvancedQuery } from '../../search/query-parser.js'
@@ -396,20 +396,11 @@ export const runSearchCommand = (
     const requestedPath = Option.isSome(input.path)
       ? yield* resolveCanonicalSourceRoot(path.resolve(input.path.value))
       : undefined
-    const directoryName =
-      requestedPath === undefined ? '' : path.basename(requestedPath)
-    const sourceRoot =
-      requestedPath === undefined
-        ? path.resolve('.')
-        : directoryName
-          ? path.dirname(requestedPath)
-          : requestedPath
+    const sourceRoot = requestedPath ?? path.resolve('.')
     const pathPattern =
       requestedPath === undefined
         ? undefined
-        : directoryName
-          ? `${escapePathPatternLiteral(directoryName)}/**`
-          : '**'
+        : canonicalSubtreePathPattern(requestedPath)
     const config = yield* Effect.serviceOption(ConfigService).pipe(
       Effect.map(Option.getOrElse(() => defaultConfig)),
     )

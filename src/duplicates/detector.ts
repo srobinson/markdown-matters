@@ -12,8 +12,9 @@ import { type DocumentKey, resolveSourceFile } from '../db/canonical.js'
 import type { GenerationReadSession } from '../db/generation-reader.js'
 import { FileReadError, type IndexCorruptedError } from '../errors/index.js'
 import { createStorage, loadSectionIndex } from '../index/storage.js'
+import type { ManifestError } from '../manifest.js'
 import {
-  matchesDocumentPath,
+  prepareUserPathFilter,
   resolveCanonicalSourceRoot,
 } from '../search/path-matcher.js'
 
@@ -198,7 +199,7 @@ export const detectExactDuplicates = (
   options: DuplicateDetectionOptions = {},
 ): Effect.Effect<
   DuplicateDetectionResult,
-  FileReadError | IndexCorruptedError
+  FileReadError | IndexCorruptedError | ManifestError
 > =>
   Effect.gen(function* () {
     const minContentLength = options.minContentLength ?? 50
@@ -217,17 +218,15 @@ export const detectExactDuplicates = (
     }
 
     const sections = Object.values(sectionIndex.sections)
+    const pathFilter = yield* prepareUserPathFilter(
+      session,
+      sourceRoot,
+      options.pathPattern,
+    )
 
-    // Filter sections by path pattern if specified
-    const filteredSections = options.pathPattern
-      ? sections.filter((section) =>
-          matchesDocumentPath(
-            canonicalRoot,
-            section.documentPath,
-            options.pathPattern,
-          ),
-        )
-      : sections
+    const filteredSections = sections.filter((section) =>
+      pathFilter(section.documentPath),
+    )
 
     // Map: hash -> list of sections with that hash
     const hashGroups = new Map<string, DuplicateSectionInfo[]>()
@@ -408,7 +407,7 @@ export const detectDuplicates = (
   options: DuplicateDetectionOptions = {},
 ): Effect.Effect<
   DuplicateDetectionResult,
-  FileReadError | IndexCorruptedError
+  FileReadError | IndexCorruptedError | ManifestError
 > => {
   // For now, we only support exact duplicate detection via content hashing.
   // Future: Add embedding-based similarity detection for near-duplicates.

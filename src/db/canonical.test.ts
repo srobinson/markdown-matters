@@ -11,6 +11,7 @@ import {
   type DocumentKey,
   expandDeclaredPath,
   isPathWithin,
+  resolvePathWithinRoot,
   resolveSourceFile,
   selectCanonicalSource,
   sourceBelongsToPrefix,
@@ -158,6 +159,22 @@ describe('canonical document identity', () => {
         false,
       ),
     ).toBe(true)
+  })
+
+  it('uses volume case behavior before lexical root containment', async () => {
+    const dir = await makeTempDir()
+    const exactRoot = path.join(dir, 'CaseRoot')
+    const alternateRoot = path.join(dir, 'caseroot')
+    const file = path.join(exactRoot, 'guide.md')
+    await fs.mkdir(exactRoot)
+    await fs.writeFile(file, '# Guide\n')
+    const source = await Effect.runPromise(canonicalizeSourceFile(file))
+
+    if (source.caseSensitive) return
+
+    expect(await resolvePathWithinRoot(alternateRoot, file)).toBe(
+      await fs.realpath(file),
+    )
   })
 
   it('keeps broken links lexical and expands a leading home marker', () => {

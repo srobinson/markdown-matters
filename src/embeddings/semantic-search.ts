@@ -22,6 +22,7 @@ import type {
   VectorStoreError,
 } from '../errors/index.js'
 import { createStorage, loadSectionIndex } from '../index/storage.js'
+import type { ManifestError } from '../manifest.js'
 import type {
   CapabilityNotSupported,
   ProviderNotFound,
@@ -57,6 +58,7 @@ export type SemanticSearchError =
   | EmbeddingError
   | VectorStoreError
   | DimensionMismatchError
+  | ManifestError
 
 // ----------------------------------------------------------------------------
 // Re-exports: keep the public surface stable for external callers.

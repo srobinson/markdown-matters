@@ -3,7 +3,11 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { escapePathPatternLiteral, matchPath } from './path-matcher.js'
+import {
+  canonicalSubtreePathPattern,
+  escapePathPatternLiteral,
+  matchPath,
+} from './path-matcher.js'
 
 describe('path-matcher', () => {
   describe('matchPath', () => {
@@ -22,6 +26,13 @@ describe('path-matcher', () => {
         expect(matchPath('docs/README.md', 'docs/readme.md')).toBe(true)
         expect(matchPath('DOCS/readme.md', 'docs/readme.md')).toBe(true)
         expect(matchPath('docs/readme.MD', 'docs/readme.md')).toBe(true)
+      })
+
+      it('honors an explicit filesystem case-sensitivity mode', () => {
+        const subtree = canonicalSubtreePathPattern('/corpus/docs')
+
+        expect(matchPath('/corpus/Docs/guide.md', subtree, false)).toBe(true)
+        expect(matchPath('/corpus/Docs/guide.md', subtree, true)).toBe(false)
       })
     })
 
