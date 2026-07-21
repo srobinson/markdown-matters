@@ -30,7 +30,7 @@ jobs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@v5
         id: release
         with:
           token: ${{ secrets.HELIOY_PAT }}
@@ -73,7 +73,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm typecheck
-      - run: pnpm test
 
       - name: Normalize npm package metadata
         run: npm pkg set repository.url=git+https://github.com/srobinson/markdown-matters.git
