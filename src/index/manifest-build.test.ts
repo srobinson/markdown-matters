@@ -208,7 +208,7 @@ it('resolves cross-root links only when the target is discovered', async () => {
   }
   await Effect.runPromise(buildManifestIndex(complete, { indexRoot: home }))
   links = await Effect.runPromise(loadLinkIndex(storage))
-  expect(links?.forward[sourceKey]).toEqual([targetKey])
+  expect(links?.forward[sourceKey]).toEqual([{ documentPath: targetKey }])
 
   await fs.writeFile(path.join(second, '.mdmignore'), 'nested/target.md\n')
   await Effect.runPromise(buildManifestIndex(complete, { indexRoot: home }))

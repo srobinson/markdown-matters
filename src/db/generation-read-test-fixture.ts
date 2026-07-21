@@ -117,8 +117,8 @@ const seedGeneration = async (
   await Effect.runPromise(
     saveLinkIndex(storage, {
       ...createEmptyLinkIndex(),
-      forward: { [primary]: [target] },
-      backward: { [primary]: [inbound] },
+      forward: { [primary]: [{ documentPath: target }] },
+      backward: { [primary]: [{ documentPath: inbound }] },
     }),
   )
 

@@ -80,10 +80,15 @@ const SectionIndexSchema = Schema.Struct({
   }),
 })
 
+const LinkEdgeSchema = Schema.Struct({
+  documentPath: DocumentKeySchema,
+  sectionId: Schema.optional(Schema.String),
+})
+
 const LinkIndexSchema = Schema.Struct({
   version: Schema.Literal(INDEX_VERSION),
-  forward: documentKeyRecord(Schema.Array(DocumentKeySchema)),
-  backward: documentKeyRecord(Schema.Array(DocumentKeySchema)),
+  forward: documentKeyRecord(Schema.Array(LinkEdgeSchema)),
+  backward: documentKeyRecord(Schema.Array(LinkEdgeSchema)),
   brokenBySource: documentKeyRecord(Schema.Array(DeclaredPathSchema)),
   broken: Schema.Array(DeclaredPathSchema),
 })
@@ -234,6 +239,21 @@ const readJsonFile = <A, I>(
           details: e instanceof Error ? e.message : String(e),
         }),
     })
+
+    if (
+      parsed !== null &&
+      typeof parsed === 'object' &&
+      'version' in parsed &&
+      parsed.version !== INDEX_VERSION
+    ) {
+      return yield* Effect.fail(
+        new IndexCorruptedError({
+          path: filePath,
+          reason: 'VersionMismatch',
+          details: `Expected index version ${INDEX_VERSION}, received ${String(parsed.version)}`,
+        }),
+      )
+    }
 
     // Validate against schema
     return yield* Schema.decodeUnknown(schema)(parsed).pipe(

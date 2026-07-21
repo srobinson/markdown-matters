@@ -21,7 +21,11 @@ import {
   type FileDiscoveryResult,
 } from './file-discovery.js'
 import { createIgnoreFilter } from './ignore-patterns.js'
-import { buildDiscoveredIndex, type IndexOptions } from './index-build.js'
+import {
+  buildDiscoveredIndex,
+  type IndexOptions,
+  structuralIndexRequiresRebuild,
+} from './index-build.js'
 import {
   createStorage,
   loadDocumentIndex,
@@ -61,6 +65,17 @@ const loadStructuralState = (indexRoot: string) => {
     sections: loadSectionIndex(storage),
     links: loadLinkIndex(storage),
   })
+}
+
+const loadCurrentStructuralState = (indexRoot: string | undefined) => {
+  if (indexRoot === undefined) return Effect.succeed(null)
+  return loadStructuralState(indexRoot).pipe(
+    Effect.catchTag('IndexCorruptedError', (error) =>
+      error.reason === 'VersionMismatch'
+        ? Effect.succeed(null)
+        : Effect.fail(error),
+    ),
+  )
 }
 
 const logicalVectorIndex = (index: VectorIndex) => ({
@@ -146,13 +161,19 @@ export const buildManifestIndex = (
   options: ManifestBuildOptions,
 ) =>
   Effect.gen(function* () {
-    const currentStructural = options.currentIndexRoot
-      ? yield* loadStructuralState(options.currentIndexRoot)
-      : null
+    const requiresRebuild = yield* structuralIndexRequiresRebuild(
+      options.indexRoot,
+    )
+    const discoveryOptions = requiresRebuild
+      ? { ...options, changedPaths: undefined }
+      : options
+    const currentStructural = yield* loadCurrentStructuralState(
+      options.currentIndexRoot,
+    )
     const roots = manifest.directories.map((directory) => directory.path)
     const results = yield* Effect.all(
       manifest.directories.map((directory) =>
-        discoverManifestDirectory(directory, options),
+        discoverManifestDirectory(directory, discoveryOptions),
       ),
       { concurrency: 8 },
     )
@@ -174,7 +195,7 @@ export const buildManifestIndex = (
         discovery,
         deletedPaths,
         skipped,
-        complete: (options.changedPaths?.length ?? 0) === 0,
+        complete: (discoveryOptions.changedPaths?.length ?? 0) === 0,
       },
       options,
     )

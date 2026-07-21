@@ -74,7 +74,9 @@ export const seedGenerationArtifacts = async (root: string): Promise<void> => {
     saveLinkIndex(storage, {
       ...createEmptyLinkIndex(),
       forward: {
-        [documentPath]: [path.join(root, 'target.md') as DocumentKey],
+        [documentPath]: [
+          { documentPath: path.join(root, 'target.md') as DocumentKey },
+        ],
       },
     }),
   )
