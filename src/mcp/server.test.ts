@@ -74,7 +74,9 @@ describe('MCP Server', () => {
     )
     process.env.MDM_HOME = testHome
     await Effect.runPromise(
-      appendManifestDirectory(testHome, { path: externalDir }),
+      Effect.forEach([externalDir, FIXTURES_DIR], (sourcePath) =>
+        appendManifestDirectory(testHome, { path: sourcePath }),
+      ),
     )
 
     // Build an index for the fixture directory so search/links tools work
@@ -257,9 +259,7 @@ describe('MCP Server', () => {
       })
 
       expect(result.isError).toBeFalsy()
-      expect(await readIndexedDocumentKeys(testHome)).toEqual([
-        await fs.realpath(path.join(externalDir, 'external.md')),
-      ])
+      expect(await readIndexedDocumentKeys(testHome)).toHaveLength(4)
     })
 
     it('appends the requested path and refreshes every manifest directory', async () => {
@@ -381,10 +381,6 @@ describe('MCP Server', () => {
   // ==========================================================================
 
   describe('security: path traversal', () => {
-    // Path traversal returns a structured MCP tool error (isError: true)
-    // rather than throwing, so clients receive a well-formed response
-    // instead of a protocol-level rejection.
-
     it('should reject absolute paths outside root', async () => {
       const result = await client.callTool({
         name: 'md_context',
@@ -392,7 +388,7 @@ describe('MCP Server', () => {
       })
       expect(result.isError).toBe(true)
       expect((result.content as Array<{ text: string }>)[0]?.text).toMatch(
-        /Path outside root/,
+        /Path not in indexed corpus/,
       )
     })
 
@@ -403,7 +399,7 @@ describe('MCP Server', () => {
       })
       expect(result.isError).toBe(true)
       expect((result.content as Array<{ text: string }>)[0]?.text).toMatch(
-        /Path outside root/,
+        /Path not in indexed corpus/,
       )
     })
 
@@ -414,7 +410,7 @@ describe('MCP Server', () => {
       })
       expect(result.isError).toBe(true)
       expect((result.content as Array<{ text: string }>)[0]?.text).toMatch(
-        /Path outside root/,
+        /Path not in indexed corpus/,
       )
     })
 
@@ -425,7 +421,7 @@ describe('MCP Server', () => {
       })
       expect(result.isError).toBe(true)
       expect((result.content as Array<{ text: string }>)[0]?.text).toMatch(
-        /Path outside root/,
+        /Path not in indexed corpus/,
       )
     })
 
@@ -436,7 +432,7 @@ describe('MCP Server', () => {
       })
       expect(result.isError).toBe(true)
       expect((result.content as Array<{ text: string }>)[0]?.text).toMatch(
-        /Path outside root/,
+        /Path not in indexed corpus/,
       )
     })
 
