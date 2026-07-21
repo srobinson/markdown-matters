@@ -3,7 +3,7 @@
  *
  * Mirrors the attention-matters config.rs pattern:
  *   1. Start with compiled defaults
- *   2. Apply TOML file config (PWD/.mdm.toml -> ~/.mdm/.mdm.toml fallback)
+ *   2. Merge home, project, and project-local TOML files
  *   3. Apply env vars (MDM_* prefix)
  *   4. Apply CLI overrides (passed as partial)
  *   5. Return concrete MdmConfig
@@ -12,11 +12,10 @@
  * No string serialisation/deserialisation. No ConfigProvider intermediary.
  */
 
-import * as fs from 'node:fs'
-import * as os from 'node:os'
 import * as path from 'node:path'
 import { Option } from 'effect'
-import { parse as parseToml } from 'smol-toml'
+import { resolveMdmHome } from '../home.js'
+import { loadTomlDocumentWithStatus, type TomlParseError } from '../toml.js'
 import type { MdmConfig } from './schema.js'
 import { defaultConfig } from './schema.js'
 import {
@@ -50,10 +49,7 @@ type PartialSection<T> = {
 // TOML File Loading
 // ============================================================================
 
-export interface ConfigParseError {
-  path: string
-  message: string
-}
+export type ConfigParseError = TomlParseError
 
 export type TomlFileLoadResult =
   | { status: 'missing'; path: string }
@@ -65,6 +61,7 @@ export type ConfigFileLoadResult =
   | {
       status: 'loaded'
       path: string
+      sourceFiles: readonly string[]
       config: PartialMdmConfig
       parseErrors: ConfigParseError[]
     }
@@ -87,24 +84,15 @@ const warnConfigParseError = (error: ConfigParseError): void => {
 export const loadTomlFileWithStatus = (
   filePath: string,
 ): TomlFileLoadResult => {
-  try {
-    if (!fs.existsSync(filePath)) return { status: 'missing', path: filePath }
-    const content = fs.readFileSync(filePath, 'utf-8')
-    const parsed = parseToml(content)
+  const result = loadTomlDocumentWithStatus(filePath)
+  if (result.status === 'loaded') {
     return {
       status: 'loaded',
       path: filePath,
-      config: parsed as unknown as PartialMdmConfig,
-    }
-  } catch (error) {
-    return {
-      status: 'error',
-      error: {
-        path: filePath,
-        message: error instanceof Error ? error.message : String(error),
-      },
+      config: result.value as unknown as PartialMdmConfig,
     }
   }
+  return result
 }
 
 /**
@@ -119,47 +107,44 @@ export const loadTomlFile = (filePath: string): PartialMdmConfig | null => {
 }
 
 // ============================================================================
-// Two-Tier Config File Resolution
+// Config File Resolution
 // ============================================================================
 
 /**
- * Find and load the config file using two-tier resolution with explicit status:
- *   1. PWD/.mdm.toml (project-local)
- *   2. ~/.mdm/.mdm.toml (global)
+ * Load and merge every config file tier with explicit status.
+ * Later files override earlier files by key.
  */
 export const loadConfigFileWithStatus = (
   workingDir?: string,
 ): ConfigFileLoadResult => {
   const cwd = workingDir ?? process.cwd()
   const parseErrors: ConfigParseError[] = []
+  const sourceFiles: string[] = []
+  let config: PartialMdmConfig = {}
+  const configPaths = [
+    path.join(resolveMdmHome(), '.mdm.toml'),
+    path.join(cwd, '.mdm.toml'),
+    path.join(cwd, '.mdm.local.toml'),
+  ]
 
-  // Tier 1: project-local
-  const localPath = path.join(cwd, '.mdm.toml')
-  const localResult = loadTomlFileWithStatus(localPath)
-  if (localResult.status === 'loaded') {
-    return {
-      status: 'loaded',
-      config: localResult.config,
-      path: localPath,
-      parseErrors,
+  for (const filePath of configPaths) {
+    const result = loadTomlFileWithStatus(filePath)
+    if (result.status === 'loaded') {
+      config = mergePartials(config, result.config)
+      sourceFiles.push(filePath)
+    } else if (result.status === 'error') {
+      parseErrors.push(result.error)
     }
   }
-  if (localResult.status === 'error') parseErrors.push(localResult.error)
 
-  // Tier 2: global
-  const globalPath = path.join(os.homedir(), '.mdm', '.mdm.toml')
-  const globalResult = loadTomlFileWithStatus(globalPath)
-  if (globalResult.status === 'loaded') {
+  if (sourceFiles.length > 0) {
     return {
       status: 'loaded',
-      config: globalResult.config,
-      path: globalPath,
+      config,
+      path: sourceFiles[sourceFiles.length - 1]!,
+      sourceFiles,
       parseErrors,
     }
-  }
-  if (globalResult.status === 'error') {
-    parseErrors.push(globalResult.error)
-    return { status: 'error', error: globalResult.error, parseErrors }
   }
 
   if (parseErrors.length > 0) {
@@ -174,11 +159,7 @@ export const loadConfigFileWithStatus = (
 }
 
 /**
- * Find and load the config file using two-tier resolution:
- *   1. PWD/.mdm.toml (project-local)
- *   2. ~/.mdm/.mdm.toml (global)
- *
- * Returns the first config found, or null if neither exists.
+ * Load and merge the config file tiers, or return null if none are valid.
  */
 export const loadConfigFile = (
   workingDir?: string,
@@ -361,7 +342,7 @@ export const mergeWithDefaults = (partial: PartialMdmConfig): MdmConfig => ({
 /**
  * Deep-merge two partial configs. Later values win.
  */
-const mergePartials = (
+export const mergePartials = (
   base: PartialMdmConfig,
   overlay: PartialMdmConfig,
 ): PartialMdmConfig => {
@@ -411,6 +392,7 @@ export interface LoadResult {
   fileConfig: PartialMdmConfig
   envConfig: PartialMdmConfig
   sourceFile: string | null
+  sourceFiles: readonly string[]
   parseError?: ConfigParseError | undefined
   parseErrors: ConfigParseError[]
 }
@@ -421,7 +403,7 @@ export interface LoadResult {
  * Resolution order (highest to lowest priority):
  *   1. CLI overrides
  *   2. Environment variables (MDM_*)
- *   3. Config file (PWD/.mdm.toml -> ~/.mdm/.mdm.toml)
+ *   3. Project local, project, and home config files
  *   4. Compiled defaults
  */
 export const loadDetailed = (options: LoadOptions = {}): LoadResult => {
@@ -438,6 +420,7 @@ export const loadDetailed = (options: LoadOptions = {}): LoadResult => {
   let fileConfig: PartialMdmConfig = {}
   let envConfig: PartialMdmConfig = {}
   let sourceFile: string | null = null
+  let sourceFiles: readonly string[] = []
   let parseError: ConfigParseError | undefined
   let parseErrors: ConfigParseError[] = []
 
@@ -451,6 +434,7 @@ export const loadDetailed = (options: LoadOptions = {}): LoadResult => {
     const result = loadConfigFileWithStatus(workingDir)
     if (result.status === 'loaded') {
       sourceFile = result.path
+      sourceFiles = result.sourceFiles
       fileConfig = result.config
       merged = result.config
       parseErrors = result.parseErrors
@@ -494,6 +478,7 @@ export const loadDetailed = (options: LoadOptions = {}): LoadResult => {
     fileConfig,
     envConfig,
     sourceFile,
+    sourceFiles,
     parseError,
     parseErrors,
   }
@@ -523,35 +508,4 @@ export const validateConfig = (
   }
 
   return coerceConfig(config, issues)
-}
-
-// ============================================================================
-// Global Sources
-// ============================================================================
-
-export interface GlobalSource {
-  readonly path: string
-  readonly name?: string | undefined
-}
-
-/**
- * Read registered sources from the global config file (~/.mdm/.mdm.toml).
- * Returns an empty array if the file does not exist or has no [[sources]].
- * Throws on malformed TOML so callers can distinguish "no config" from "broken config".
- */
-export const readGlobalSources = (): GlobalSource[] => {
-  const globalPath = path.join(os.homedir(), '.mdm', '.mdm.toml')
-  if (!fs.existsSync(globalPath)) return []
-  const content = fs.readFileSync(globalPath, 'utf-8')
-  const parsed = parseToml(content) as Record<string, unknown>
-  const sources = parsed.sources
-  if (!Array.isArray(sources)) return []
-  return sources
-    .filter(
-      (s): s is { path: string; name?: string } =>
-        typeof s === 'object' &&
-        s !== null &&
-        typeof (s as Record<string, unknown>).path === 'string',
-    )
-    .map((s) => ({ path: s.path, name: s.name }))
 }

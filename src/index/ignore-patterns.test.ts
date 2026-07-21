@@ -13,7 +13,6 @@ import * as path from 'node:path'
 import { Effect } from 'effect'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
-  createFilterFunction,
   createIgnoreFilter,
   DEFAULT_IGNORE_PATTERNS,
   getChokidarIgnorePatterns,
@@ -43,9 +42,9 @@ describe('Ignore Patterns Module', () => {
         createIgnoreFilter({ rootPath: testDir }),
       )
 
-      expect(shouldIgnore('debug.log', result.filter)).toBe(true)
-      expect(shouldIgnore('app.log', result.filter)).toBe(true)
-      expect(shouldIgnore('app.txt', result.filter)).toBe(false)
+      expect(shouldIgnore('debug.log', result)).toBe(true)
+      expect(shouldIgnore('app.log', result)).toBe(true)
+      expect(shouldIgnore('app.txt', result)).toBe(false)
     })
 
     it('matches deep glob patterns (**/*.tmp)', async () => {
@@ -55,10 +54,10 @@ describe('Ignore Patterns Module', () => {
         createIgnoreFilter({ rootPath: testDir }),
       )
 
-      expect(shouldIgnore('file.tmp', result.filter)).toBe(true)
-      expect(shouldIgnore('src/file.tmp', result.filter)).toBe(true)
-      expect(shouldIgnore('src/deep/file.tmp', result.filter)).toBe(true)
-      expect(shouldIgnore('src/file.md', result.filter)).toBe(false)
+      expect(shouldIgnore('file.tmp', result)).toBe(true)
+      expect(shouldIgnore('src/file.tmp', result)).toBe(true)
+      expect(shouldIgnore('src/deep/file.tmp', result)).toBe(true)
+      expect(shouldIgnore('src/file.md', result)).toBe(false)
     })
 
     it('handles negation patterns (!important.log)', async () => {
@@ -71,8 +70,8 @@ describe('Ignore Patterns Module', () => {
         createIgnoreFilter({ rootPath: testDir }),
       )
 
-      expect(shouldIgnore('debug.log', result.filter)).toBe(true)
-      expect(shouldIgnore('important.log', result.filter)).toBe(false)
+      expect(shouldIgnore('debug.log', result)).toBe(true)
+      expect(shouldIgnore('important.log', result)).toBe(false)
     })
 
     it('ignores comments (# ignore this)', async () => {
@@ -86,19 +85,20 @@ describe('Ignore Patterns Module', () => {
       )
 
       // Comments should not affect pattern matching
-      expect(shouldIgnore('debug.log', result.filter)).toBe(true)
-      expect(shouldIgnore('# This is a comment', result.filter)).toBe(false)
+      expect(shouldIgnore('debug.log', result)).toBe(true)
+      expect(shouldIgnore('# This is a comment', result)).toBe(false)
     })
 
-    it('matches directory-only patterns (node_modules/)', async () => {
-      await fs.writeFile(path.join(testDir, '.gitignore'), 'build/\n')
+    it('passes a trailing slash for directory-only patterns', async () => {
+      await fs.writeFile(path.join(testDir, '.gitignore'), 'archive/\n')
 
       const result = await Effect.runPromise(
         createIgnoreFilter({ rootPath: testDir }),
       )
 
-      expect(shouldIgnore('build/output.js', result.filter)).toBe(true)
-      expect(shouldIgnore('build', result.filter)).toBe(true)
+      expect(shouldIgnore('archive', result)).toBe(false)
+      expect(shouldIgnore('archive', result, true)).toBe(true)
+      expect(shouldIgnore('archive/output.js', result)).toBe(true)
     })
   })
 
@@ -121,7 +121,7 @@ describe('Ignore Patterns Module', () => {
       )
 
       // CLI takes precedence - important.md should be ignored
-      expect(shouldIgnore('important.md', result.filter)).toBe(true)
+      expect(shouldIgnore('important.md', result)).toBe(true)
     })
 
     it('.mdmignore overrides .gitignore', async () => {
@@ -136,8 +136,8 @@ describe('Ignore Patterns Module', () => {
       )
 
       // .mdmignore negation should override .gitignore
-      expect(shouldIgnore('README.md', result.filter)).toBe(false)
-      expect(shouldIgnore('other.md', result.filter)).toBe(true)
+      expect(shouldIgnore('README.md', result)).toBe(false)
+      expect(shouldIgnore('other.md', result)).toBe(true)
     })
 
     it('later rules override earlier (gitignore behavior)', async () => {
@@ -151,7 +151,7 @@ describe('Ignore Patterns Module', () => {
       )
 
       // Last rule wins - important.md should be ignored again
-      expect(shouldIgnore('important.md', result.filter)).toBe(true)
+      expect(shouldIgnore('important.md', result)).toBe(true)
     })
   })
 
@@ -167,9 +167,9 @@ describe('Ignore Patterns Module', () => {
       )
 
       // Should still work with defaults
-      expect(result.filter).toBeDefined()
+      expect(result.defaults).toBeDefined()
       expect(result.sources).not.toContain('.gitignore')
-      expect(shouldIgnore('node_modules/pkg/file.js', result.filter)).toBe(true)
+      expect(shouldIgnore('node_modules/pkg/file.js', result)).toBe(true)
     })
 
     it('handles missing .mdmignore gracefully', async () => {
@@ -193,7 +193,7 @@ describe('Ignore Patterns Module', () => {
       )
 
       // Should work with just defaults
-      expect(result.filter).toBeDefined()
+      expect(result.defaults).toBeDefined()
       expect(result.sources).not.toContain('.gitignore')
       expect(result.sources).not.toContain('.mdmignore')
     })
@@ -209,7 +209,7 @@ describe('Ignore Patterns Module', () => {
       )
 
       // Should skip whitespace lines
-      expect(shouldIgnore('debug.log', result.filter)).toBe(true)
+      expect(shouldIgnore('debug.log', result)).toBe(true)
     })
   })
 
@@ -226,6 +226,10 @@ describe('Ignore Patterns Module', () => {
       expect(DEFAULT_IGNORE_PATTERNS).toContain('.git')
     })
 
+    it('includes .mdm in defaults', () => {
+      expect(DEFAULT_IGNORE_PATTERNS).toContain('.mdm')
+    })
+
     it('includes dist in defaults', () => {
       expect(DEFAULT_IGNORE_PATTERNS).toContain('dist')
     })
@@ -239,12 +243,10 @@ describe('Ignore Patterns Module', () => {
         createIgnoreFilter({ rootPath: testDir }),
       )
 
-      expect(shouldIgnore('node_modules/pkg/index.js', result.filter)).toBe(
-        true,
-      )
-      expect(shouldIgnore('dist/bundle.js', result.filter)).toBe(true)
-      expect(shouldIgnore('build/output.js', result.filter)).toBe(true)
-      expect(shouldIgnore('.git/config', result.filter)).toBe(true)
+      expect(shouldIgnore('node_modules/pkg/index.js', result)).toBe(true)
+      expect(shouldIgnore('dist/bundle.js', result)).toBe(true)
+      expect(shouldIgnore('build/output.js', result)).toBe(true)
+      expect(shouldIgnore('.git/config', result)).toBe(true)
     })
   })
 
@@ -264,7 +266,7 @@ describe('Ignore Patterns Module', () => {
       )
 
       // .gitignore patterns should not be applied
-      expect(shouldIgnore('password.secret', result.filter)).toBe(false)
+      expect(shouldIgnore('password.secret', result)).toBe(false)
       expect(result.sources).not.toContain('.gitignore')
     })
 
@@ -279,28 +281,8 @@ describe('Ignore Patterns Module', () => {
       )
 
       // .mdmignore patterns should not be applied
-      expect(shouldIgnore('drafts/doc.md', result.filter)).toBe(false)
+      expect(shouldIgnore('drafts/doc.md', result)).toBe(false)
       expect(result.sources).not.toContain('.mdmignore')
-    })
-  })
-
-  // ==========================================================================
-  // Filter Function
-  // ==========================================================================
-
-  describe('createFilterFunction', () => {
-    it('creates a function suitable for Array.filter', async () => {
-      await fs.writeFile(path.join(testDir, '.gitignore'), '*.log\n')
-
-      const result = await Effect.runPromise(
-        createIgnoreFilter({ rootPath: testDir }),
-      )
-
-      const filterFn = createFilterFunction(result.filter)
-      const files = ['app.md', 'debug.log', 'src/index.ts', 'error.log']
-      const filtered = files.filter(filterFn)
-
-      expect(filtered).toEqual(['app.md', 'src/index.ts'])
     })
   })
 
@@ -347,8 +329,8 @@ describe('Ignore Patterns Module', () => {
         }),
       )
 
-      // 4 defaults + 2 gitignore + 1 mdmignore + 1 CLI = 8
-      expect(result.patternCount).toBe(8)
+      // 5 defaults + 2 gitignore + 1 mdmignore + 1 CLI = 9
+      expect(result.patternCount).toBe(9)
     })
   })
 })

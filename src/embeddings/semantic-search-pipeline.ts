@@ -9,8 +9,9 @@
  */
 
 import * as fs from 'node:fs/promises'
-import * as path from 'node:path'
 import { Effect } from 'effect'
+import { type DocumentKey, resolveSourceFile } from '../db/canonical.js'
+import type { GenerationReadSession } from '../db/generation-reader.js'
 import {
   type ApiKeyInvalidError,
   type ApiKeyMissingError,
@@ -23,18 +24,18 @@ import {
 } from '../errors/index.js'
 import { createStorage, loadSectionIndex } from '../index/storage.js'
 import type { SectionEntry } from '../index/types.js'
+import type { ManifestError } from '../manifest.js'
 import type {
   CapabilityNotSupported,
   ProviderId,
   ProviderNotFound,
 } from '../providers/index.js'
-import { matchPath } from '../search/path-matcher.js'
+import { prepareUserPathFilter } from '../search/path-matcher.js'
 import { getRecommendedDimensions, supportsMatryoshka } from './dimensions.js'
 import { createEmbeddingClient } from './embed-batched.js'
 import {
   type ActiveProvider,
   generateNamespace,
-  getActiveNamespace,
 } from './embedding-namespace.js'
 import {
   checkHnswMismatch,
@@ -47,6 +48,7 @@ import { resolveHydeOptions } from './hyde-options.js'
 import { calculateRankingBoost, preprocessQuery } from './ranking.js'
 import {
   QUALITY_EF_SEARCH,
+  type ResolvedSemanticSearchOptions,
   type SemanticSearchOptions,
   type SemanticSearchResult,
 } from './types.js'
@@ -62,7 +64,7 @@ import {
 
 /** Prepared state from the shared search pipeline setup steps. */
 export interface SearchPipelineContext {
-  readonly resolvedRoot: string
+  readonly sourceRoot: string
   readonly vectorStore: VectorStore
   readonly queryVector: number[]
   readonly limit: number
@@ -91,7 +93,7 @@ const CANDIDATE_MULTIPLIER_HYDE = 10
  * subsequent calls against the same root+namespace skip the load.
  */
 const loadVectorStoreForActive = (
-  resolvedRoot: string,
+  session: GenerationReadSession,
   activeProvider: ActiveProvider,
 ): Effect.Effect<
   VectorStore,
@@ -103,14 +105,14 @@ const loadVectorStoreForActive = (
       activeProvider.model,
       activeProvider.dimensions,
     )
-    const cacheKey = hnswCacheKey(resolvedRoot, namespace)
+    const cacheKey = hnswCacheKey(session.home, namespace, session.generation)
     const cached = getHnswCacheEntry(cacheKey)
     if (cached) {
       return cached
     }
 
     const freshStore = createNamespacedVectorStore(
-      resolvedRoot,
+      session.indexRoot,
       activeProvider.provider,
       activeProvider.model,
       activeProvider.dimensions,
@@ -119,7 +121,7 @@ const loadVectorStoreForActive = (
 
     if (!loadResult.loaded) {
       return yield* Effect.fail(
-        new EmbeddingsNotFoundError({ path: resolvedRoot }),
+        new EmbeddingsNotFoundError({ path: session.indexRoot }),
       )
     }
 
@@ -184,9 +186,10 @@ const resolveQueryText = (
  * the 10-step preparation sequence.
  */
 export const prepareSearchPipeline = (
-  rootPath: string,
+  session: GenerationReadSession,
+  sourceRoot: string,
   query: string,
-  options: SemanticSearchOptions,
+  options: ResolvedSemanticSearchOptions,
 ): Effect.Effect<
   SearchPipelineContext,
   | EmbeddingsNotFoundError
@@ -199,24 +202,14 @@ export const prepareSearchPipeline = (
   | DimensionMismatchError
 > =>
   Effect.gen(function* () {
-    const resolvedRoot = path.resolve(rootPath)
-
-    // Get active namespace to determine which embedding index to use
-    const activeProvider = yield* getActiveNamespace(resolvedRoot).pipe(
-      Effect.catchAll(() => Effect.succeed(null as ActiveProvider | null)),
-    )
-
-    if (!activeProvider) {
-      return yield* Effect.fail(
-        new EmbeddingsNotFoundError({ path: resolvedRoot }),
-      )
-    }
-
-    // Resolve provider config and build the runtime client for query embedding.
-    const queryProviderConfig = options.providerConfig ?? { provider: 'openai' }
+    const activeProvider = options.activeProvider
+    const queryProviderConfig = options.providerConfig
     const currentProviderName: ProviderId = queryProviderConfig.provider
     const queryModel = queryProviderConfig.model ?? 'text-embedding-3-small'
-    const dimensions = getRecommendedDimensions(queryModel) ?? 512
+    const dimensions =
+      queryProviderConfig.dimensions ??
+      getRecommendedDimensions(queryModel) ??
+      512
     const client = yield* createEmbeddingClient(currentProviderName, {
       baseURL: queryProviderConfig.baseURL,
     })
@@ -229,15 +222,12 @@ export const prepareSearchPipeline = (
           providerDimensions: dimensions,
           corpusProvider: `${activeProvider.provider}:${activeProvider.model}`,
           currentProvider: currentProviderName,
-          path: resolvedRoot,
+          path: session.indexRoot,
         }),
       )
     }
 
-    const vectorStore = yield* loadVectorStoreForActive(
-      resolvedRoot,
-      activeProvider,
-    )
+    const vectorStore = yield* loadVectorStoreForActive(session, activeProvider)
 
     const textToEmbed = yield* resolveQueryText(query, options)
 
@@ -289,7 +279,7 @@ export const prepareSearchPipeline = (
     // returns readonly number[] from embed. Copy once here so the rest of
     // the pipeline can pass the vector through unchanged.
     return {
-      resolvedRoot,
+      sourceRoot,
       vectorStore,
       queryVector: [...queryVector],
       limit,
@@ -311,7 +301,6 @@ export const prepareSearchPipeline = (
 const addContextLinesToResults = (
   limitedResults: readonly VectorSearchResult[],
   sectionIndex: { sections: Record<string, SectionEntry> },
-  resolvedRoot: string,
   options: {
     contextBefore?: number | undefined
     contextAfter?: number | undefined
@@ -322,7 +311,7 @@ const addContextLinesToResults = (
     const contextAfter = options.contextAfter ?? 0
 
     const resultsWithContext: SemanticSearchResult[] = []
-    const fileCache = new Map<string, string>()
+    const fileCache = new Map<DocumentKey, string>()
 
     for (const r of limitedResults) {
       const section = sectionIndex.sections[r.sectionId]
@@ -338,7 +327,7 @@ const addContextLinesToResults = (
 
       let fileContent = fileCache.get(r.documentPath)
       if (!fileContent) {
-        const filePath = path.join(resolvedRoot, r.documentPath)
+        const filePath = resolveSourceFile(r.documentPath)
         const contentResult = yield* Effect.promise(() =>
           fs.readFile(filePath, 'utf-8'),
         ).pipe(
@@ -399,23 +388,23 @@ const addContextLinesToResults = (
  * optionally loads context lines.
  */
 export const postProcessResults = (
+  session: GenerationReadSession,
+  sourceRoot: string,
   rawResults: readonly VectorSearchResult[],
   query: string,
   options: SemanticSearchOptions,
-  resolvedRoot: string,
   limit: number,
 ): Effect.Effect<
   { results: readonly SemanticSearchResult[]; totalAvailable: number },
-  FileReadError | IndexCorruptedError
+  FileReadError | IndexCorruptedError | ManifestError
 > =>
   Effect.gen(function* () {
-    // Apply path filter if specified
-    let filteredResults = rawResults
-    if (options.pathPattern) {
-      filteredResults = rawResults.filter((r) =>
-        matchPath(r.documentPath, options.pathPattern!),
-      )
-    }
+    const pathFilter =
+      options.preparedPathFilter ??
+      (yield* prepareUserPathFilter(session, sourceRoot, options.pathPattern))
+    const filteredResults = rawResults.filter((result) =>
+      pathFilter(result.documentPath),
+    )
 
     // Apply ranking boost (heading + file importance, enabled by default).
     // calculateRankingBoost already clamps the total to TOTAL_BOOST_CAP so
@@ -447,14 +436,13 @@ export const postProcessResults = (
       options.contextBefore !== undefined ||
       options.contextAfter !== undefined
     ) {
-      const storage = createStorage(resolvedRoot)
+      const storage = createStorage(sourceRoot, session.indexRoot)
       const sectionIndex = yield* loadSectionIndex(storage)
 
       if (sectionIndex) {
         results = yield* addContextLinesToResults(
           limitedResults,
           sectionIndex,
-          resolvedRoot,
           options,
         )
       } else {

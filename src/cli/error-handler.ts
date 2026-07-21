@@ -27,9 +27,11 @@ import {
 import {
   type ConfigError,
   type EmbeddingError,
+  type IndexCorruptedError,
   isMdmError,
   type MdmError,
 } from '../errors/index.js'
+import { ManifestError } from '../manifest.js'
 import {
   formatEffectCliError,
   isEffectCliValidationError,
@@ -111,6 +113,29 @@ const formatConfigError = (e: ConfigError): FormattedError => {
     message,
     details: detailParts.length > 0 ? detailParts.join('\n  ') : undefined,
     suggestions,
+    exitCode: EXIT_CODE.USER_ERROR,
+  }
+}
+
+const formatIndexReadError = (e: IndexCorruptedError): FormattedError => {
+  if (e.reason === 'VersionMismatch') {
+    return {
+      code: e.code,
+      message: 'Index update required',
+      details: e.details,
+      suggestions: ["Run 'mdm index' to rebuild it with this version of mdm"],
+      exitCode: EXIT_CODE.USER_ERROR,
+    }
+  }
+
+  return {
+    code: e.code,
+    message: 'Index cannot be read',
+    details: e.details ?? `Reason: ${e.reason}`,
+    suggestions: [
+      'Keep the current index for recovery and use a fresh MDM_HOME',
+      "Run 'mdm index <source-path>' to rebuild from source",
+    ],
     exitCode: EXIT_CODE.USER_ERROR,
   }
 }
@@ -244,15 +269,7 @@ export const formatError = (error: MdmError): FormattedError =>
         suggestions: ["Run 'mdm index' first to build the index"] as const,
         exitCode: EXIT_CODE.USER_ERROR,
       }),
-      IndexCorruptedError: (e) => ({
-        code: e.code,
-        message: 'Index is corrupted',
-        details: e.details ?? `Corruption reason: ${e.reason}`,
-        suggestions: [
-          "Delete the .mdm folder and run 'mdm index' again",
-        ] as const,
-        exitCode: EXIT_CODE.USER_ERROR,
-      }),
+      IndexCorruptedError: (e) => formatIndexReadError(e),
       IndexBuildError: (e) => ({
         code: e.code,
         message: `Failed to build index for: ${e.path}`,
@@ -497,9 +514,10 @@ export const displayError = (
  * effect program into one of three branches:
  *
  *   1. `@effect/cli` validation errors → short error + usage hint, exit 1.
- *   2. Typed `MdmError` variants → `formatError` + `displayError` with
+ *   2. Typed manifest errors → concise guidance with exit 1.
+ *   3. Typed `MdmError` variants → `formatError` + `displayError` with
  *      actionable remediation, exit code from the formatter.
- *   3. Everything else → diagnostic `Unexpected error` dump, exit 2.
+ *   4. Everything else → diagnostic `Unexpected error` dump, exit 2.
  *
  * Extracted from `src/cli/main.ts` so the routing logic is testable
  * without importing the CLI entrypoint. The disjointness between
@@ -518,6 +536,14 @@ export const handleCliTopLevelError = (
       console.error(`\nError: ${message}`)
       console.error('\nRun "mdm --help" for usage information.')
       process.exit(1)
+    })
+  }
+
+  if (error instanceof ManifestError) {
+    return Effect.sync(() => {
+      console.error(`\nError: ${error.message}`)
+      console.error(`\nManifest: ${error.path}`)
+      process.exit(EXIT_CODE.USER_ERROR)
     })
   }
 

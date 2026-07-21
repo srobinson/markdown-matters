@@ -14,64 +14,97 @@
  * - `pnpm test:full` - Runs all tests including semantic search (requires OPENAI_API_KEY)
  */
 
-import { exec } from 'node:child_process'
+import * as fs from 'node:fs/promises'
+import * as os from 'node:os'
 import * as path from 'node:path'
-import { promisify } from 'node:util'
 import { Effect } from 'effect'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { buildEmbeddings } from '../embeddings/semantic-search.js'
+import {
+  buildEmbeddings,
+  estimateEmbeddingCost,
+} from '../embeddings/semantic-search.js'
 import { buildIndex } from '../index/indexer.js'
+import { appendManifestDirectory } from '../manifest.js'
 import { freeEncoder } from '../utils/tokens.js'
-
-const execAsync = promisify(exec)
+import { executeCli } from './cli-test-runner.js'
 
 const REBUILD_TEST_INDEX = process.env.REBUILD_TEST_INDEX === 'true'
 const INCLUDE_EMBED_TESTS = process.env.INCLUDE_EMBED_TESTS === 'true'
-const TEST_FIXTURE_DIR = path.join(process.cwd(), 'tests', 'fixtures', 'cli')
-const CLI = `node ${path.join(process.cwd(), 'dist', 'cli', 'main.js')}`
+const FIXTURE_SOURCE_DIR = path.join(process.cwd(), 'tests', 'fixtures', 'cli')
+let testFixtureDir = ''
+let testHomeDir = ''
 
 const run = async (
   args: string,
   options: { cwd?: string; expectError?: boolean } = {},
 ): Promise<string> => {
-  const cwd = options.cwd ?? TEST_FIXTURE_DIR
-  try {
-    const { stdout } = await execAsync(`${CLI} ${args}`, {
-      cwd,
-      encoding: 'utf-8',
-    })
-    return stdout.trim()
-  } catch (error: unknown) {
-    if (options.expectError) {
-      const execError = error as { stderr?: string; stdout?: string }
-      return execError.stderr || execError.stdout || ''
-    }
-    throw error
+  const cwd = options.cwd ?? testFixtureDir
+  const result = await executeCli(args, {
+    cwd,
+    env: { ...process.env, MDM_HOME: testHomeDir },
+  })
+  if (result.exitCode !== 0 && !options.expectError) {
+    throw new Error(
+      result.stderr || result.stdout || `CLI exited ${result.exitCode}`,
+    )
   }
+  return (
+    options.expectError ? result.stderr || result.stdout : result.stdout
+  ).trim()
 }
 
-describe.concurrent('mdm CLI e2e', () => {
+describe('mdm CLI e2e', () => {
   beforeAll(async () => {
-    if (REBUILD_TEST_INDEX) {
-      // Build the index and embeddings only once for faster tests
-      console.log('Rebuilding test fixture index and embeddings...')
-      // Build the index (fast, no API key needed)
-      await Effect.runPromise(buildIndex(TEST_FIXTURE_DIR, { force: true }))
-      console.log('Index rebuilt.')
+    testFixtureDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mdm-cli-e2e-'))
+    testHomeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mdm-cli-home-'))
+    await fs.cp(FIXTURE_SOURCE_DIR, testFixtureDir, { recursive: true })
+    await fs.link(
+      path.join(testFixtureDir, 'README.md'),
+      path.join(testFixtureDir, 'readme-alias.md'),
+    )
 
-      if (INCLUDE_EMBED_TESTS) {
-        console.log('Rebuilding test fixture embeddings...')
-        await Effect.runPromise(
-          buildEmbeddings(TEST_FIXTURE_DIR, { force: true }),
-        )
-        console.log('Embeddings rebuilt.')
-      }
+    const legacyFixtureDir = path.join(testFixtureDir, '.mdm')
+    await fs.rm(path.join(legacyFixtureDir, 'indexes'), {
+      recursive: true,
+      force: true,
+    })
+    await Effect.runPromise(
+      appendManifestDirectory(testHomeDir, { path: testFixtureDir }),
+    )
+
+    await Effect.runPromise(
+      buildIndex(testFixtureDir, {
+        indexRoot: testHomeDir,
+        force: REBUILD_TEST_INDEX,
+      }),
+    )
+    await fs.cp(
+      path.join(testHomeDir, 'indexes'),
+      path.join(legacyFixtureDir, 'indexes'),
+      { recursive: true },
+    )
+
+    if (REBUILD_TEST_INDEX) {
+      console.log('Index rebuilt.')
+    }
+
+    if (INCLUDE_EMBED_TESTS) {
+      console.log('Rebuilding test fixture embeddings...')
+      await Effect.runPromise(
+        buildEmbeddings(testFixtureDir, {
+          indexRoot: testHomeDir,
+          force: true,
+        }),
+      )
+      console.log('Embeddings rebuilt.')
     }
   })
 
   afterAll(async () => {
     // Free tiktoken encoder to prevent process hang
     freeEncoder()
+    await fs.rm(testFixtureDir, { recursive: true, force: true })
+    await fs.rm(testHomeDir, { recursive: true, force: true })
   })
 
   describe('--version', () => {
@@ -79,6 +112,32 @@ describe.concurrent('mdm CLI e2e', () => {
       const output = await run('--version')
       expect(output).toMatch(/^\d+\.\d+\.\d+$/)
     })
+  })
+
+  describe('first run search', () => {
+    it('prints index guidance without exposing a generation read failure', async () => {
+      const firstRunHome = await fs.mkdtemp(
+        path.join(os.tmpdir(), 'mdm-first-search-'),
+      )
+      try {
+        const { exitCode, stdout, stderr } = await executeCli(
+          'search needle . --keyword',
+          {
+            cwd: testFixtureDir,
+            env: { ...process.env, MDM_HOME: firstRunHome },
+          },
+        )
+
+        expect(exitCode).toBe(0)
+        expect(stdout).toContain('No index found.')
+        expect(stdout).toContain('Run: mdm index /path/to/docs')
+        expect(`${stdout}\n${stderr}`).not.toMatch(
+          /GenerationReadError|No current generation exists/,
+        )
+      } finally {
+        await fs.rm(firstRunHome, { recursive: true, force: true })
+      }
+    }, 60_000)
   })
 
   describe('--help', () => {
@@ -92,6 +151,9 @@ describe.concurrent('mdm CLI e2e', () => {
       expect(output).toContain('links')
       expect(output).toContain('backlinks')
       expect(output).toContain('stats')
+      expect(output).toContain('Refresh the active manifest index')
+      expect(output).not.toContain('default: .')
+      expect(output).not.toContain('Index current directory')
     })
   })
 
@@ -119,18 +181,38 @@ describe.concurrent('mdm CLI e2e', () => {
       })
     }
 
-    it('index help shows embedding and watch options', async () => {
+    it('index help shows every working index option', async () => {
       const output = await run('index --help')
       expect(output).toContain('--embed')
       expect(output).toContain('--watch')
+      expect(output).toContain('manifest watching')
+      expect(output).toContain('--exclude')
+      expect(output).toContain('--no-gitignore')
+      expect(output).toContain('--hnsw-m')
+      expect(output).toContain('--hnsw-ef-construction')
       expect(output).toContain('--force')
+      expect(output).not.toContain('--all')
+      expect(output).not.toContain('--timeout')
     })
 
-    it('search help shows keyword and limit options', async () => {
+    it('search help shows every working search option', async () => {
       const output = await run('search --help')
       expect(output).toContain('--keyword')
       expect(output).toContain('--limit')
       expect(output).toContain('--threshold')
+      expect(output).toContain('semantic, keyword, or hybrid')
+      expect(output).toContain('--fuzzy')
+      expect(output).toContain('--stem')
+      expect(output).toContain('--fuzzy-distance')
+      expect(output).toContain('--auto-index-threshold')
+      expect(output).not.toContain('--timeout')
+    })
+
+    it('search rejects the removed timeout option', async () => {
+      const output = await run('search --timeout 30000 query', {
+        expectError: true,
+      })
+      expect(output).toContain("Unknown option '--timeout'")
     })
 
     it('context help shows token budget option', async () => {
@@ -143,7 +225,7 @@ describe.concurrent('mdm CLI e2e', () => {
     it('shows notes section when relevant', async () => {
       const indexHelp = await run('index --help')
       expect(indexHelp).toContain('NOTES')
-      expect(indexHelp).toContain('.mdm')
+      expect(indexHelp).toContain('MDM_HOME')
 
       const searchHelp = await run('search --help')
       expect(searchHelp).toContain('NOTES')
@@ -169,6 +251,16 @@ describe.concurrent('mdm CLI e2e', () => {
     it('defaults to current directory', async () => {
       const output = await run('tree')
       expect(output).toContain('Markdown files')
+    })
+  })
+
+  describe('index command', () => {
+    it('writes the corpus index to MDM_HOME', async () => {
+      const output = await run('index --force --no-embed')
+      expect(output).toContain('Indexed 3 documents')
+      await expect(
+        fs.access(path.join(testHomeDir, 'indexes', 'documents.json')),
+      ).resolves.toBeUndefined()
     })
   })
 
@@ -332,9 +424,15 @@ describe.concurrent('mdm CLI e2e', () => {
   })
 
   describe('links command', () => {
-    it('shows outgoing links from file', async () => {
-      const output = await run('links README.md')
+    it('shows outgoing links under the canonical hardlink survivor key', async () => {
+      const output = await run('links readme-alias.md')
       expect(output).toContain('Outgoing links')
+      expect(output).toContain(
+        await fs.realpath(path.join(testFixtureDir, 'README.md')),
+      )
+      expect(output).not.toContain(
+        await fs.realpath(path.join(testFixtureDir, 'readme-alias.md')),
+      )
       expect(output).toContain('Total:')
     })
   })
@@ -343,14 +441,46 @@ describe.concurrent('mdm CLI e2e', () => {
     it('shows incoming links to file', async () => {
       const output = await run('backlinks getting-started.md')
       expect(output).toContain('Incoming links')
+      expect(output).toContain(
+        await fs.realpath(path.join(testFixtureDir, 'getting-started.md')),
+      )
       expect(output).toContain('Total:')
     })
   })
 
   describe('stats command', () => {
-    it('shows index statistics', async () => {
-      const output = await run('stats')
-      expect(output.length).toBeGreaterThan(0)
+    it('reads real index statistics from MDM_HOME', async () => {
+      const output = await run('stats --json')
+      const stats = JSON.parse(output)
+      expect(stats.documentCount).toBe(3)
+      expect(stats.totalSections).toBeGreaterThan(3)
+      expect(stats.totalTokens).toBeGreaterThan(0)
+    })
+
+    it('stores indexes and reads cost inputs from MDM_HOME', async () => {
+      const raw = await fs.readFile(
+        path.join(testHomeDir, 'indexes', 'documents.json'),
+        'utf-8',
+      )
+      const documentIndex = JSON.parse(raw)
+      const expectedKeys = await Promise.all(
+        ['README.md', 'api-reference.md', 'getting-started.md'].map((file) =>
+          fs.realpath(path.join(testFixtureDir, file)),
+        ),
+      )
+      expect(Object.keys(documentIndex.documents).sort()).toEqual(
+        expectedKeys.sort(),
+      )
+      await expect(
+        fs.access(path.join(testFixtureDir, 'indexes', 'documents.json')),
+      ).rejects.toThrow()
+
+      const estimate = await Effect.runPromise(
+        estimateEmbeddingCost(testFixtureDir, { indexRoot: testHomeDir }),
+      )
+      expect(estimate.totalFiles).toBe(3)
+      expect(estimate.totalSections).toBeGreaterThan(0)
+      expect(estimate.totalTokens).toBeGreaterThan(0)
     })
   })
 

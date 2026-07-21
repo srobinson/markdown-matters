@@ -20,6 +20,8 @@ import { Effect } from 'effect'
 import { load } from '../config/loader.js'
 import type { MdmConfig } from '../config/schema.js'
 import { defaultConfig } from '../config/schema.js'
+import { scheduleGenerationReap } from '../db/generation-reaper.js'
+import { resolveMdmHome } from '../home.js'
 import { registerDefaultProviders } from '../providers/index.js'
 
 import {
@@ -63,6 +65,7 @@ export const startMcpServer = async (
   rootPath: string,
   config: MdmConfig,
 ): Promise<Server> => {
+  scheduleGenerationReap(resolveMdmHome())
   await Effect.runPromise(registerDefaultProviders())
   return createServer(rootPath, config)
 }
@@ -93,17 +96,17 @@ export const createServer = (rootPath: string, config: MdmConfig) => {
       case 'md_search':
         return handleMdSearch(args ?? {}, rootPath, config)
       case 'md_context':
-        return handleMdm(args ?? {}, rootPath)
+        return handleMdm(args ?? {})
       case 'md_structure':
-        return handleMdStructure(args ?? {}, rootPath)
+        return handleMdStructure(args ?? {})
       case 'md_keyword_search':
         return handleMdKeywordSearch(args ?? {}, rootPath)
       case 'md_index':
         return handleMdIndex(args ?? {}, rootPath)
       case 'md_links':
-        return handleMdLinks(args ?? {}, rootPath)
+        return handleMdLinks(args ?? {})
       case 'md_backlinks':
-        return handleMdBacklinks(args ?? {}, rootPath)
+        return handleMdBacklinks(args ?? {})
       default:
         return {
           content: [{ type: 'text', text: `Unknown tool: ${name}` }],

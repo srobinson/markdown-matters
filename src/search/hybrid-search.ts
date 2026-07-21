@@ -8,10 +8,14 @@
  * k = 60 (standard smoothing constant from research)
  */
 
-import * as path from 'node:path'
 import { Effect } from 'effect'
+import type { EmbeddingsConfig } from '../config/schema.js'
 import type { ContextLine } from '../core/types.js'
+import type { DocumentKey } from '../db/canonical.js'
+import type { GenerationReadSession } from '../db/generation-reader.js'
 import { listNamespaces } from '../embeddings/embedding-namespace.js'
+import { EmbeddingNamespaceError } from '../embeddings/embedding-namespace-types.js'
+import { resolveQueryProviderConfig } from '../embeddings/query-provider-config.js'
 import { semanticSearch } from '../embeddings/semantic-search.js'
 import type {
   SearchQuality,
@@ -22,8 +26,11 @@ import type {
   ApiKeyMissingError,
   EmbeddingError,
   FileReadError,
+  IndexCorruptedError,
   VectorStoreError,
 } from '../errors/index.js'
+import type { ManifestError } from '../manifest.js'
+import type { ProviderId } from '../providers/index.js'
 import {
   type BM25SearchResult,
   bm25IndexExists,
@@ -34,13 +41,21 @@ import {
   type RerankerError,
   rerankResults,
 } from './cross-encoder.js'
-import { matchPath } from './path-matcher.js'
+import {
+  type PreparedPathFilter,
+  prepareUserPathFilter,
+} from './path-matcher.js'
 
 // ============================================================================
 // Types
 // ============================================================================
 
 export type SearchMode = 'hybrid' | 'semantic' | 'keyword'
+
+export interface QueryProviderSelection {
+  readonly config: EmbeddingsConfig
+  readonly providerOverride?: ProviderId | undefined
+}
 
 export interface HybridSearchOptions {
   /** Maximum number of results */
@@ -65,11 +80,13 @@ export interface HybridSearchOptions {
   readonly contextBefore?: number | undefined
   /** Lines of context after matches */
   readonly contextAfter?: number | undefined
+  /** Inputs resolved inside the semantic degradation boundary. */
+  readonly queryProvider?: QueryProviderSelection | undefined
 }
 
 export interface HybridSearchResult {
   readonly sectionId: string
-  readonly documentPath: string
+  readonly documentPath: DocumentKey
   readonly heading: string
   /** Combined RRF score (higher is better) */
   readonly score: number
@@ -95,11 +112,133 @@ export interface HybridSearchStats {
   readonly combinedResults: number
   readonly bm25Available: boolean
   readonly embeddingsAvailable: boolean
+  readonly semanticDegradation?: SemanticDegradation | undefined
   /** Whether re-ranking was applied */
   readonly reranked?: boolean
   /** Total unique results available before limit was applied */
   readonly totalAvailable?: number
 }
+
+export interface SemanticDegradation {
+  readonly reason: string
+  readonly message: string
+}
+
+export type HybridSearchError =
+  | FileReadError
+  | IndexCorruptedError
+  | ApiKeyMissingError
+  | ApiKeyInvalidError
+  | EmbeddingError
+  | VectorStoreError
+  | RerankerError
+  | ManifestError
+
+export interface SearchChannels {
+  readonly semanticResults: readonly SemanticSearchResult[]
+  readonly keywordResults: readonly BM25SearchResult[]
+  readonly hasEmbeddings: boolean
+  readonly hasBM25: boolean
+  readonly semanticDegradation?: SemanticDegradation | undefined
+}
+
+type ProjectionOptions = Required<
+  Pick<HybridSearchOptions, 'limit' | 'bm25Weight' | 'semanticWeight' | 'rrfK'>
+>
+
+const embeddingAvailability = (indexRoot: string) =>
+  listNamespaces(indexRoot).pipe(
+    Effect.map((namespaces) => ({
+      stored: namespaces.some((namespace) => namespace.vectorCount > 0),
+      active: namespaces.some(
+        (namespace) => namespace.isActive && namespace.vectorCount > 0,
+      ),
+    })),
+    Effect.catchAll(() => Effect.succeed({ stored: false, active: false })),
+  )
+
+const asSemanticDegradation = (error: {
+  readonly _tag: string
+  readonly message: string
+}): SemanticDegradation => ({ reason: error._tag, message: error.message })
+
+const resolveHybridQueryProvider = (
+  session: GenerationReadSession,
+  selection: QueryProviderSelection | undefined,
+) =>
+  selection === undefined
+    ? Effect.fail(
+        new EmbeddingNamespaceError({
+          operation: 'hybridSearch',
+          message: 'Semantic search requires resolved query provider inputs',
+        }),
+      )
+    : resolveQueryProviderConfig(
+        session,
+        selection.config,
+        selection.providerOverride,
+      )
+
+interface SemanticChannel {
+  readonly results: readonly SemanticSearchResult[]
+  readonly hasEmbeddings: boolean
+  readonly degradation?: SemanticDegradation | undefined
+}
+
+const collectSemanticChannel = (
+  session: GenerationReadSession,
+  sourceRoot: string,
+  query: string,
+  options: HybridSearchOptions,
+  limit: number,
+  threshold: number,
+  pathFilter: PreparedPathFilter,
+): Effect.Effect<SemanticChannel, never> =>
+  Effect.gen(function* () {
+    if (options.mode === 'keyword') {
+      const availability = yield* embeddingAvailability(session.indexRoot)
+      return { results: [], hasEmbeddings: availability.active }
+    }
+
+    const resolution = yield* Effect.either(
+      resolveHybridQueryProvider(session, options.queryProvider),
+    )
+    if (resolution._tag === 'Left') {
+      const availability = yield* embeddingAvailability(session.indexRoot)
+      return {
+        results: [],
+        hasEmbeddings: availability.stored,
+        degradation: asSemanticDegradation(resolution.left),
+      }
+    }
+    if (resolution.right.vectorCount === 0) {
+      return { results: [], hasEmbeddings: false }
+    }
+
+    const semanticTry = yield* Effect.either(
+      semanticSearch(session, sourceRoot, query, {
+        limit: limit * 2,
+        threshold,
+        pathPattern: options.pathPattern,
+        preparedPathFilter: pathFilter,
+        quality: options.quality,
+        contextBefore: options.contextBefore,
+        contextAfter: options.contextAfter,
+        providerConfig: resolution.right.providerConfig,
+        activeProvider: resolution.right.activeProvider,
+      }),
+    )
+    return semanticTry._tag === 'Right'
+      ? {
+          results: semanticTry.right,
+          hasEmbeddings: true,
+        }
+      : {
+          results: [],
+          hasEmbeddings: true,
+          degradation: asSemanticDegradation(semanticTry.left),
+        }
+  })
 
 // ============================================================================
 // RRF Fusion
@@ -132,7 +271,7 @@ const fusionRRF = (
   const scoreMap = new Map<
     string,
     {
-      documentPath: string
+      documentPath: DocumentKey
       heading: string
       rrfScore: number
       similarity?: number
@@ -159,7 +298,7 @@ const fusionRRF = (
       }
     } else {
       const entry: {
-        documentPath: string
+        documentPath: DocumentKey
         heading: string
         rrfScore: number
         similarity?: number
@@ -237,6 +376,131 @@ const fusionRRF = (
 // Hybrid Search
 // ============================================================================
 
+export const collectSearchChannels = (
+  session: GenerationReadSession,
+  sourceRoot: string,
+  query: string,
+  options: HybridSearchOptions,
+  limit: number,
+  threshold: number,
+): Effect.Effect<SearchChannels, HybridSearchError> =>
+  Effect.gen(function* () {
+    const pathFilter = yield* prepareUserPathFilter(
+      session,
+      sourceRoot,
+      options.pathPattern,
+    )
+    const hasBM25 = yield* bm25IndexExists(session.indexRoot)
+    const semantic = yield* collectSemanticChannel(
+      session,
+      sourceRoot,
+      query,
+      options,
+      limit,
+      threshold,
+      pathFilter,
+    )
+
+    let keywordResults: readonly BM25SearchResult[] = []
+    if (hasBM25 && options.mode !== 'semantic') {
+      const rawResults = yield* bm25Search(session.indexRoot, query, limit * 2)
+      keywordResults = rawResults.filter((result) =>
+        pathFilter(result.documentPath),
+      )
+    }
+
+    return {
+      semanticResults: semantic.results,
+      keywordResults,
+      hasEmbeddings: semantic.hasEmbeddings,
+      hasBM25,
+      ...(semantic.degradation
+        ? { semanticDegradation: semantic.degradation }
+        : {}),
+    }
+  })
+
+export const selectEffectiveMode = (
+  requested: SearchMode | undefined,
+  channels: SearchChannels,
+): { mode: SearchMode; reason: string } => {
+  if (requested) return { mode: requested, reason: `--mode ${requested}` }
+  if (channels.hasEmbeddings && channels.hasBM25) {
+    return { mode: 'hybrid', reason: 'both indexes available' }
+  }
+  if (channels.hasEmbeddings) {
+    return { mode: 'semantic', reason: 'embeddings available, no BM25 index' }
+  }
+  if (channels.hasBM25) {
+    return { mode: 'keyword', reason: 'BM25 available, no embeddings' }
+  }
+  return { mode: 'keyword', reason: 'no indexes available' }
+}
+
+export const projectSearchResults = (
+  mode: SearchMode,
+  channels: SearchChannels,
+  options: ProjectionOptions,
+): { results: HybridSearchResult[]; totalAvailable: number | undefined } => {
+  const { semanticResults, keywordResults } = channels
+  const { limit, bm25Weight, semanticWeight, rrfK } = options
+  if (mode === 'hybrid') {
+    return fusionRRF(semanticResults, keywordResults, options)
+  }
+  if (mode === 'semantic') {
+    return {
+      totalAvailable: semanticResults.length,
+      results: semanticResults.slice(0, limit).map((result, index) => ({
+        sectionId: result.sectionId,
+        documentPath: result.documentPath,
+        heading: result.heading,
+        score: semanticWeight / (rrfK + index + 1),
+        similarity: result.similarity,
+        sources: ['semantic'] as const,
+      })),
+    }
+  }
+  return {
+    totalAvailable: keywordResults.length,
+    results: keywordResults.slice(0, limit).map((result) => ({
+      sectionId: result.sectionId,
+      documentPath: result.documentPath,
+      heading: result.heading,
+      score: bm25Weight / (rrfK + result.rank),
+      bm25Score: result.score,
+      sources: ['keyword'] as const,
+    })),
+  }
+}
+
+const rerankProjectedResults = (
+  query: string,
+  results: readonly HybridSearchResult[],
+  limit: number,
+  enabled: boolean,
+): Effect.Effect<
+  { results: HybridSearchResult[]; reranked: boolean },
+  RerankerError
+> =>
+  Effect.gen(function* () {
+    if (!enabled || results.length === 0 || !(yield* isRerankerAvailable())) {
+      return { results: [...results], reranked: false }
+    }
+    const rerankedResults = yield* rerankResults(
+      query,
+      results,
+      (result) => `${result.heading} (${result.documentPath})`,
+      { topK: 20, returnTopN: limit },
+    )
+    return {
+      results: rerankedResults.map((result) => ({
+        ...result.item,
+        rerankerScore: result.rerankerScore,
+      })),
+      reranked: true,
+    }
+  })
+
 /**
  * Perform hybrid search combining semantic and keyword (BM25) search.
  *
@@ -253,157 +517,62 @@ const fusionRRF = (
  * @returns Ranked list of results with combined scores
  */
 export const hybridSearch = (
-  rootPath: string,
+  session: GenerationReadSession,
+  sourceRoot: string,
   query: string,
   options: HybridSearchOptions = {},
 ): Effect.Effect<
   { results: readonly HybridSearchResult[]; stats: HybridSearchStats },
-  | FileReadError
-  | ApiKeyMissingError
-  | ApiKeyInvalidError
-  | EmbeddingError
-  | VectorStoreError
-  | RerankerError
+  HybridSearchError
 > =>
   Effect.gen(function* () {
-    const resolvedRoot = path.resolve(rootPath)
     const limit = options.limit ?? 10
     const threshold = options.threshold ?? 0.35
-    const bm25Weight = options.bm25Weight ?? 1.0
-    const semanticWeight = options.semanticWeight ?? 1.0
-    const rrfK = options.rrfK ?? 60
-
-    // Check index availability
-    const hasBM25 = yield* bm25IndexExists(resolvedRoot)
-
-    // Check for embeddings by trying semantic search
-    // This is a lightweight check that fails fast if no embeddings exist
-    let hasEmbeddings = false
-    let semanticResults: readonly SemanticSearchResult[] = []
-
-    if (options.mode !== 'keyword') {
-      const semanticEffect = semanticSearch(resolvedRoot, query, {
-        limit: limit * 2, // Get more for better fusion
-        threshold,
-        pathPattern: options.pathPattern,
-        quality: options.quality,
-        contextBefore: options.contextBefore,
-        contextAfter: options.contextAfter,
-      })
-
-      const semanticTry = yield* Effect.either(semanticEffect)
-      if (semanticTry._tag === 'Right') {
-        hasEmbeddings = true
-        semanticResults = semanticTry.right
-      }
+    const projectionOptions: ProjectionOptions = {
+      limit,
+      bm25Weight: options.bm25Weight ?? 1.0,
+      semanticWeight: options.semanticWeight ?? 1.0,
+      rrfK: options.rrfK ?? 60,
     }
-
-    // Get BM25 results if available
-    let keywordResults: readonly BM25SearchResult[] = []
-    if (hasBM25 && options.mode !== 'semantic') {
-      const rawResults = yield* bm25Search(resolvedRoot, query, limit * 2)
-      // Apply path pattern filter if specified
-      keywordResults = options.pathPattern
-        ? rawResults.filter((r) =>
-            matchPath(r.documentPath, options.pathPattern!),
-          )
-        : rawResults
-    }
-
-    // Determine effective mode and reason
-    let effectiveMode: SearchMode
-    let modeReason: string
-
-    if (options.mode) {
-      effectiveMode = options.mode
-      modeReason = `--mode ${options.mode}`
-    } else if (hasEmbeddings && hasBM25) {
-      effectiveMode = 'hybrid'
-      modeReason = 'both indexes available'
-    } else if (hasEmbeddings) {
-      effectiveMode = 'semantic'
-      modeReason = 'embeddings available, no BM25 index'
-    } else if (hasBM25) {
-      effectiveMode = 'keyword'
-      modeReason = 'BM25 available, no embeddings'
-    } else {
-      effectiveMode = 'keyword'
-      modeReason = 'no indexes available'
-    }
-
-    // Perform fusion based on mode
-    let results: HybridSearchResult[]
-    let totalAvailable: number | undefined
-
-    if (effectiveMode === 'hybrid') {
-      const fusionResult = fusionRRF(semanticResults, keywordResults, {
-        bm25Weight,
-        semanticWeight,
-        rrfK,
-        limit,
-      })
-      results = fusionResult.results
-      totalAvailable = fusionResult.totalAvailable
-    } else if (effectiveMode === 'semantic') {
-      // Convert semantic results to hybrid format
-      totalAvailable = semanticResults.length
-      results = semanticResults.slice(0, limit).map((r, idx) => ({
-        sectionId: r.sectionId,
-        documentPath: r.documentPath,
-        heading: r.heading,
-        score: semanticWeight / (rrfK + idx + 1), // RRF-style score for consistency
-        similarity: r.similarity,
-        sources: ['semantic'] as const,
-      }))
-    } else {
-      // Convert keyword results to hybrid format
-      totalAvailable = keywordResults.length
-      results = keywordResults.slice(0, limit).map((r) => ({
-        sectionId: r.sectionId,
-        documentPath: r.documentPath,
-        heading: r.heading,
-        score: bm25Weight / (rrfK + r.rank),
-        bm25Score: r.score,
-        sources: ['keyword'] as const,
-      }))
-    }
-
-    // Apply cross-encoder re-ranking if enabled
-    let reranked = false
-    if (options.rerank && results.length > 0) {
-      // Check if reranker is available
-      const rerankerAvailable = yield* isRerankerAvailable()
-      if (rerankerAvailable) {
-        // Re-rank using cross-encoder (top 20 -> top N)
-        const rerankedResults = yield* rerankResults(
-          query,
-          results,
-          (r) => `${r.heading} (${r.documentPath})`,
-          { topK: 20, returnTopN: limit },
-        )
-
-        // Update results with reranker scores
-        results = rerankedResults.map((rr) => ({
-          ...rr.item,
-          rerankerScore: rr.rerankerScore,
-        }))
-        reranked = true
-      }
-    }
+    const channels = yield* collectSearchChannels(
+      session,
+      sourceRoot,
+      query,
+      options,
+      limit,
+      threshold,
+    )
+    const effective = selectEffectiveMode(options.mode, channels)
+    const projected = projectSearchResults(
+      effective.mode,
+      channels,
+      projectionOptions,
+    )
+    const reranking = yield* rerankProjectedResults(
+      query,
+      projected.results,
+      limit,
+      options.rerank ?? false,
+    )
 
     const stats: HybridSearchStats = {
-      mode: effectiveMode,
-      modeReason,
-      semanticResults: semanticResults.length,
-      keywordResults: keywordResults.length,
-      combinedResults: results.length,
-      bm25Available: hasBM25,
-      embeddingsAvailable: hasEmbeddings,
-      reranked,
-      totalAvailable,
+      mode: effective.mode,
+      modeReason: effective.reason,
+      semanticResults: channels.semanticResults.length,
+      keywordResults: channels.keywordResults.length,
+      combinedResults: reranking.results.length,
+      bm25Available: channels.hasBM25,
+      embeddingsAvailable: channels.hasEmbeddings,
+      ...(channels.semanticDegradation
+        ? { semanticDegradation: channels.semanticDegradation }
+        : {}),
+      reranked: reranking.reranked,
+      ...(projected.totalAvailable === undefined
+        ? {}
+        : { totalAvailable: projected.totalAvailable }),
     }
 
-    return { results, stats }
+    return { results: reranking.results, stats }
   })
 
 // ============================================================================
@@ -414,20 +583,17 @@ export const hybridSearch = (
  * Detect available search modes for a directory
  */
 export const detectSearchModes = (
-  rootPath: string,
+  session: GenerationReadSession,
 ): Effect.Effect<
   { hasBM25: boolean; hasEmbeddings: boolean; recommendedMode: SearchMode },
   never
 > =>
   Effect.gen(function* () {
-    const resolvedRoot = path.resolve(rootPath)
-    const hasBM25 = yield* bm25IndexExists(resolvedRoot)
+    const hasBM25 = yield* bm25IndexExists(session.indexRoot)
 
     // Check embeddings by looking for namespaced vector stores
-    const hasEmbeddings = yield* listNamespaces(resolvedRoot).pipe(
-      Effect.map((namespaces) => namespaces.length > 0),
-      Effect.catchAll(() => Effect.succeed(false)),
-    )
+    const hasEmbeddings = (yield* embeddingAvailability(session.indexRoot))
+      .active
 
     let recommendedMode: SearchMode
     if (hasBM25 && hasEmbeddings) {

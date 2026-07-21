@@ -12,6 +12,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { loadTomlFile } from '../../config/loader.js'
+import { manifestPath } from '../../manifest.js'
 
 let tempDir: string
 let fakeHome: string
@@ -51,6 +52,7 @@ const runInit = async (
       env: {
         ...process.env,
         HOME: fakeHome,
+        MDM_HOME: path.join(fakeHome, '.mdm'),
         // Windows: os.homedir() reads USERPROFILE (and HOMEDRIVE+HOMEPATH),
         // not HOME. Set all three so the subprocess is fully isolated.
         USERPROFILE: fakeHome,
@@ -71,10 +73,13 @@ const runInit = async (
 }
 
 describe('mdm init --local', () => {
-  it('creates .mdm/ directory in target dir', async () => {
+  it('creates only project config in the target directory', async () => {
     const result = await runInit('--local --yes', tempDir)
     expect(result.code).toBe(0)
-    expect(fs.existsSync(path.join(tempDir, '.mdm'))).toBe(true)
+    expect(result.stdout).toContain('Run "mdm index ."')
+    expect(fs.existsSync(path.join(tempDir, '.mdm.toml'))).toBe(true)
+    expect(fs.existsSync(path.join(tempDir, '.mdm'))).toBe(false)
+    expect(fs.existsSync(path.join(tempDir, '.gitignore'))).toBe(false)
   })
 
   it('creates .mdm.toml config file', async () => {
@@ -85,40 +90,25 @@ describe('mdm init --local', () => {
     expect(parsed).not.toBeNull()
   })
 
-  it('adds .mdm/ to .gitignore when .git exists', async () => {
-    // Create a fake git repo
-    fs.mkdirSync(path.join(tempDir, '.git'))
-    await runInit('--local --yes', tempDir)
-    const gitignore = fs.readFileSync(path.join(tempDir, '.gitignore'), 'utf-8')
-    expect(gitignore).toContain('.mdm/')
-  })
-
-  it('does not create .gitignore when no .git dir', async () => {
-    await runInit('--local --yes', tempDir)
-    // No .git dir means no .gitignore should be created
-    expect(fs.existsSync(path.join(tempDir, '.gitignore'))).toBe(false)
-  })
-
-  it('appends to existing .gitignore without duplicating', async () => {
+  it('does not edit .gitignore when .git exists', async () => {
     fs.mkdirSync(path.join(tempDir, '.git'))
     fs.writeFileSync(path.join(tempDir, '.gitignore'), 'node_modules/\n')
     await runInit('--local --yes', tempDir)
     const gitignore = fs.readFileSync(path.join(tempDir, '.gitignore'), 'utf-8')
-    expect(gitignore).toContain('node_modules/')
-    expect(gitignore).toContain('.mdm/')
+    expect(gitignore).toBe('node_modules/\n')
   })
 
   it('warns when already initialized locally', async () => {
-    fs.mkdirSync(path.join(tempDir, '.mdm'))
     fs.writeFileSync(
       path.join(tempDir, '.mdm.toml'),
       '[index]\nmaxDepth = 99\n',
     )
     const result = await runInit('--local --yes', tempDir)
     expect(result.stdout).toContain('Already initialized locally')
+    expect(result.stdout).toContain('Run "mdm index ."')
   })
 
-  it('creates .mdm.toml when .mdm/ exists without config', async () => {
+  it('ignores an obsolete local index when creating project config', async () => {
     fs.mkdirSync(path.join(tempDir, '.mdm'))
     const result = await runInit('--local --yes', tempDir)
     const configPath = path.join(tempDir, '.mdm.toml')
@@ -127,8 +117,7 @@ describe('mdm init --local', () => {
     expect(loadTomlFile(configPath)).not.toBeNull()
   })
 
-  it('no-ops when .mdm/ and .mdm.toml both exist', async () => {
-    fs.mkdirSync(path.join(tempDir, '.mdm'))
+  it('no-ops when .mdm.toml exists', async () => {
     const configPath = path.join(tempDir, '.mdm.toml')
     fs.writeFileSync(configPath, '[index]\nmaxDepth = 99\n')
     const result = await runInit('--local --yes', tempDir)
@@ -149,8 +138,9 @@ describe('mdm init --local', () => {
 
 describe('mdm init --global', () => {
   it('creates ~/.mdm/ directory', async () => {
-    await runInit('--global --yes', tempDir)
+    const result = await runInit('--global --yes', tempDir)
     expect(fs.existsSync(path.join(fakeHome, '.mdm'))).toBe(true)
+    expect(result.stdout).toContain('Run "mdm index ."')
   })
 
   it('creates ~/.mdm/.mdm.toml', async () => {
@@ -159,21 +149,26 @@ describe('mdm init --global', () => {
     expect(fs.existsSync(configPath)).toBe(true)
   })
 
-  it('registers cwd in [[sources]]', async () => {
+  it('registers cwd in manifest.toml without adding config sources', async () => {
     await runInit('--global --yes', tempDir)
+    const home = path.join(fakeHome, '.mdm')
+    const manifest = fs.readFileSync(manifestPath(home), 'utf-8')
     const configPath = path.join(fakeHome, '.mdm', '.mdm.toml')
-    const content = fs.readFileSync(configPath, 'utf-8')
     // Paths are normalized to forward slashes in TOML (backslashes are escape
     // characters in TOML basic strings and invalid on Windows paths).
     const normalizedTempDir = tempDir.replace(/\\/g, '/')
-    expect(content).toContain(`path = "${normalizedTempDir}"`)
+    expect(manifest).toContain('[[dir]]')
+    expect(manifest).toContain(`path = "${normalizedTempDir}"`)
+    expect(loadTomlFile(configPath)).not.toHaveProperty('sources')
   })
 
-  it('does not duplicate source on second init', async () => {
+  it('does not duplicate a directory on second init', async () => {
     await runInit('--global --yes', tempDir)
     await runInit('--global --yes', tempDir)
-    const configPath = path.join(fakeHome, '.mdm', '.mdm.toml')
-    const content = fs.readFileSync(configPath, 'utf-8')
+    const content = fs.readFileSync(
+      manifestPath(path.join(fakeHome, '.mdm')),
+      'utf-8',
+    )
     // Paths are normalized to forward slashes in TOML output.
     const normalizedTempDir = tempDir.replace(/\\/g, '/')
     const matches = content.match(
@@ -182,15 +177,17 @@ describe('mdm init --global', () => {
     expect(matches).toHaveLength(1)
   })
 
-  it('appends new source from different directory', async () => {
+  it('appends a new directory from a different cwd', async () => {
     const secondDir = fs.realpathSync(
       fs.mkdtempSync(path.join(os.tmpdir(), 'mdm-init-2-')),
     )
     try {
       await runInit('--global --yes', tempDir)
       await runInit('--global --yes', secondDir)
-      const configPath = path.join(fakeHome, '.mdm', '.mdm.toml')
-      const content = fs.readFileSync(configPath, 'utf-8')
+      const content = fs.readFileSync(
+        manifestPath(path.join(fakeHome, '.mdm')),
+        'utf-8',
+      )
       // Paths are normalized to forward slashes in TOML output.
       expect(content).toContain(`path = "${tempDir.replace(/\\/g, '/')}"`)
       expect(content).toContain(`path = "${secondDir.replace(/\\/g, '/')}"`)
@@ -203,24 +200,24 @@ describe('mdm init --global', () => {
     await runInit('--global --yes', tempDir)
     const configPath = path.join(fakeHome, '.mdm', '.mdm.toml')
     const parsed = loadTomlFile(configPath)
-    // The generated file has [[sources]] which smol-toml should parse
-    // The base config sections should parse fine
     expect(parsed).not.toBeNull()
+    expect(parsed).not.toHaveProperty('sources')
   })
 })
 
 describe('mdm init with existing global', () => {
-  it('adds source when global exists and --yes', async () => {
+  it('adds a directory when global exists and --yes', async () => {
     // Pre-create global dir
     fs.mkdirSync(path.join(fakeHome, '.mdm'), { recursive: true })
     fs.writeFileSync(path.join(fakeHome, '.mdm', '.mdm.toml'), '')
 
-    await runInit('--yes', tempDir)
+    const result = await runInit('--yes', tempDir)
     const content = fs.readFileSync(
-      path.join(fakeHome, '.mdm', '.mdm.toml'),
+      manifestPath(path.join(fakeHome, '.mdm')),
       'utf-8',
     )
     // Paths are normalized to forward slashes in TOML output.
     expect(content).toContain(`path = "${tempDir.replace(/\\/g, '/')}"`)
+    expect(result.stdout).toContain('Run "mdm index ."')
   })
 })

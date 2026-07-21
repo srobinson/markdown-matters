@@ -250,13 +250,11 @@ const CONFIG_RULES: ConfigRule[] = [
   booleanRule('output.prettyJson', defaultConfig.output.prettyJson),
   booleanRule('output.verbose', defaultConfig.output.verbose),
   booleanRule('output.debug', defaultConfig.output.debug),
-  stringRule('index.indexDir', defaultConfig.index.indexDir),
   stringArrayRule('index.excludePatterns', defaultConfig.index.excludePatterns),
   stringArrayRule('index.fileExtensions', defaultConfig.index.fileExtensions, {
     allowEmpty: false,
   }),
   stringRule('embeddings.model', defaultConfig.embeddings.model),
-  stringRule('paths.cacheDir', defaultConfig.paths.cacheDir),
   optionStringRule('embeddings.baseURL', defaultConfig.embeddings.baseURL),
   optionStringRule('embeddings.apiKey', defaultConfig.embeddings.apiKey),
   optionStringRule(

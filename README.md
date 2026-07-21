@@ -5,7 +5,7 @@
 ```bash
 QUICK REFERENCE
   mdm init [options]              Initialize mdm in a directory
-  mdm index [path] [options]      Index markdown files (add --embed for semantic search)
+  mdm index [path] [options]      Refresh the active manifest (add --embed for semantic search)
   mdm fix [path] [options]        Repair malformed YAML frontmatter
   mdm search <query> [options]    Search by meaning or structure
   mdm context <files...>          Get LLM-ready summary
@@ -26,9 +26,11 @@ Your documentation is 50K tokens of markdown. LLM context windows are limited. R
 
 mdm extracts *structure* instead of dumping *text*. The result: **80%+ fewer tokens** while preserving everything needed to understand your docs.
 
+mdm indexes Obsidian, Foam, and Logseq style `[[wikilinks]]` alongside standard Markdown links.
+
 ```bash
 npm install -g markdown-matters
-mdm index .                     # Index your docs
+mdm index .                     # Append this path and refresh the manifest
 mdm fix .                       # Preview malformed frontmatter repairs
 mdm search "authentication"     # Find by meaning
 mdm context README.md           # Get LLM-ready summary
@@ -54,32 +56,32 @@ Initialize mdm in a directory. Supports both local project setup and global shar
 
 ```bash
 mdm init                        # Interactive setup (prompts for local or global)
-mdm init --local                # Initialize locally (.mdm/ in current directory)
-mdm init --global               # Initialize globally (~/.mdm/)
+mdm init --local                # Create only .mdm.toml in the current directory
+mdm init --global               # Initialize the active MDM_HOME (default: ~/.mdm)
 mdm init --yes                  # Accept all defaults without prompting
 ```
 
-Local setup creates `.mdm/` and `.mdm.toml` in your project. Global setup creates `~/.mdm/` with source registration for multi-project indexing.
+Local setup creates only `.mdm.toml`; it does not create an index directory or add the current directory to the manifest. Global setup creates the active home, using `~/.mdm` by default or the `MDM_HOME` override, and appends the current directory to `manifest.toml`.
 
-Config resolution: Local `.mdm.toml` takes precedence over `~/.mdm/.mdm.toml`, which falls back to built-in defaults.
+Config files merge by key in this order: active home `.mdm.toml`, project `.mdm.toml`, then project `.mdm.local.toml`. Environment variables and CLI flags have higher precedence.
 
 ### index
 
-Index markdown files for fast searching.
+Refresh the active manifest for fast searching.
 
 ```bash
-mdm index                       # Index current directory (prompts for semantic)
-mdm index ./docs                # Index specific path
-mdm index --embed               # Build embeddings for semantic search
-mdm index --no-embed            # Skip the semantic search prompt
-mdm index --watch               # Watch for changes and re-index automatically
+mdm index .                     # First index: append cwd, then refresh the manifest
+mdm index                       # Later: refresh all existing manifest directories
+mdm index ./docs                # Append path, then refresh all directories
+mdm index . --embed             # First index and build semantic embeddings
+mdm index --no-embed            # Leave semantic vectors unchanged
+mdm index --watch               # Fails; multi-root manifest watch is unavailable
 mdm index --force               # Bypass cache, re-process all files
-mdm index --all                 # Index all registered global sources from ~/.mdm/.mdm.toml
 mdm index --exclude "*.draft.md,research/**"  # Exclude patterns (comma-separated)
 mdm index --no-gitignore        # Ignore .gitignore file
 ```
 
-By default, mdm respects `.gitignore` and `.mdmignore` patterns. Use `--exclude` to add CLI-level patterns (highest priority).
+With a path, `mdm index` appends its absolute declared path to `manifest.toml` before refreshing every directory. Without a path, it refreshes the existing manifest and fails with guidance when the manifest is empty. After `mdm init --local`, the first index therefore needs a path such as `mdm index .`. mdm respects `.gitignore` and `.mdmignore` patterns. Use `--exclude` to add CLI-level patterns. `--watch` fails with a `ManifestError` until multi-root manifest watching is available.
 
 ### fix
 
@@ -156,15 +158,14 @@ mdm search "how to implement auth" --hyde   # Expands query semantically
 
 #### AI Summarization
 
-Generate AI-powered summaries of search results:
+Generate AI summaries of search results with an installed, authenticated Claude Code CLI:
 
 ```bash
 mdm search "authentication" --summarize     # Get AI summary of results
-mdm search "error handling" -s --yes        # Skip cost confirmation
-mdm search "database" -s --stream           # Stream output in real-time
+mdm search "database" -s --stream           # Forward output chunks as received
 ```
 
-Uses your existing AI subscription (Claude Code, Copilot CLI) for free, or pay-per-use API providers. See [AI Summarization](#ai-summarization) for setup.
+Summarization currently uses `claude -p` with Claude Code's active authentication, including supported subscriptions. Other CLI and API summarization providers are not yet implemented. See [AI Summarization](#ai-summarization) for setup.
 
 ### context
 
@@ -208,6 +209,15 @@ Auto-detection: Directory shows file list, file shows document outline.
 ### links / backlinks
 
 Analyze link relationships.
+
+mdm indexes standard Markdown links such as `[Guide](./guide.md)` and these wikilink forms:
+
+- `[[Note]]` links to a note.
+- `[[Note|alias]]` uses the alias for display only.
+- `[[Note#Heading]]` records a section edge.
+- `[[folder/Note]]` targets a path.
+
+Path shaped targets resolve exactly. Other targets resolve by basename, case insensitively, across the indexed corpus. Unresolved targets are reported as broken links and do not create phantom edges.
 
 ```bash
 mdm links README.md             # What does this file link to?
@@ -280,14 +290,14 @@ mdm supports multiple embedding providers for semantic search:
 Quick start with OpenAI:
 ```bash
 export OPENAI_API_KEY=sk-...
-mdm index --embed                       # Build embeddings
+mdm index . --embed                     # First index and build embeddings
 mdm search "how to deploy"              # Now works semantically
 ```
 
 Using Ollama (free, local):
 ```bash
 ollama serve && ollama pull nomic-embed-text
-mdm index --embed --provider ollama --provider-model nomic-embed-text
+mdm index . --embed --provider ollama --provider-model nomic-embed-text
 ```
 
 See [docs/CONFIG.md](./docs/CONFIG.md#embedding-providers) for complete provider setup, comparison, and configuration options.
@@ -367,21 +377,27 @@ Configuration precedence: CLI flags > Environment variables > Config file > Defa
 
 ### Index Location
 
-Indexes are stored in `.mdm/` in your project root:
+The database lives in the active `MDM_HOME`, which defaults to `~/.mdm` and can be overridden with the `MDM_HOME` environment variable. Projects do not own separate index trees.
 
 ```
-.mdm/
-  indexes/
-    documents.json    # Document metadata
-    sections.json     # Section index
-    links.json        # Link graph
-    vectors.bin       # Embeddings (if enabled)
+$MDM_HOME/
+  .mdm.toml           # Optional home configuration
+  manifest.toml       # Declared source directories
+  current             # Pointer to the active gen-N
+  staging/            # Unpublished build workspace
+  gen-N/              # Immutable published generation
+    indexes/          # Documents, sections, links, and BM25 data
+    embeddings/       # Semantic vectors when enabled
+    leases/           # Active reader leases
 ```
+
+Each refresh builds and validates a complete generation under `staging/`, renames it to `gen-N`, then atomically replaces the `current` pointer. Readers keep using one complete generation throughout an operation. Older generations remain intact until active reader leases are released and cleanup can remove them.
 
 ### Environment Variables
 
 | Variable | Description |
 |----------|-------------|
+| `MDM_HOME` | Database home containing `manifest.toml` and generations (default: `~/.mdm`) |
 | `OPENAI_API_KEY` | Required for OpenAI semantic search (default provider) |
 | `OPENROUTER_API_KEY` | Required for OpenRouter semantic search |
 | `MDM_*` | Configuration overrides (see [CONFIG.md](./docs/CONFIG.md)) |
@@ -390,24 +406,20 @@ Indexes are stored in `.mdm/` in your project root:
 
 ## AI Summarization
 
-Transform search results into actionable insights using AI.
+Transform search results into a Claude Code summary.
 
 ### Quick Start
 
 ```bash
-# Basic usage (auto-detects installed CLI tools)
 mdm search "authentication" --summarize
-
-# Skip confirmation for scripts
-mdm search "error handling" --summarize --yes
-
-# Stream output in real-time
 mdm search "database" --summarize --stream
 ```
 
-### First-Time Setup
+### Setup
 
-On first use, mdm auto-detects available providers:
+Install Claude Code and authenticate it before using `--summarize`. mdm invokes `claude -p` and uses Claude Code's active authentication. Claude Pro, Max, Team, and Enterprise subscriptions can authenticate through Claude Code. If `ANTHROPIC_API_KEY` is set, Claude Code applies its own credential precedence.
+
+mdm reports the selected provider before the summary:
 
 ```
 Using claude (subscription - FREE)
@@ -417,47 +429,20 @@ Using claude (subscription - FREE)
 Based on the search results, here are the key findings...
 ```
 
-### Providers
+### Current Provider
 
-**CLI Providers (FREE with subscription):**
-
-| Provider | Command | Subscription Required |
-|----------|---------|----------------------|
-| Claude Code | `claude` | Claude Pro/Team |
-| GitHub Copilot | `copilot` | Copilot subscription |
-| OpenCode | `opencode` | BYOK (any provider) |
-
-**API Providers (pay-per-use):**
-
-| Provider | Cost per 1M tokens | Notes |
-|----------|-------------------|-------|
-| DeepSeek | $0.14-0.56 | Ultra-cheap |
-| Qwen | $0.03-0.12 | Budget option |
-| Google Gemini | $0.30-2.50 | Balanced |
-| OpenAI GPT | $1.75-14.00 | Premium |
-| Anthropic Claude | $3.00-15.00 | Premium |
+| Provider | Command | Status |
+|----------|---------|--------|
+| Claude Code | `claude` | Supported |
+| Other CLI and API providers | | Not yet implemented |
 
 ### Configuration
-
-**Option 1: Auto-detection (recommended)**
-
-Just run `--summarize` - mdm finds installed CLI tools automatically.
-
-**Option 2: Config file**
 
 ```toml
 # .mdm.toml
 [aiSummarization]
-mode = "cli"        # 'cli' (free) or 'api' (paid)
-provider = "claude" # Provider name
-```
-
-**Option 3: Environment variables**
-
-```bash
-export MDM_AISUMMARIZATION_MODE=api
-export MDM_AISUMMARIZATION_PROVIDER=deepseek
-export DEEPSEEK_API_KEY=sk-...
+mode = "cli"
+provider = "claude"
 ```
 
 ### CLI Flags
@@ -465,30 +450,7 @@ export DEEPSEEK_API_KEY=sk-...
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--summarize` | `-s` | Enable AI summarization |
-| `--yes` | `-y` | Skip cost confirmation |
-| `--stream` | | Stream output in real-time |
-
-### Cost Transparency
-
-API providers show cost estimates before proceeding:
-
-```
-Cost Estimate:
-  Provider: deepseek
-  Input tokens: ~2,500
-  Output tokens: ~500
-  Estimated cost: $0.0007
-
-Continue with summarization? [Y/n]:
-```
-
-CLI providers show free status:
-
-```
-Using claude (subscription - FREE)
-```
-
-See [docs/summarization.md](./docs/summarization.md) for architecture details and troubleshooting.
+| `--stream` | | Forward Claude CLI output chunks as received |
 
 ---
 

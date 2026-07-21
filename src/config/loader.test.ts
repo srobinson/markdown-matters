@@ -320,9 +320,7 @@ describe('readEnvVars', () => {
 
 describe('env var precedence in load()', () => {
   afterEach(() => {
-    for (const key of Object.keys(process.env)) {
-      if (key.startsWith('MDM_')) delete process.env[key]
-    }
+    delete process.env.MDM_SEARCH_DEFAULTLIMIT
   })
 
   it('env var overrides file config', () => {
@@ -366,10 +364,10 @@ describe('env var precedence in load()', () => {
 })
 
 // ============================================================================
-// ALP-1308: Two-Tier Resolution
+// ALP-1308: Config File Resolution
 // ============================================================================
 
-describe('two-tier resolution (loadConfigFile)', () => {
+describe('config file resolution (loadConfigFile)', () => {
   it('uses local file when it exists', () => {
     writeTomlConfig(tempDir, { search: { defaultLimit: 5 } })
     const result = loadConfigFile(tempDir)
@@ -390,16 +388,15 @@ describe('two-tier resolution (loadConfigFile)', () => {
     expect(result.search.defaultLimit).toBe(5)
   })
 
-  it('empty local file uses defaults (no fallthrough to global)', () => {
+  it('empty local file uses defaults when lower tiers are absent', () => {
     writeToml(tempDir, '')
     const result = loadConfigFile(tempDir)
-    // Returns the empty config, does not search for global
     expect(result).not.toBeNull()
     const loaded = load({ workingDir: tempDir, skipEnv: true })
     expect(loaded.search.defaultLimit).toBe(defaultConfig.search.defaultLimit)
   })
 
-  it('invalid local TOML uses defaults (no fallthrough to global)', () => {
+  it('invalid local TOML is rejected', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     writeToml(tempDir, '{ invalid <<<')
     // loadTomlFile returns null for invalid TOML
@@ -410,16 +407,14 @@ describe('two-tier resolution (loadConfigFile)', () => {
   })
 
   it('falls through from broken local TOML to valid global config', () => {
-    const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'mdm-home-'))
+    const fakeHome = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), 'mdm-home-')),
+    )
 
     try {
-      vi.stubEnv('HOME', fakeHome)
-      vi.stubEnv('USERPROFILE', fakeHome)
-      vi.stubEnv('HOMEDRIVE', '')
-      vi.stubEnv('HOMEPATH', fakeHome)
-
       const globalDir = path.join(fakeHome, '.mdm')
       fs.mkdirSync(globalDir, { recursive: true })
+      vi.stubEnv('MDM_HOME', globalDir)
       writeTomlConfig(globalDir, { search: { defaultLimit: 42 } })
       writeToml(tempDir, '{ invalid <<<')
 
@@ -441,7 +436,7 @@ describe('two-tier resolution (loadConfigFile)', () => {
   })
 })
 
-describe('load() with two-tier', () => {
+describe('load() with config tiers', () => {
   it('returns all defaults when no config file exists', () => {
     const result = load({ workingDir: tempDir, skipEnv: true })
     expect(result.index.maxDepth).toBe(defaultConfig.index.maxDepth)
@@ -690,7 +685,6 @@ describe('generateDefaultToml round-trip', () => {
     expect(result.aiSummarization.provider).toBe(
       defaultConfig.aiSummarization.provider,
     )
-    expect(result.paths.cacheDir).toBe(defaultConfig.paths.cacheDir)
     expect(toml).toContain('[paths]')
   })
 })

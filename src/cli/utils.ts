@@ -6,9 +6,21 @@
 
 import * as fsPromises from 'node:fs/promises'
 import * as path from 'node:path'
-import { Effect } from 'effect'
+import { Console, Effect } from 'effect'
+import { GenerationReadError } from '../db/generation-errors.js'
+import {
+  type GenerationReadSession,
+  withCurrentGeneration,
+} from '../db/generation-reader.js'
 import { listNamespaces } from '../embeddings/embedding-namespace.js'
-import { DirectoryWalkError } from '../errors/index.js'
+import { getEmbeddingStats } from '../embeddings/semantic-search.js'
+import {
+  DirectoryWalkError,
+  FileReadError,
+  type IndexCorruptedError,
+} from '../errors/index.js'
+import { createStorage, loadSectionIndex } from '../index/storage.js'
+import { FIRST_RUN_GUIDANCE } from '../read-guidance.js'
 
 /**
  * Format object as JSON string
@@ -16,6 +28,47 @@ import { DirectoryWalkError } from '../errors/index.js'
 export const formatJson = (obj: unknown, pretty: boolean): string => {
   return pretty ? JSON.stringify(obj, null, 2) : JSON.stringify(obj)
 }
+
+export const renderNoIndexGuidance = (
+  json: boolean,
+  pretty: boolean,
+): Effect.Effect<void> =>
+  json
+    ? Console.log(
+        formatJson(
+          {
+            error: FIRST_RUN_GUIDANCE.error,
+            guidance: FIRST_RUN_GUIDANCE.guidance,
+            hint: FIRST_RUN_GUIDANCE.hint,
+          },
+          pretty,
+        ),
+      )
+    : Effect.gen(function* () {
+        yield* Console.log(FIRST_RUN_GUIDANCE.error)
+        yield* Console.log('')
+        yield* Console.log(FIRST_RUN_GUIDANCE.guidance)
+        yield* Console.log(`  ${FIRST_RUN_GUIDANCE.hint}`)
+      })
+
+export const withCurrentGenerationGuidance = <A, E>(
+  home: string,
+  json: boolean,
+  pretty: boolean,
+  use: (session: GenerationReadSession) => Effect.Effect<A, E>,
+  renderMissingGeneration: (
+    json: boolean,
+    pretty: boolean,
+  ) => Effect.Effect<void> = renderNoIndexGuidance,
+) =>
+  withCurrentGeneration(home, use).pipe(
+    Effect.catchIf(
+      (error): error is GenerationReadError =>
+        error instanceof GenerationReadError &&
+        error.reason === 'NoCurrentGeneration',
+      () => renderMissingGeneration(json, pretty),
+    ),
+  )
 
 /**
  * Check if filename is a markdown file
@@ -104,57 +157,16 @@ export const isRegexPattern = (query: string): boolean => {
 
 /**
  * Check if embeddings exist for a directory.
- * Checks for namespaced embeddings in .mdm/embeddings/<namespace>/vectors.bin
+ * Checks for namespaced embeddings in the supplied database index root.
  */
-export const hasEmbeddings = async (dir: string): Promise<boolean> => {
+export const hasEmbeddings = async (indexRoot: string): Promise<boolean> => {
   try {
     const namespaces = await Effect.runPromise(
-      listNamespaces(dir).pipe(Effect.catchAll(() => Effect.succeed([]))),
+      listNamespaces(indexRoot).pipe(Effect.catchAll(() => Effect.succeed([]))),
     )
     return namespaces.length > 0
   } catch {
     return false
-  }
-}
-
-/**
- * Find the nearest parent directory containing an mdm index.
- * Searches from the specified directory up to the filesystem root.
- *
- * @param startDir - Directory to start searching from
- * @returns The directory containing the index, or null if not found
- */
-export const findIndexRoot = async (
-  startDir: string,
-): Promise<string | null> => {
-  let currentDir = path.resolve(startDir)
-  const root = path.parse(currentDir).root
-
-  while (currentDir !== root) {
-    const sectionsPath = path.join(
-      currentDir,
-      '.mdm',
-      'indexes',
-      'sections.json',
-    )
-    try {
-      await fsPromises.access(sectionsPath)
-      return currentDir // Found an index
-    } catch {
-      // No index here, try parent
-      const parent = path.dirname(currentDir)
-      if (parent === currentDir) break // Reached root
-      currentDir = parent
-    }
-  }
-
-  // Also check root
-  const rootSectionsPath = path.join(root, '.mdm', 'indexes', 'sections.json')
-  try {
-    await fsPromises.access(rootSectionsPath)
-    return root
-  } catch {
-    return null
   }
 }
 
@@ -167,83 +179,41 @@ export interface IndexInfo {
   sectionCount?: number | undefined
   embeddingsExist: boolean
   vectorCount?: number | undefined
-  /** The actual directory where the index was found (may differ from requested dir) */
-  indexRoot?: string | undefined
 }
 
-export const getIndexInfo = async (dir: string): Promise<IndexInfo> => {
-  // First try the specified directory
-  let indexRoot = dir
-  let sectionsPath = path.join(dir, '.mdm', 'indexes', 'sections.json')
-
-  let exists = false
-  let lastUpdated: string | undefined
-  let sectionCount: number | undefined
-  let embeddingsExist = false
-  let vectorCount: number | undefined
-
-  // Check sections index in specified directory
-  try {
-    const stat = await fsPromises.stat(sectionsPath)
-    exists = true
-    lastUpdated = stat.mtime.toISOString()
-
-    const content = await fsPromises.readFile(sectionsPath, 'utf-8')
-    const sections = JSON.parse(content)
-    sectionCount = Object.keys(sections.sections || {}).length
-  } catch {
-    // Index doesn't exist in specified directory, try to find in parent directories
-    const foundRoot = await findIndexRoot(dir)
-    if (foundRoot) {
-      indexRoot = foundRoot
-      sectionsPath = path.join(foundRoot, '.mdm', 'indexes', 'sections.json')
-
-      try {
-        const stat = await fsPromises.stat(sectionsPath)
-        exists = true
-        lastUpdated = stat.mtime.toISOString()
-
-        const content = await fsPromises.readFile(sectionsPath, 'utf-8')
-        const sections = JSON.parse(content)
-        sectionCount = Object.keys(sections.sections || {}).length
-      } catch {
-        // Still failed
+export const getIndexInfo = (
+  session: GenerationReadSession,
+): Effect.Effect<IndexInfo, FileReadError | IndexCorruptedError> =>
+  Effect.gen(function* () {
+    const storage = createStorage(session.indexRoot, session.indexRoot)
+    const sectionIndex = yield* loadSectionIndex(storage)
+    const embeddingStats = yield* getEmbeddingStats(session)
+    if (!sectionIndex) {
+      return {
+        exists: false,
+        embeddingsExist: embeddingStats.hasEmbeddings,
+        ...(embeddingStats.hasEmbeddings
+          ? { vectorCount: embeddingStats.count }
+          : {}),
       }
     }
-  }
 
-  // Check namespaced embeddings
-  try {
-    const namespaces = await Effect.runPromise(
-      listNamespaces(indexRoot).pipe(Effect.catchAll(() => Effect.succeed([]))),
-    )
-
-    if (namespaces.length > 0) {
-      embeddingsExist = true
-      // Find active namespace or use first one
-      const activeNs = namespaces.find((ns) => ns.isActive) ?? namespaces[0]
-      if (activeNs) {
-        vectorCount = activeNs.vectorCount
-        // Use namespace's updatedAt if more recent
-        if (activeNs.updatedAt) {
-          const nsDate = new Date(activeNs.updatedAt)
-          const currentDate = lastUpdated ? new Date(lastUpdated) : new Date(0)
-          if (nsDate > currentDate) {
-            lastUpdated = activeNs.updatedAt
-          }
-        }
-      }
+    const stat = yield* Effect.tryPromise({
+      try: () => fsPromises.stat(storage.paths.sections),
+      catch: (cause) =>
+        new FileReadError({
+          path: storage.paths.sections,
+          message: `Cannot inspect section index: ${cause instanceof Error ? cause.message : String(cause)}`,
+          cause,
+        }),
+    })
+    return {
+      exists: true,
+      lastUpdated: stat.mtime.toISOString(),
+      sectionCount: Object.keys(sectionIndex.sections).length,
+      embeddingsExist: embeddingStats.hasEmbeddings,
+      ...(embeddingStats.hasEmbeddings
+        ? { vectorCount: embeddingStats.count }
+        : {}),
     }
-  } catch {
-    // Embeddings don't exist
-  }
-
-  return {
-    exists,
-    lastUpdated,
-    sectionCount,
-    embeddingsExist,
-    vectorCount,
-    indexRoot: exists && indexRoot !== dir ? indexRoot : undefined,
-  }
-}
+  })

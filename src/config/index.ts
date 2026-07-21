@@ -7,7 +7,6 @@
 export {
   type ConfigFileLoadResult,
   type ConfigParseError,
-  type GlobalSource,
   type LoadOptions,
   type LoadResult,
   // Loader
@@ -17,10 +16,10 @@ export {
   loadDetailed,
   loadTomlFile,
   loadTomlFileWithStatus,
+  mergePartials,
   mergeWithDefaults,
   type PartialMdmConfig,
   readEnvVars,
-  readGlobalSources,
   type TomlFileLoadResult,
   validateConfig,
 } from './loader.js'

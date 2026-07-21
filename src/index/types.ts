@@ -5,33 +5,28 @@
 import * as path from 'node:path'
 
 import type { HeadingLevel } from '../core/types.js'
-
-// ============================================================================
-// Configuration
-// ============================================================================
-
-export interface IndexConfig {
-  readonly version: number
-  readonly rootPath: string
-  readonly include: readonly string[]
-  readonly exclude: readonly string[]
-  readonly createdAt: string
-  readonly updatedAt: string
-}
+import type {
+  DeclaredPath,
+  DocumentKey,
+  FileIdentity,
+} from '../db/canonical.js'
 
 // ============================================================================
 // Document Index
 // ============================================================================
 
 export interface DocumentIndex {
-  readonly version: number
-  readonly rootPath: string
-  readonly documents: Record<string, DocumentEntry>
+  readonly version: typeof INDEX_VERSION
+  readonly documents: Record<DocumentKey, DocumentEntry>
 }
 
 export interface DocumentEntry {
   readonly id: string
-  readonly path: string
+  readonly path: DocumentKey
+  readonly paths: readonly DocumentKey[]
+  readonly declaredPaths: readonly DeclaredPath[]
+  readonly identity: FileIdentity
+  readonly comparisonKey: string
   readonly title: string
   readonly mtime: number
   readonly hash: string
@@ -44,7 +39,7 @@ export interface DocumentEntry {
 // ============================================================================
 
 export interface SectionIndex {
-  readonly version: number
+  readonly version: typeof INDEX_VERSION
   readonly sections: Record<string, SectionEntry>
   readonly byHeading: Record<string, readonly string[]>
   readonly byDocument: Record<string, readonly string[]>
@@ -53,7 +48,7 @@ export interface SectionIndex {
 export interface SectionEntry {
   readonly id: string
   readonly documentId: string
-  readonly documentPath: string
+  readonly documentPath: DocumentKey
   readonly heading: string
   readonly level: HeadingLevel
   readonly startLine: number
@@ -69,10 +64,16 @@ export interface SectionEntry {
 // ============================================================================
 
 export interface LinkIndex {
-  readonly version: number
-  readonly forward: Record<string, readonly string[]>
-  readonly backward: Record<string, readonly string[]>
-  readonly broken: readonly string[]
+  readonly version: typeof INDEX_VERSION
+  readonly forward: Record<DocumentKey, readonly LinkEdge[]>
+  readonly backward: Record<DocumentKey, readonly LinkEdge[]>
+  readonly brokenBySource: Record<DocumentKey, readonly DeclaredPath[]>
+  readonly broken: readonly DeclaredPath[]
+}
+
+export interface LinkEdge {
+  readonly documentPath: DocumentKey
+  readonly sectionId?: string | undefined
 }
 
 // ============================================================================
@@ -137,15 +138,16 @@ export interface FileProcessingError {
 // Index Paths
 // ============================================================================
 
-export const INDEX_DIR = '.mdm'
-export const INDEX_VERSION = 1
+export const INDEX_VERSION = 3 as const
 
-export const getIndexPaths = (rootPath: string) => ({
-  root: path.join(rootPath, INDEX_DIR),
-  config: path.join(rootPath, INDEX_DIR, 'config.json'),
-  documents: path.join(rootPath, INDEX_DIR, 'indexes', 'documents.json'),
-  sections: path.join(rootPath, INDEX_DIR, 'indexes', 'sections.json'),
-  links: path.join(rootPath, INDEX_DIR, 'indexes', 'links.json'),
-  cache: path.join(rootPath, INDEX_DIR, 'cache'),
-  parsed: path.join(rootPath, INDEX_DIR, 'cache', 'parsed'),
-})
+export const getIndexPaths = (indexRoot: string) => {
+  const root = path.resolve(indexRoot)
+  return {
+    root,
+    documents: path.join(root, 'indexes', 'documents.json'),
+    sections: path.join(root, 'indexes', 'sections.json'),
+    links: path.join(root, 'indexes', 'links.json'),
+    bm25: path.join(root, 'bm25.json'),
+    bm25Metadata: path.join(root, 'bm25.meta.json'),
+  }
+}

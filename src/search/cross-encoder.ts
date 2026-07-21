@@ -16,7 +16,7 @@
 
 import * as path from 'node:path'
 import { Effect } from 'effect'
-import { INDEX_DIR } from '../index/types.js'
+import { dbIndexDir, resolveMdmHome } from '../home.js'
 
 // ============================================================================
 // Dependency availability (checked at module load time)
@@ -103,6 +103,9 @@ type AutoTokenizer = any
 type AutoModelForSequenceClassification = any
 
 const MODEL_ID = 'Xenova/ms-marco-MiniLM-L-6-v2'
+
+export const getRerankerCacheDir = (indexRoot: string): string =>
+  path.join(dbIndexDir(indexRoot), 'models')
 
 class CrossEncoderReranker implements Reranker {
   private model: AutoModelForSequenceClassification | null = null
@@ -324,16 +327,9 @@ export const rerankResults = <T>(
       return []
     }
 
-    // Determine cache directory using node's process.cwd()
-    const nodeProcess = globalThis as unknown as {
-      process?: { cwd: () => string }
-    }
-    const cwd = nodeProcess.process?.cwd() ?? '.'
-    const cacheDir = options.onProgress
-      ? undefined // Let user see download progress
-      : path.join(cwd, INDEX_DIR, 'models')
-
-    const reranker = getReranker(cacheDir)
+    const reranker = getReranker(
+      getRerankerCacheDir(resolveMdmHome({ create: true })),
+    )
 
     // Check dependency availability before attempting re-ranking
     const available = yield* Effect.promise(() => checkTransformersAvailable())
@@ -391,7 +387,9 @@ export const initializeReranker = (
       )
     }
 
-    const reranker = getReranker(cacheDir) as CrossEncoderReranker
+    const resolvedCacheDir =
+      cacheDir ?? getRerankerCacheDir(resolveMdmHome({ create: true }))
+    const reranker = getReranker(resolvedCacheDir) as CrossEncoderReranker
 
     // Initialize the model with progress reporting
     yield* Effect.tryPromise({

@@ -9,7 +9,7 @@
  * 3. Config file excludePatterns
  * 4. .mdmignore file
  * 5. .gitignore file
- * 6. Built-in defaults: ['node_modules', '.git', 'dist', 'build']
+ * 6. Built-in defaults: ['node_modules', '.git', '.mdm', 'dist', 'build']
  */
 
 import * as fs from 'node:fs/promises'
@@ -35,16 +35,22 @@ export interface IgnoreOptions {
   readonly honorMdmignore?: boolean | undefined
 }
 
-/**
- * Result of loading ignore patterns
- */
-export interface IgnoreFilterResult {
-  /** The ignore filter instance */
+interface ScopedIgnore {
+  readonly base: string
   readonly filter: Ignore
-  /** Source files that were loaded */
+}
+
+/** Ignore rules grouped by precedence tier and directory scope. */
+export interface IgnoreHierarchy {
+  readonly rootPath: string
+  readonly defaults: Ignore
+  readonly git: readonly ScopedIgnore[]
+  readonly mdm: readonly ScopedIgnore[]
+  readonly cli: Ignore
   readonly sources: readonly string[]
-  /** Total number of patterns loaded */
   readonly patternCount: number
+  readonly honorGitignore: boolean
+  readonly honorMdmignore: boolean
 }
 
 // ============================================================================
@@ -57,6 +63,7 @@ export interface IgnoreFilterResult {
 export const DEFAULT_IGNORE_PATTERNS: readonly string[] = [
   'node_modules',
   '.git',
+  '.mdm',
   'dist',
   'build',
 ]
@@ -86,12 +93,35 @@ const countPatterns = (content: string): number => {
   }).length
 }
 
+interface LoadedScopedIgnore {
+  readonly scoped: ScopedIgnore
+  readonly source: string
+  readonly patternCount: number
+}
+
+const loadScopedIgnore = (
+  rootPath: string,
+  directory: string,
+  filename: '.gitignore' | '.mdmignore',
+): Effect.Effect<LoadedScopedIgnore | undefined, never> =>
+  Effect.gen(function* () {
+    const filePath = path.join(directory, filename)
+    const content = yield* tryReadIgnoreFile(filePath)
+    if (!content.trim()) return undefined
+
+    return {
+      scoped: { base: directory, filter: ignore().add(content) },
+      source: path.relative(rootPath, filePath).split(path.sep).join('/'),
+      patternCount: countPatterns(content),
+    }
+  })
+
 // ============================================================================
 // Main API
 // ============================================================================
 
 /**
- * Create an ignore filter with proper precedence.
+ * Create the root ignore hierarchy with proper precedence.
  *
  * Loads patterns from (in order, lower priority first):
  * 1. Built-in defaults
@@ -101,23 +131,20 @@ const countPatterns = (content: string): number => {
  *
  * @example
  * ```typescript
- * const result = yield* createIgnoreFilter({
+ * const hierarchy = yield* createIgnoreFilter({
  *   rootPath: '/my/project',
  *   cliPatterns: ['*.log', 'temp/'],
  * })
  *
  * // Check if a file should be ignored
- * if (result.filter.ignores('node_modules/package/file.md')) {
+ * if (shouldIgnore('node_modules/package/file.md', hierarchy)) {
  *   // Skip this file
  * }
- *
- * // Or filter an array of paths
- * const includedFiles = files.filter(result.filter.createFilter())
  * ```
  */
 export const createIgnoreFilter = (
   options: IgnoreOptions,
-): Effect.Effect<IgnoreFilterResult, never> =>
+): Effect.Effect<IgnoreHierarchy, never> =>
   Effect.gen(function* () {
     const {
       rootPath,
@@ -126,87 +153,90 @@ export const createIgnoreFilter = (
       honorMdmignore = true,
     } = options
 
-    const ig = ignore()
-    const sources: string[] = []
-    let patternCount = 0
-
-    // 1. Add defaults (lowest priority)
-    ig.add(DEFAULT_IGNORE_PATTERNS as string[])
-    patternCount += DEFAULT_IGNORE_PATTERNS.length
-
-    // 2. Load .gitignore if enabled
-    if (honorGitignore) {
-      const gitignorePath = path.join(rootPath, '.gitignore')
-      const gitignoreContent = yield* tryReadIgnoreFile(gitignorePath)
-      if (gitignoreContent.trim()) {
-        ig.add(gitignoreContent)
-        const count = countPatterns(gitignoreContent)
-        patternCount += count
-        sources.push('.gitignore')
-      }
+    const hierarchy: IgnoreHierarchy = {
+      rootPath,
+      defaults: ignore().add([...DEFAULT_IGNORE_PATTERNS]),
+      git: [],
+      mdm: [],
+      cli: ignore().add([...cliPatterns]),
+      sources: cliPatterns.length > 0 ? ['CLI/config'] : [],
+      patternCount: DEFAULT_IGNORE_PATTERNS.length + cliPatterns.length,
+      honorGitignore,
+      honorMdmignore,
     }
 
-    // 3. Load .mdmignore if enabled
-    if (honorMdmignore) {
-      const mdmignorePath = path.join(rootPath, '.mdmignore')
-      const mdmignoreContent = yield* tryReadIgnoreFile(mdmignorePath)
-      if (mdmignoreContent.trim()) {
-        ig.add(mdmignoreContent)
-        const count = countPatterns(mdmignoreContent)
-        patternCount += count
-        sources.push('.mdmignore')
-      }
-    }
+    return yield* extendIgnoreHierarchy(hierarchy, rootPath)
+  })
 
-    // 4. Add CLI/config patterns (highest priority)
-    if (cliPatterns.length > 0) {
-      ig.add(cliPatterns as string[])
-      patternCount += cliPatterns.length
-      sources.push('CLI/config')
-    }
+/** Add ignore files from a directory after traversal has admitted it. */
+export const extendIgnoreHierarchy = (
+  parent: IgnoreHierarchy,
+  directory: string,
+): Effect.Effect<IgnoreHierarchy, never> =>
+  Effect.gen(function* () {
+    const git = parent.honorGitignore
+      ? yield* loadScopedIgnore(parent.rootPath, directory, '.gitignore')
+      : undefined
+    const mdm = parent.honorMdmignore
+      ? yield* loadScopedIgnore(parent.rootPath, directory, '.mdmignore')
+      : undefined
+    const loaded = [git, mdm].filter(
+      (value): value is LoadedScopedIgnore => value !== undefined,
+    )
 
     return {
-      filter: ig,
-      sources,
-      patternCount,
+      ...parent,
+      git: git ? [...parent.git, git.scoped] : parent.git,
+      mdm: mdm ? [...parent.mdm, mdm.scoped] : parent.mdm,
+      sources: [...parent.sources, ...loaded.map((value) => value.source)],
+      patternCount:
+        parent.patternCount +
+        loaded.reduce((total, value) => total + value.patternCount, 0),
     }
   })
 
-/**
- * Check if a path should be ignored.
- *
- * This is a convenience wrapper around createIgnoreFilter for single-path checks.
- * For checking multiple paths, prefer creating the filter once and reusing it.
- *
- * @param relativePath - Path relative to root (e.g., 'src/foo/bar.md')
- * @param filter - The ignore filter instance
- * @returns true if the path should be ignored
- */
-export const shouldIgnore = (relativePath: string, filter: Ignore): boolean => {
-  // The ignore package requires paths without leading slash
-  const normalized = relativePath.replace(/^\//, '')
-  return filter.ignores(normalized)
+const decision = (
+  rootPath: string,
+  scoped: ScopedIgnore,
+  relativePath: string,
+  directory: boolean,
+): boolean | undefined => {
+  const local = path
+    .relative(scoped.base, path.join(rootPath, relativePath))
+    .split(path.sep)
+    .join('/')
+  if (local === '..' || local.startsWith('../')) return undefined
+  const tested = scoped.filter.test(directory ? `${local}/` : local)
+  return tested.ignored ? true : tested.unignored ? false : undefined
 }
 
-/**
- * Create a filter function suitable for Array.filter().
- *
- * @example
- * ```typescript
- * const result = yield* createIgnoreFilter({ rootPath })
- * const filterFn = createFilterFunction(result.filter)
- * const includedFiles = files.filter(filterFn)
- * ```
- */
-export const createFilterFunction = (
-  filter: Ignore,
-): ((relativePath: string) => boolean) => {
-  const innerFilter = filter.createFilter()
-  return (relativePath: string) => {
-    // The ignore package's createFilter returns true for non-ignored files
-    const normalized = relativePath.replace(/^\//, '')
-    return innerFilter(normalized)
+/** Evaluate one traversal candidate through all precedence tiers. */
+export const shouldIgnore = (
+  relativePath: string,
+  hierarchy: IgnoreHierarchy,
+  directory = false,
+): boolean => {
+  const candidate = relativePath
+    .replace(/^[/\\]+/, '')
+    .split(path.sep)
+    .join('/')
+  const testedCandidate = directory ? `${candidate}/` : candidate
+  let ignored = hierarchy.defaults.ignores(testedCandidate)
+
+  for (const tier of [hierarchy.git, hierarchy.mdm] as const) {
+    for (const scoped of tier) {
+      ignored =
+        decision(hierarchy.rootPath, scoped, candidate, directory) ?? ignored
+    }
   }
+
+  const cliDecision = decision(
+    hierarchy.rootPath,
+    { base: hierarchy.rootPath, filter: hierarchy.cli },
+    candidate,
+    directory,
+  )
+  return cliDecision ?? ignored
 }
 
 /**

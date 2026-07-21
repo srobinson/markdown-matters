@@ -26,6 +26,7 @@ const TEST_DIR = path.join(
   'fixtures',
   'semantic-search',
 )
+const originalMdmHome = process.env.MDM_HOME
 
 const runEffect = <A, E>(effect: Effect.Effect<A, E>) =>
   Effect.runPromise(effect)
@@ -45,6 +46,7 @@ describe('semantic search integration', () => {
       )
       return
     }
+    process.env.MDM_HOME = TEST_DIR
 
     // `buildEmbeddings` dispatches through the runtime registry. The CLI
     // main path calls this at bootstrap; the integration tests skip main
@@ -197,10 +199,13 @@ Database migrations cannot be automatically rolled back.
 
     const shouldRebuild = process.env.REBUILD_TEST_INDEX === 'true'
 
-    await runEffect(buildIndex(TEST_DIR, { force: shouldRebuild }))
+    await runEffect(
+      buildIndex(TEST_DIR, { indexRoot: TEST_DIR, force: shouldRebuild }),
+    )
 
     await runEffect(
       buildEmbeddings(TEST_DIR, {
+        indexRoot: TEST_DIR,
         force: shouldRebuild,
       }),
     )
@@ -209,6 +214,8 @@ Database migrations cannot be automatically rolled back.
   afterAll(async () => {
     if (skipIfNoApiKey()) return
     await fs.rm(TEST_DIR, { recursive: true, force: true })
+    if (originalMdmHome === undefined) delete process.env.MDM_HOME
+    else process.env.MDM_HOME = originalMdmHome
   })
 
   describe('basic semantic search', () => {

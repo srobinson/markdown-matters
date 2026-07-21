@@ -30,6 +30,7 @@ import { buildIndex } from '../../src/index/indexer.js'
 import { registerDefaultProviders } from '../../src/providers/index.js'
 
 const TEST_DIR = path.join(process.cwd(), 'tests', 'fixtures', 'search-hyde')
+const originalMdmHome = process.env.MDM_HOME
 
 const runEffect = <A, E>(effect: Effect.Effect<A, E>) =>
   Effect.runPromise(effect)
@@ -232,6 +233,7 @@ describe('HyDE behavior integration', () => {
       )
       return
     }
+    process.env.MDM_HOME = TEST_DIR
 
     // `buildEmbeddings` dispatches through the runtime registry. The CLI
     // main path calls this at bootstrap; the integration tests skip main
@@ -250,13 +252,22 @@ describe('HyDE behavior integration', () => {
     )
 
     const shouldRebuild = process.env.REBUILD_TEST_INDEX === 'true'
-    await runEffect(buildIndex(TEST_DIR, { force: shouldRebuild }))
-    await runEffect(buildEmbeddings(TEST_DIR, { force: shouldRebuild }))
+    await runEffect(
+      buildIndex(TEST_DIR, { indexRoot: TEST_DIR, force: shouldRebuild }),
+    )
+    await runEffect(
+      buildEmbeddings(TEST_DIR, {
+        indexRoot: TEST_DIR,
+        force: shouldRebuild,
+      }),
+    )
   }, 300000)
 
   afterAll(async () => {
     if (skipIfNoApiKey()) return
     await fs.rm(TEST_DIR, { recursive: true, force: true })
+    if (originalMdmHome === undefined) delete process.env.MDM_HOME
+    else process.env.MDM_HOME = originalMdmHome
   })
 
   it('produces a different ranking when HyDE is enabled', async () => {

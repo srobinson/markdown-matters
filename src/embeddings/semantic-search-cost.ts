@@ -16,7 +16,10 @@ import {
   loadSectionIndex,
 } from '../index/storage.js'
 import { lookupPricing } from '../providers/pricing.js'
-import { matchPath } from '../search/path-matcher.js'
+import {
+  matchesDocumentPath,
+  resolveCanonicalSourceRoot,
+} from '../search/path-matcher.js'
 
 /**
  * Price per 1M tokens for text-embedding-3-small (canonical estimator model).
@@ -45,6 +48,11 @@ export interface EmbeddingEstimate {
   readonly byDirectory: readonly DirectoryEstimate[]
 }
 
+export interface EstimateEmbeddingCostOptions {
+  readonly indexRoot: string
+  readonly excludePatterns?: readonly string[] | undefined
+}
+
 /**
  * Estimate the cost of generating embeddings for a directory.
  *
@@ -58,14 +66,14 @@ export interface EmbeddingEstimate {
  */
 export const estimateEmbeddingCost = (
   rootPath: string,
-  options: { excludePatterns?: readonly string[] | undefined } = {},
+  options: EstimateEmbeddingCostOptions,
 ): Effect.Effect<
   EmbeddingEstimate,
   IndexNotFoundError | FileReadError | IndexCorruptedError
 > =>
   Effect.gen(function* () {
-    const resolvedRoot = path.resolve(rootPath)
-    const storage = createStorage(resolvedRoot)
+    const resolvedRoot = yield* resolveCanonicalSourceRoot(rootPath)
+    const storage = createStorage(resolvedRoot, options.indexRoot)
 
     const docIndex = yield* loadDocumentIndex(storage)
     const sectionIndex = yield* loadSectionIndex(storage)
@@ -87,7 +95,7 @@ export const estimateEmbeddingCost = (
       // Check exclude patterns
       if (options.excludePatterns?.length) {
         const excluded = options.excludePatterns.some((pattern) =>
-          matchPath(section.documentPath, pattern),
+          matchesDocumentPath(resolvedRoot, section.documentPath, pattern),
         )
         if (excluded) continue
       }

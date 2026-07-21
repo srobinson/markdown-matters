@@ -1,28 +1,5 @@
-/**
- * Custom help system for mdm CLI
- *
- * Provides beautiful, useful help output that matches the quality of
- * professional CLI tools like git and gh.
- *
- * Color output respects:
- *   1. NO_COLOR environment variable (https://no-color.org/)
- *   2. --no-color CLI flag
- *   3. Non-TTY stdout (piped output)
- *   4. output.color config value (when available via resolveColorEnabled)
- */
+import { MANIFEST_WATCH_UNAVAILABLE_DESCRIPTION } from './flag-schemas.js'
 
-// ============================================================================
-// Color Support
-// ============================================================================
-
-/**
- * Determine whether ANSI color codes should be emitted.
- *
- * Checks in priority order:
- *   1. NO_COLOR env var (always wins per no-color.org spec)
- *   2. --no-color CLI flag
- *   3. Non-TTY stdout (piped output)
- */
 export const shouldUseColor = (): boolean => {
   if (process.env.NO_COLOR !== undefined) return false
   if (process.argv.includes('--no-color')) return false
@@ -30,17 +7,12 @@ export const shouldUseColor = (): boolean => {
   return true
 }
 
-/** ANSI escape helpers that respect a color flag. */
 const ansi = (color: boolean) => ({
   bold: (s: string) => (color ? `\x1b[1m${s}\x1b[0m` : s),
   yellow: (s: string) => (color ? `\x1b[33m${s}\x1b[0m` : s),
   cyan: (s: string) => (color ? `\x1b[36m${s}\x1b[0m` : s),
   dim: (s: string) => (color ? `\x1b[2m${s}\x1b[0m` : s),
 })
-
-// ============================================================================
-// Types
-// ============================================================================
 
 interface CommandHelp {
   description: string
@@ -50,28 +22,24 @@ interface CommandHelp {
   notes?: string[]
 }
 
-// ============================================================================
-// Help Content
-// ============================================================================
-
 export const helpContent: Record<string, CommandHelp> = {
   init: {
     description: 'Initialize mdm in a directory',
     usage: 'mdm init [options]',
     examples: [
       'mdm init                     # Interactive setup',
-      'mdm init --local             # Initialize locally in current directory',
-      'mdm init --global            # Initialize globally in ~/.mdm/',
+      'mdm init --local             # Create project config',
+      'mdm init --global            # Initialize the active MDM_HOME',
       'mdm init -y                  # Accept all defaults',
     ],
     options: [
       {
         name: '-l, --local',
-        description: 'Initialize locally in current directory (.mdm/)',
+        description: 'Create .mdm.toml in the current directory',
       },
       {
         name: '-g, --global',
-        description: 'Initialize globally in ~/.mdm/',
+        description: 'Initialize the active MDM_HOME',
       },
       {
         name: '-y, --yes',
@@ -79,24 +47,20 @@ export const helpContent: Record<string, CommandHelp> = {
       },
     ],
     notes: [
-      'Creates .mdm/ directory and .mdm.toml config file.',
-      'Local init: project-specific index in PWD/.mdm/',
-      'Global init: shared index in ~/.mdm/ with source tracking.',
-      'Config resolution: PWD/.mdm.toml > ~/.mdm/.mdm.toml > defaults.',
+      'Local init creates only the project .mdm.toml.',
+      'Indexes and active home config live in MDM_HOME.',
+      'Config resolution merges project local, project, and home files by key.',
     ],
   },
   index: {
-    description: 'Index markdown files for fast searching',
+    description: 'Refresh every directory in the active manifest',
     usage: 'mdm index [path] [options]',
     examples: [
-      'mdm index                    # Index current directory',
-      'mdm index docs/              # Index specific directory',
-      'mdm index --embed            # Include semantic embeddings',
-      'mdm index --watch            # Watch for file changes',
-      'mdm index --embed --watch    # Full setup with live updates',
+      'mdm index                    # Refresh the existing manifest',
+      'mdm index docs/              # Append docs/ then refresh all roots',
+      'mdm index --embed            # Refresh and build embeddings',
+      'mdm index --watch            # Fails; manifest watch is unavailable',
       'mdm index --force            # Bypass cache, re-process all files',
-      'mdm index --all              # Index all registered global sources',
-      'mdm index --all --force      # Re-index all sources from scratch',
       '',
       '# Alternative embedding providers:',
       'mdm index --embed --provider ollama --provider-model nomic-embed-text',
@@ -109,7 +73,7 @@ export const helpContent: Record<string, CommandHelp> = {
       },
       {
         name: '--no-embed',
-        description: 'Skip the prompt to enable semantic search',
+        description: 'Skip semantic vector pruning and refresh',
       },
       {
         name: '--provider <name>',
@@ -125,17 +89,24 @@ export const helpContent: Record<string, CommandHelp> = {
         description: 'Custom API base URL for the provider',
       },
       {
-        name: '-t, --timeout <ms>',
-        description: 'Embedding API timeout in milliseconds (default: 30000)',
+        name: '-x, --exclude <patterns>',
+        description: 'Additional comma-separated exclusion patterns',
+      },
+      {
+        name: '--no-gitignore',
+        description: 'Do not apply .gitignore patterns',
+      },
+      {
+        name: '--hnsw-m <n>',
+        description: 'HNSW maximum connections per node',
+      },
+      {
+        name: '--hnsw-ef-construction <n>',
+        description: 'HNSW construction search width',
       },
       {
         name: '-w, --watch',
-        description: 'Watch for changes and re-index automatically',
-      },
-      {
-        name: '-a, --all',
-        description:
-          'Index all registered sources from global config (~/.mdm/.mdm.toml)',
+        description: MANIFEST_WATCH_UNAVAILABLE_DESCRIPTION,
       },
       {
         name: '-f, --force',
@@ -146,11 +117,13 @@ export const helpContent: Record<string, CommandHelp> = {
       { name: '--pretty', description: 'Pretty-print JSON output' },
     ],
     notes: [
-      'After indexing, prompts to enable semantic search (use --no-embed to skip).',
+      'With no path, index refreshes every directory in manifest.toml.',
+      'With a path, index appends its absolute declared path before refreshing.',
+      'An empty manifest requires mdm index <dir>; the current directory is never implicit.',
+      'Existing semantic embeddings refresh atomically; use --embed to create them or --no-embed to leave them unchanged.',
       'Providers: openai (default), ollama (free/local), lm-studio, openrouter, voyage.',
       'Set API keys: OPENAI_API_KEY, OPENROUTER_API_KEY, or use local providers.',
-      'Index is stored in .mdm/ directory.',
-      '--force and --all are orthogonal: --force controls HOW (bypass cache), --all controls WHAT (all sources).',
+      'Manifest and index state are stored in the active MDM_HOME.',
     ],
   },
   fix: {
@@ -254,12 +227,24 @@ export const helpContent: Record<string, CommandHelp> = {
           'Similarity threshold 0-1 for semantic search (default: 0.35)',
       },
       {
-        name: '--provider <name>',
-        description: 'Embedding provider for semantic search',
+        name: '-f, --fuzzy',
+        description: 'Enable fuzzy matching for typo tolerance',
       },
       {
-        name: '--timeout <ms>',
-        description: 'Embedding API timeout in milliseconds (default: 30000)',
+        name: '--stem',
+        description: 'Match word variants such as fail, failed, and failing',
+      },
+      {
+        name: '--fuzzy-distance <n>',
+        description: 'Maximum edit distance for --fuzzy (default: 2)',
+      },
+      {
+        name: '--auto-index-threshold <seconds>',
+        description: 'Auto-create embeddings within this time estimate',
+      },
+      {
+        name: '--provider <name>',
+        description: 'Embedding provider for semantic search',
       },
       {
         name: '-r, --rerank',
@@ -471,7 +456,7 @@ export const helpContent: Record<string, CommandHelp> = {
     usage: 'mdm config <command> [options]',
     examples: [
       'mdm config init              # Create a .mdm.toml config file',
-      'mdm config init --global     # Create global config in ~/.mdm/',
+      'mdm config init --global     # Create config in active MDM_HOME',
       'mdm config init --force      # Overwrite existing config',
       'mdm config show              # Show config file location',
       'mdm config check             # Validate and show effective config',
@@ -486,7 +471,7 @@ export const helpContent: Record<string, CommandHelp> = {
       },
       {
         name: '--global',
-        description: 'Write config to ~/.mdm/.mdm.toml (init only)',
+        description: 'Write config to the active MDM_HOME (init only)',
       },
       { name: '--force', description: 'Overwrite existing config (init only)' },
       { name: '--json', description: 'Output as JSON' },
@@ -494,7 +479,7 @@ export const helpContent: Record<string, CommandHelp> = {
     ],
     notes: [
       'Config file: .mdm.toml (TOML format).',
-      'Resolution: PWD/.mdm.toml > ~/.mdm/.mdm.toml > defaults.',
+      'Resolution merges project local, project, and active home config by key.',
       'Precedence: CLI flags > environment (MDM_*) > config file > defaults.',
     ],
   },
@@ -556,16 +541,6 @@ export const helpContent: Record<string, CommandHelp> = {
   },
 }
 
-// ============================================================================
-// Help Rendering
-// ============================================================================
-
-/**
- * Render beautiful subcommand help.
- *
- * @param command - subcommand name
- * @param color - override color flag; defaults to shouldUseColor()
- */
 export const showSubcommandHelp = (
   command: string,
   color: boolean = shouldUseColor(),
@@ -579,28 +554,22 @@ export const showSubcommandHelp = (
 
   const c = ansi(color)
 
-  // Header
   console.log(`\n${c.bold(`mdm ${command}`)} - ${help.description}`)
 
-  // Usage
   console.log(`\n${c.yellow('USAGE')}`)
   console.log(`  ${help.usage}`)
 
-  // Examples
   console.log(`\n${c.yellow('EXAMPLES')}`)
   for (const example of help.examples) {
     console.log(`  ${example}`)
   }
 
-  // Options
   console.log(`\n${c.yellow('OPTIONS')}`)
   for (const opt of help.options) {
-    // Pad option name to 24 chars for alignment
     const paddedName = opt.name.padEnd(24)
     console.log(`  ${paddedName}${opt.description}`)
   }
 
-  // Notes (if any)
   if (help.notes && help.notes.length > 0) {
     console.log(`\n${c.yellow('NOTES')}`)
     for (const note of help.notes) {
@@ -611,11 +580,6 @@ export const showSubcommandHelp = (
   console.log('')
 }
 
-/**
- * Custom help output for main command.
- *
- * @param color - override color flag; defaults to shouldUseColor()
- */
 export const showMainHelp = (color: boolean = shouldUseColor()): void => {
   const c = ansi(color)
 
@@ -624,7 +588,7 @@ ${c.bold('mdm')} - Token-efficient markdown analysis for LLMs
 
 ${c.yellow('COMMANDS')}
   init                      Initialize mdm in a directory
-  index [path]              Index markdown files (default: .)
+  index [path]              Refresh the active manifest index
   fix [path]                Repair malformed YAML frontmatter
   search <query> [path]     Search by meaning or structure
   context <files>...        Get LLM-ready summary
@@ -639,8 +603,8 @@ ${c.yellow('COMMANDS')}
 ${c.yellow('EXAMPLES')}
   mdm tree                         # List all markdown files
   mdm tree README.md               # Show document outline
-  mdm index                        # Index current directory
-  mdm index --embed                # Index with semantic embeddings
+  mdm index                        # Refresh all manifest directories
+  mdm index --embed                # Refresh and build embeddings
   mdm fix                          # Preview frontmatter repairs
   mdm search "auth"                # Simple term search
   mdm search "auth AND deploy"     # Boolean AND (both required)
@@ -667,7 +631,7 @@ ${c.yellow('WORKFLOWS')}
   mdm index --embed && mdm search "authentication flow"
 
   ${c.dim('# Set up project')}
-  mdm init && mdm index
+  mdm init && mdm index .
 
   ${c.dim('# Repair malformed frontmatter')}
   mdm fix docs/ && mdm fix docs/ --write
@@ -683,14 +647,6 @@ Run ${c.cyan('mdm <command> --help')} for command-specific options.
   console.log(help)
 }
 
-// ============================================================================
-// Help Detection
-// ============================================================================
-
-/**
- * Check for subcommand help pattern: mdm <cmd> --help or mdm <cmd> -h
- * Returns true if help was shown and we should exit
- */
 export const checkSubcommandHelp = (): boolean => {
   const args = process.argv.slice(2)
   if (args.length < 2) return false
@@ -706,20 +662,13 @@ export const checkSubcommandHelp = (): boolean => {
   return false
 }
 
-/**
- * Check for bare subcommand that has nested subcommands (e.g., "config", "embeddings").
- * Shows custom help when running "mdm config" without arguments.
- * This prevents the ugly Effect CLI default output.
- */
 export const checkBareSubcommandHelp = (): boolean => {
   const args = process.argv.slice(2)
 
-  // Look for: exactly one arg that is a command with subcommands in helpContent
   if (args.length !== 1) return false
 
   const command = args[0]
 
-  // Only handle commands that have subcommands and custom help
   const commandsWithSubcommands = ['config', 'embeddings']
   if (
     command &&
@@ -733,9 +682,6 @@ export const checkBareSubcommandHelp = (): boolean => {
   return false
 }
 
-/**
- * Check if we should show main help
- */
 export const shouldShowMainHelp = (): boolean => {
   const args = process.argv.slice(2)
   const showHelp =

@@ -1,201 +1,44 @@
 /**
  * Vector store using hnswlib-node
  *
- * Supports both legacy (flat) and namespaced storage layouts:
- * - Legacy: .mdm/vectors.bin, .mdm/vectors.meta.bin
- * - Namespaced: .mdm/embeddings/{namespace}/vectors.bin, vectors.meta.bin
- *
- * New indexes are written using namespaced storage. Existing legacy indexes
- * continue to be loaded from their original flat locations; this module does
- * not perform automatic migration between layouts.
+ * Stores each provider and model in its own immutable namespace path.
  */
 
 import * as fs from 'node:fs/promises'
-import * as path from 'node:path'
-import * as msgpack from '@msgpack/msgpack'
-import { Effect, Schema } from 'effect'
+import { Effect } from 'effect'
 import HierarchicalNSW from 'hnswlib-node'
+import { CANONICAL_SCHEMA_VERSION } from '../db/canonical.js'
 import { DimensionMismatchError, VectorStoreError } from '../errors/index.js'
-import { INDEX_DIR } from '../index/types.js'
+import { dbIndexDir } from '../home.js'
 import {
   generateNamespace,
+  getMetaPath,
   getNamespaceDir,
-  getMetaPath as getNamespacedMetaPath,
-  getVectorPath as getNamespacedVectorPath,
+  getVectorPath,
 } from './embedding-namespace.js'
 import type { VectorEntry, VectorIndex } from './types.js'
+import { loadVectorIndex, writeVectorIndex } from './vector-store-codec.js'
+import type {
+  HnswBuildOptions,
+  HnswMismatchWarning,
+  VectorSearchOptions,
+  VectorSearchResult,
+  VectorSearchResultWithStats,
+  VectorStore,
+  VectorStoreLoadResult,
+  VectorStoreStats,
+} from './vector-store-types.js'
 
-// ============================================================================
-// Constants
-// ============================================================================
-
-const VECTOR_INDEX_FILE = 'vectors.bin'
-const VECTOR_META_FILE = 'vectors.meta.bin'
-const INDEX_VERSION = 1
-
-// ============================================================================
-// Runtime Schema Validation for Vector Metadata
-// ============================================================================
-
-// Schema.optional accepts undefined but msgpack serializes undefined as null.
-// Use Schema.NullishOr to accept both null and undefined for optional fields.
-const NullishString = Schema.Union(Schema.String, Schema.Null, Schema.Undefined)
-
-const VectorEntrySchema = Schema.Struct({
-  id: Schema.String,
-  sectionId: Schema.String,
-  documentPath: Schema.String,
-  heading: Schema.String,
-  embedding: Schema.Array(Schema.Number),
-})
-
-const HnswIndexParamsSchema = Schema.Struct({
-  m: Schema.Number,
-  efConstruction: Schema.Number,
-})
-
-const VectorIndexSchema = Schema.Struct({
-  version: Schema.Number,
-  provider: Schema.String,
-  providerModel: Schema.optional(NullishString),
-  providerBaseURL: Schema.optional(NullishString),
-  dimensions: Schema.Number,
-  entries: Schema.Record({ key: Schema.String, value: VectorEntrySchema }),
-  totalCost: Schema.Number,
-  totalTokens: Schema.Number,
-  createdAt: Schema.String,
-  updatedAt: Schema.String,
-  hnswParams: Schema.optional(
-    Schema.Union(HnswIndexParamsSchema, Schema.Null, Schema.Undefined),
-  ),
-})
-
-const decodeVectorIndex = (
-  raw: unknown,
-  source: string,
-): Effect.Effect<VectorIndex, VectorStoreError> =>
-  Schema.decodeUnknown(VectorIndexSchema)(raw).pipe(
-    Effect.mapError(
-      (parseError) =>
-        new VectorStoreError({
-          operation: 'load',
-          message: `Corrupted vector metadata (${source}): schema validation failed: ${String(parseError)}`,
-        }),
-    ),
-    // Schema output type is structurally compatible with VectorIndex
-    Effect.map((validated) => validated as unknown as VectorIndex),
-  )
-
-// ============================================================================
-// Vector Store
-// ============================================================================
-
-export interface VectorSearchOptions {
-  /** efSearch parameter for HNSW (controls recall/speed tradeoff, default: 100) */
-  readonly efSearch?: number | undefined
-}
-
-export interface VectorStore {
-  readonly rootPath: string
-  readonly dimensions: number
-  add(entries: VectorEntry[]): Effect.Effect<void, VectorStoreError>
-  search(
-    vector: number[],
-    limit: number,
-    threshold?: number,
-    options?: VectorSearchOptions,
-  ): Effect.Effect<VectorSearchResult[], VectorStoreError>
-  /**
-   * Search with additional stats about below-threshold results.
-   * Used to provide feedback when 0 results pass the threshold.
-   */
-  searchWithStats(
-    vector: number[],
-    limit: number,
-    threshold?: number,
-    options?: VectorSearchOptions,
-  ): Effect.Effect<VectorSearchResultWithStats, VectorStoreError>
-  save(): Effect.Effect<void, VectorStoreError>
-  /**
-   * Load the vector store from disk.
-   *
-   * @returns VectorStoreLoadResult with loaded status and any warnings
-   * @throws DimensionMismatchError if the stored dimensions don't match current provider
-   */
-  load(): Effect.Effect<
-    VectorStoreLoadResult,
-    VectorStoreError | DimensionMismatchError
-  >
-  getStats(): VectorStoreStats
-  /**
-   * Return the set of entry IDs currently in the store.
-   * Used for delta embedding to determine which sections already have vectors.
-   */
-  getEmbeddedIds(): Set<string>
-  /**
-   * Soft-delete entries by ID. Marks them as deleted in the HNSW index
-   * so they are excluded from search results without rebuilding the index.
-   */
-  removeEntries(ids: string[]): Effect.Effect<void, VectorStoreError>
-  /** Set the embedding provider metadata (name, model, base URL). */
-  setProvider(name: string, model?: string, baseURL?: string): void
-  /** Accumulate embedding cost and token usage. */
-  addCost(cost: number, tokens: number): void
-  /** Set a namespace prefix for index file paths. */
-  setNamespace(namespace: string): void
-  /** Return the current namespace, if any. */
-  getNamespace(): string | undefined
-}
-
-export interface VectorSearchResult {
-  readonly id: string
-  readonly sectionId: string
-  readonly documentPath: string
-  readonly heading: string
-  readonly similarity: number
-}
-
-/**
- * Extended search result with metadata about below-threshold results.
- * Used to provide user feedback when 0 results pass the threshold.
- */
-export interface VectorSearchResultWithStats {
-  readonly results: VectorSearchResult[]
-  /** Number of results that were found but below threshold */
-  readonly belowThresholdCount: number
-  /** Highest similarity score among below-threshold results (if any) */
-  readonly belowThresholdHighest: number | null
-}
-
-export interface VectorStoreStats {
-  readonly count: number
-  readonly dimensions: number
-  readonly provider: string
-  readonly providerModel?: string | undefined
-  readonly totalCost: number
-  readonly totalTokens: number
-}
-
-/**
- * Result of loading a vector store, including any warnings about config mismatches.
- */
-export interface VectorStoreLoadResult {
-  /** Whether the index was loaded successfully */
-  readonly loaded: boolean
-  /** Warning about HNSW parameter mismatch (if any) */
-  readonly hnswMismatch?: HnswMismatchWarning | undefined
-}
-
-/**
- * Warning when HNSW parameters in config differ from stored index parameters.
- * The index was built with different parameters than currently configured.
- */
-export interface HnswMismatchWarning {
-  /** Current config values */
-  readonly configParams: { m: number; efConstruction: number }
-  /** Values stored in the index */
-  readonly indexParams: { m: number; efConstruction: number }
-}
+export type {
+  HnswBuildOptions,
+  HnswMismatchWarning,
+  VectorSearchOptions,
+  VectorSearchResult,
+  VectorSearchResultWithStats,
+  VectorStore,
+  VectorStoreLoadResult,
+  VectorStoreStats,
+} from './vector-store-types.js'
 
 // ============================================================================
 // Implementation
@@ -204,13 +47,16 @@ export interface HnswMismatchWarning {
 class HnswVectorStore implements VectorStore {
   readonly rootPath: string
   readonly dimensions: number
+  private readonly indexDir: string
+  private readonly vectorPath: string
+  private readonly metaPath: string
 
   private index: HierarchicalNSW.HierarchicalNSW | null = null
   private entries: Map<number, VectorEntry> = new Map()
   private idToIndex: Map<string, number> = new Map()
   private nextIndex = 0
-  private provider = 'unknown'
-  private providerModel: string | undefined = undefined
+  private readonly provider: string
+  private readonly providerModel: string
   private providerBaseURL: string | undefined = undefined
   private totalCost = 0
   private totalTokens = 0
@@ -219,64 +65,25 @@ class HnswVectorStore implements VectorStore {
   private readonly hnswM: number
   private readonly hnswEfConstruction: number
 
-  // Namespace support - when set, uses namespaced storage paths
-  private namespace: string | undefined = undefined
-
   constructor(
-    rootPath: string,
+    indexRoot: string,
+    provider: string,
+    model: string,
     dimensions: number,
     hnswOptions?: HnswBuildOptions,
+    providerBaseURL?: string,
   ) {
-    this.rootPath = path.resolve(rootPath)
+    this.rootPath = dbIndexDir(indexRoot)
     this.dimensions = dimensions
+    this.provider = provider
+    this.providerModel = model
+    this.providerBaseURL = providerBaseURL
+    const namespace = generateNamespace(provider, model, dimensions)
+    this.indexDir = getNamespaceDir(this.rootPath, namespace)
+    this.vectorPath = getVectorPath(this.rootPath, namespace)
+    this.metaPath = getMetaPath(this.rootPath, namespace)
     this.hnswM = hnswOptions?.m ?? 16
     this.hnswEfConstruction = hnswOptions?.efConstruction ?? 200
-  }
-
-  /**
-   * Set the namespace for this vector store.
-   * When set, all storage operations use the namespaced path.
-   */
-  setNamespace(namespace: string): void {
-    this.namespace = namespace
-  }
-
-  /**
-   * Get the current namespace (if any).
-   */
-  getNamespace(): string | undefined {
-    return this.namespace
-  }
-
-  /**
-   * Get the index directory path.
-   * Returns namespaced path if namespace is set, otherwise legacy path.
-   */
-  private getIndexDir(): string {
-    if (this.namespace) {
-      return getNamespaceDir(this.rootPath, this.namespace)
-    }
-    return path.join(this.rootPath, INDEX_DIR)
-  }
-
-  /**
-   * Get the vector index file path.
-   */
-  private getVectorPath(): string {
-    if (this.namespace) {
-      return getNamespacedVectorPath(this.rootPath, this.namespace)
-    }
-    return path.join(this.rootPath, INDEX_DIR, VECTOR_INDEX_FILE)
-  }
-
-  /**
-   * Get the metadata file path.
-   */
-  private getMetaPath(): string {
-    if (this.namespace) {
-      return getNamespacedMetaPath(this.rootPath, this.namespace)
-    }
-    return path.join(this.rootPath, INDEX_DIR, VECTOR_META_FILE)
   }
 
   private ensureIndex(): HierarchicalNSW.HierarchicalNSW {
@@ -473,9 +280,8 @@ class HnswVectorStore implements VectorStore {
           return
         }
 
-        const indexDir = this.getIndexDir()
         yield* Effect.tryPromise({
-          try: () => fs.mkdir(indexDir, { recursive: true }),
+          try: () => fs.mkdir(this.indexDir, { recursive: true }),
           catch: (e) =>
             new VectorStoreError({
               operation: 'save',
@@ -486,7 +292,7 @@ class HnswVectorStore implements VectorStore {
 
         // Save the hnswlib index
         yield* Effect.tryPromise({
-          try: () => this.index!.writeIndex(this.getVectorPath()),
+          try: () => this.index!.writeIndex(this.vectorPath),
           catch: (e) =>
             new VectorStoreError({
               operation: 'save',
@@ -497,7 +303,7 @@ class HnswVectorStore implements VectorStore {
 
         // Save metadata
         const meta: VectorIndex = {
-          version: INDEX_VERSION,
+          version: CANONICAL_SCHEMA_VERSION,
           provider: this.provider,
           providerModel: this.providerModel,
           providerBaseURL: this.providerBaseURL,
@@ -530,9 +336,7 @@ class HnswVectorStore implements VectorStore {
               )
             }
 
-            // Encode with MessagePack and write
-            const encoded = msgpack.encode(meta)
-            await fs.writeFile(this.getMetaPath(), encoded)
+            await writeVectorIndex(this.metaPath, meta)
           },
           catch: (e) =>
             new VectorStoreError({
@@ -551,23 +355,12 @@ class HnswVectorStore implements VectorStore {
   > {
     return Effect.gen(
       function* (this: HnswVectorStore) {
-        const vectorPath = this.getVectorPath()
-        const metaPath = this.getMetaPath()
-
-        // Check if files exist - catch file not found gracefully
-        // For metadata, check both binary (.bin) and JSON (.json) for migration
+        // Check if files exist and treat an absent index as empty.
         const filesExist = yield* Effect.tryPromise({
           try: async () => {
-            await fs.access(vectorPath)
-            // Check if either binary or JSON metadata exists
-            try {
-              await fs.access(metaPath)
-              return true
-            } catch {
-              const jsonPath = metaPath.replace('.bin', '.json')
-              await fs.access(jsonPath)
-              return true
-            }
+            await fs.access(this.vectorPath)
+            await fs.access(this.metaPath)
+            return true
           },
           catch: () =>
             new VectorStoreError({
@@ -582,71 +375,7 @@ class HnswVectorStore implements VectorStore {
           return { loaded: false }
         }
 
-        // Load raw metadata - try binary first, fall back to JSON for migration
-        const rawMeta = yield* Effect.tryPromise({
-          try: async () => {
-            // Try binary format first (new)
-            try {
-              await fs.access(metaPath)
-              const buffer = await fs.readFile(metaPath)
-              return {
-                data: msgpack.decode(buffer) as unknown,
-                source: 'binary' as const,
-              }
-            } catch {
-              // Fall back to JSON for migration (old)
-              const jsonPath = metaPath.replace('.bin', '.json')
-              try {
-                await fs.access(jsonPath)
-                const json = await fs.readFile(jsonPath, 'utf-8')
-                return {
-                  data: JSON.parse(json) as unknown,
-                  source: 'json' as const,
-                }
-              } catch {
-                throw new Error('Metadata file not found')
-              }
-            }
-          },
-          catch: (e) =>
-            new VectorStoreError({
-              operation: 'load',
-              message: `Failed to read metadata: ${e instanceof Error ? e.message : String(e)}`,
-              cause: e,
-            }),
-        })
-
-        // Apply legacy index migration: default to 'openai' if provider is missing.
-        // Patch raw data before schema validation so legacy indexes pass.
-        const patched =
-          rawMeta.data &&
-          typeof rawMeta.data === 'object' &&
-          !(
-            'provider' in rawMeta.data &&
-            (rawMeta.data as Record<string, unknown>).provider
-          )
-            ? { ...rawMeta.data, provider: 'openai' }
-            : rawMeta.data
-
-        // Validate metadata against schema
-        const meta = yield* decodeVectorIndex(patched, rawMeta.source)
-
-        // Auto-migrate JSON metadata to binary format
-        if (rawMeta.source === 'json') {
-          yield* Effect.tryPromise({
-            try: async () => {
-              const encoded = msgpack.encode(meta)
-              await fs.writeFile(metaPath, encoded)
-              const jsonPath = metaPath.replace('.bin', '.json')
-              await fs.unlink(jsonPath).catch(() => {})
-            },
-            catch: () =>
-              new VectorStoreError({
-                operation: 'load',
-                message: 'Failed to migrate metadata to binary format',
-              }),
-          }).pipe(Effect.catchAll(() => Effect.void))
-        }
+        const meta = yield* loadVectorIndex(this.metaPath)
 
         // Verify dimensions match - fail with clear error if mismatch
         if (meta.dimensions !== this.dimensions) {
@@ -668,7 +397,7 @@ class HnswVectorStore implements VectorStore {
           this.dimensions,
         )
         yield* Effect.tryPromise({
-          try: () => this.index!.readIndex(vectorPath),
+          try: () => this.index!.readIndex(this.vectorPath),
           catch: (e) =>
             new VectorStoreError({
               operation: 'load',
@@ -689,8 +418,6 @@ class HnswVectorStore implements VectorStore {
           this.nextIndex = Math.max(this.nextIndex, idx + 1)
         }
 
-        this.provider = meta.provider
-        this.providerModel = meta.providerModel
         this.providerBaseURL = meta.providerBaseURL
         this.totalCost = meta.totalCost
         this.totalTokens = meta.totalTokens
@@ -731,6 +458,12 @@ class HnswVectorStore implements VectorStore {
     return new Set(this.idToIndex.keys())
   }
 
+  getEmbeddedDocumentHashes(): ReadonlyMap<string, string> {
+    return new Map(
+      [...this.entries.values()].map((entry) => [entry.id, entry.documentHash]),
+    )
+  }
+
   removeEntries(ids: string[]): Effect.Effect<void, VectorStoreError> {
     return Effect.try({
       try: () => {
@@ -752,71 +485,42 @@ class HnswVectorStore implements VectorStore {
     })
   }
 
-  setProvider(name: string, model?: string, baseURL?: string): void {
-    this.provider = name
-    this.providerModel = model
-    this.providerBaseURL = baseURL
-  }
-
   addCost(cost: number, tokens: number): void {
     this.totalCost += cost
     this.totalTokens += tokens
   }
 }
 
-// ============================================================================
-// Factory
-// ============================================================================
-
-/**
- * HNSW build parameters for index construction.
- * These affect index quality and build time - changes require index rebuild.
- */
-export interface HnswBuildOptions {
-  /** Max connections per node (default: 16). Higher = better recall, larger index. */
-  readonly m?: number | undefined
-  /** Construction-time search width (default: 200). Higher = better quality, slower builds. */
-  readonly efConstruction?: number | undefined
-}
-
-/**
- * Create a vector store for the given root path.
- *
- * @param rootPath - Root directory containing the index
- * @param dimensions - Embedding dimensions
- * @param hnswOptions - Optional HNSW build parameters
- * @returns A new VectorStore instance
- */
-export const createVectorStore = (
-  rootPath: string,
-  dimensions: number,
-  hnswOptions?: HnswBuildOptions,
-): VectorStore => new HnswVectorStore(rootPath, dimensions, hnswOptions)
-
 /**
  * Create a namespaced vector store for a specific provider/model.
  *
  * Uses the new namespaced storage structure:
- * .mdm/embeddings/{provider}_{model}_{dimensions}/vectors.bin
+ * embeddings/{provider}_{model}_{dimensions}/vectors.bin
  *
- * @param rootPath - Root directory containing the index
+ * @param indexRoot - Explicit index root
  * @param provider - Provider name (e.g., "openai", "voyage")
  * @param model - Model name (e.g., "text-embedding-3-small")
  * @param dimensions - Embedding dimensions
  * @param hnswOptions - Optional HNSW build parameters
- * @returns A new VectorStore instance with namespace set
+ * @param providerBaseURL - Resolved provider endpoint persisted with the index
+ * @returns A new VectorStore instance fixed to the generated namespace
  */
 export const createNamespacedVectorStore = (
-  rootPath: string,
+  indexRoot: string,
   provider: string,
   model: string,
   dimensions: number,
   hnswOptions?: HnswBuildOptions,
+  providerBaseURL?: string,
 ): VectorStore => {
-  const namespace = generateNamespace(provider, model, dimensions)
-  const store = new HnswVectorStore(rootPath, dimensions, hnswOptions)
-  store.setNamespace(namespace)
-  return store
+  return new HnswVectorStore(
+    indexRoot,
+    provider,
+    model,
+    dimensions,
+    hnswOptions,
+    providerBaseURL,
+  )
 }
 
 // Export the class for type access

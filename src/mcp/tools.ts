@@ -27,7 +27,7 @@ export const tools: Tool[] = [
         path_filter: {
           type: 'string',
           description:
-            "Glob pattern to filter files (e.g., '*.md', 'docs/**/*.md')",
+            "Canonical absolute path, relative glob, or bare path segment to filter files (e.g., '/docs/guide.md', 'docs/**/*.md', 'docs')",
         },
         threshold: {
           type: 'number',
@@ -88,7 +88,8 @@ export const tools: Tool[] = [
         },
         path_filter: {
           type: 'string',
-          description: 'Glob pattern to filter files',
+          description:
+            'Canonical absolute path, relative glob, or bare path segment to filter files',
         },
         has_code: {
           type: 'boolean',
@@ -113,14 +114,14 @@ export const tools: Tool[] = [
   {
     name: 'md_index',
     description:
-      'Build or rebuild the .mdm/ index for a directory. Required before using search tools. Indexes the directory the MCP server was launched in; global sources (--all) are not available via MCP.',
+      'Refresh the active database from every manifest directory. An optional path is appended to the manifest before the full refresh.',
     inputSchema: {
       type: 'object',
       properties: {
         path: {
           type: 'string',
-          description: 'Directory to index (default: current directory)',
-          default: '.',
+          description:
+            'Directory to append before refreshing. Omit to refresh the existing manifest.',
         },
         force: {
           type: 'boolean',

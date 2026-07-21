@@ -7,9 +7,13 @@
 import * as path from 'node:path'
 import { Args, Command, Options } from '@effect/cli'
 import { Console, Effect } from 'effect'
-import { getOutgoingLinks } from '../../index/indexer.js'
+import { resolveMdmHome } from '../../home.js'
+import {
+  getOutgoingLinks,
+  resolveIndexedDocumentKey,
+} from '../../index/indexer.js'
 import { jsonOption, prettyOption } from '../options.js'
-import { formatJson } from '../utils.js'
+import { formatJson, withCurrentGenerationGuidance } from '../utils.js'
 
 export const linksCommand = Command.make(
   'links',
@@ -25,28 +29,31 @@ export const linksCommand = Command.make(
     json: jsonOption,
     pretty: prettyOption,
   },
-  ({ file, root, json, pretty }) =>
-    Effect.gen(function* () {
-      const resolvedRoot = path.resolve(root)
-      const resolvedFile = path.resolve(file)
-      const relativePath = path.relative(resolvedRoot, resolvedFile)
+  ({ file, root: _root, json, pretty }) =>
+    withCurrentGenerationGuidance(resolveMdmHome(), json, pretty, (session) =>
+      Effect.gen(function* () {
+        const resolvedFile = path.resolve(file)
 
-      const links = yield* getOutgoingLinks(resolvedRoot, resolvedFile)
+        const links = yield* getOutgoingLinks(session, resolvedFile)
+        const documentKey =
+          (yield* resolveIndexedDocumentKey(session, resolvedFile)) ??
+          resolvedFile
 
-      if (json) {
-        yield* Console.log(formatJson({ file: relativePath, links }, pretty))
-      } else {
-        yield* Console.log(`Outgoing links from ${relativePath}:`)
-        yield* Console.log('')
-        if (links.length === 0) {
-          yield* Console.log('  (none)')
+        if (json) {
+          yield* Console.log(formatJson({ file: documentKey, links }, pretty))
         } else {
-          for (const link of links) {
-            yield* Console.log(`  -> ${link}`)
+          yield* Console.log(`Outgoing links from ${documentKey}:`)
+          yield* Console.log('')
+          if (links.length === 0) {
+            yield* Console.log('  (none)')
+          } else {
+            for (const link of links) {
+              yield* Console.log(`  -> ${link}`)
+            }
           }
+          yield* Console.log('')
+          yield* Console.log(`Total: ${links.length} links`)
         }
-        yield* Console.log('')
-        yield* Console.log(`Total: ${links.length} links`)
-      }
-    }),
+      }),
+    ),
 ).pipe(Command.withDescription('What does this link to?'))

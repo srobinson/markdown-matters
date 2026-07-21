@@ -7,9 +7,8 @@
  * search calls don't re-load the same store.
  */
 
-import * as path from 'node:path'
 import { Effect } from 'effect'
-import type { VectorStoreError } from '../errors/index.js'
+import type { GenerationReadSession } from '../db/generation-reader.js'
 import {
   type ActiveProvider,
   generateNamespace,
@@ -44,24 +43,39 @@ const emptyStats: EmbeddingStats = {
   totalTokens: 0,
 }
 
+const warnAndReturn = <A>(
+  operation: string,
+  error: unknown,
+  fallback: A,
+): Effect.Effect<A> =>
+  Effect.logWarning(
+    `Embedding statistics unavailable during ${operation}: ${
+      error instanceof Error ? error.message : String(error)
+    }`,
+  ).pipe(Effect.as(fallback))
+
 /**
  * Get statistics about stored embeddings.
  * Uses the active namespace to find the current embedding index.
  *
- * @param rootPath - Root directory containing embeddings
+ * @param indexRoot - Root directory containing embeddings
  * @returns Embedding statistics (count, provider, costs)
- *
- * @throws VectorStoreError - Cannot load vector index metadata
  */
 export const getEmbeddingStats = (
-  rootPath: string,
-): Effect.Effect<EmbeddingStats, VectorStoreError> =>
+  session: GenerationReadSession,
+): Effect.Effect<EmbeddingStats> =>
   Effect.gen(function* () {
-    const resolvedRoot = path.resolve(rootPath)
-
     // Get the active namespace to find where embeddings are stored
-    const activeProvider = yield* getActiveNamespace(resolvedRoot).pipe(
-      Effect.catchAll(() => Effect.succeed(null as ActiveProvider | null)),
+    const activeProvider: ActiveProvider | null = yield* getActiveNamespace(
+      session.indexRoot,
+    ).pipe(
+      Effect.catchAll((error) =>
+        warnAndReturn(
+          'active provider read',
+          error,
+          null as ActiveProvider | null,
+        ),
+      ),
     )
 
     if (!activeProvider) {
@@ -74,24 +88,24 @@ export const getEmbeddingStats = (
       activeProvider.model,
       activeProvider.dimensions,
     )
-    const cacheKey = hnswCacheKey(resolvedRoot, namespace)
+    const cacheKey = hnswCacheKey(session.home, namespace, session.generation)
     let vectorStore = getHnswCacheEntry(cacheKey)
 
     if (!vectorStore) {
       const freshStore = createNamespacedVectorStore(
-        resolvedRoot,
+        session.indexRoot,
         activeProvider.provider,
         activeProvider.model,
         activeProvider.dimensions,
       )
 
-      const loadResult = yield* freshStore
-        .load()
-        .pipe(
-          Effect.catchAll(() =>
-            Effect.succeed({ loaded: false } as VectorStoreLoadResult),
-          ),
-        )
+      const loadResult: VectorStoreLoadResult = yield* freshStore.load().pipe(
+        Effect.catchAll((error) =>
+          warnAndReturn('vector store load', error, {
+            loaded: false,
+          } as VectorStoreLoadResult),
+        ),
+      )
 
       if (!loadResult.loaded) {
         return emptyStats

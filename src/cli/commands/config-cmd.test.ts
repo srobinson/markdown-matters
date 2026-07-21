@@ -45,6 +45,7 @@ const runConfigCheck = (
       env: {
         ...process.env,
         HOME: fakeHome,
+        MDM_HOME: path.join(fakeHome, '.mdm'),
         USERPROFILE: fakeHome,
         HOMEDRIVE: '',
         HOMEPATH: fakeHome,
@@ -62,8 +63,12 @@ const runConfigCheck = (
 
 describe('mdm config check', () => {
   beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mdm-config-check-'))
-    fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'mdm-config-home-'))
+    tempDir = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), 'mdm-config-check-')),
+    )
+    fakeHome = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), 'mdm-config-home-')),
+    )
   })
 
   afterEach(() => {
@@ -175,7 +180,6 @@ color = "yes"
     expect(parsed.config.embeddings.timeoutMs.source).toBe('file')
     expect(parsed.config.embeddings.hnswM.source).toBe('file')
     expect(parsed.config.embeddings.hnswEfConstruction.source).toBe('file')
-    expect(parsed.config.paths.cacheDir.source).toBe('file')
   })
 
   it('shows every validated config field', () => {

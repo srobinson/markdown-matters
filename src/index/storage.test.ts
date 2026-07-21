@@ -10,6 +10,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { Effect, Exit } from 'effect'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { type DocumentKey, expandDeclaredPath } from '../db/canonical.js'
 import {
   clearIndexCache,
   computeHash,
@@ -19,16 +20,19 @@ import {
   createStorage,
   indexExists,
   initializeIndex,
-  loadConfig,
   loadDocumentIndex,
   loadLinkIndex,
   loadSectionIndex,
-  saveConfig,
   saveDocumentIndex,
   saveLinkIndex,
   saveSectionIndex,
 } from './storage.js'
-import type { DocumentIndex, LinkIndex, SectionIndex } from './types.js'
+import type {
+  DocumentEntry,
+  DocumentIndex,
+  LinkIndex,
+  SectionIndex,
+} from './types.js'
 import { INDEX_VERSION } from './types.js'
 
 // ============================================================================
@@ -52,6 +56,32 @@ const run = <A, E>(effect: Effect.Effect<A, E>): Promise<A> =>
 const runExit = <A, E>(effect: Effect.Effect<A, E>): Promise<Exit.Exit<A, E>> =>
   Effect.runPromise(Effect.exit(effect))
 
+const createTestStorage = (root: string): ReturnType<typeof createStorage> =>
+  createStorage(root, root)
+
+const documentKey = (root: string, name: string): DocumentKey =>
+  path.resolve(root, name) as DocumentKey
+
+const makeDocumentEntry = (
+  key: DocumentKey,
+  id: string,
+  title: string,
+  overrides: Partial<DocumentEntry> = {},
+): DocumentEntry => ({
+  id,
+  path: key,
+  paths: [key],
+  declaredPaths: [expandDeclaredPath(key)],
+  identity: { device: '1', inode: id },
+  comparisonKey: key,
+  title,
+  mtime: 0,
+  hash: `hash-${id}`,
+  tokenCount: 0,
+  sectionCount: 0,
+  ...overrides,
+})
+
 // ============================================================================
 // Setup / Teardown
 // ============================================================================
@@ -69,28 +99,34 @@ afterAll(async () => {
 // ============================================================================
 
 describe('createStorage', () => {
-  it('resolves rootPath to absolute', () => {
-    const storage = createStorage('./relative/path')
-    expect(path.isAbsolute(storage.rootPath)).toBe(true)
+  it('keeps separate absolute source and index roots', () => {
+    const storage = createStorage('./relative/source', './relative/index')
+    expect(path.isAbsolute(storage.sourceRoot)).toBe(true)
+    expect(path.isAbsolute(storage.indexRoot)).toBe(true)
+    expect(storage.sourceRoot).not.toBe(storage.indexRoot)
   })
 
-  it('returns correct index paths for given rootPath', () => {
-    const root = path.resolve('/tmp/test-root')
-    const storage = createStorage('/tmp/test-root')
-    expect(storage.paths.root).toBe(path.join(root, '.mdm'))
-    expect(storage.paths.config).toBe(path.join(root, '.mdm', 'config.json'))
+  it('returns correct paths for the explicit index root', () => {
+    const sourceRoot = path.resolve('/tmp/test-source')
+    const indexRoot = path.resolve('/tmp/test-index')
+    const storage = createStorage(sourceRoot, indexRoot)
+    expect(storage.sourceRoot).toBe(sourceRoot)
+    expect(storage.indexRoot).toBe(indexRoot)
+    expect(storage.paths.root).toBe(indexRoot)
     expect(storage.paths.documents).toBe(
-      path.join(root, '.mdm', 'indexes', 'documents.json'),
+      path.join(indexRoot, 'indexes', 'documents.json'),
     )
     expect(storage.paths.sections).toBe(
-      path.join(root, '.mdm', 'indexes', 'sections.json'),
+      path.join(indexRoot, 'indexes', 'sections.json'),
     )
     expect(storage.paths.links).toBe(
-      path.join(root, '.mdm', 'indexes', 'links.json'),
+      path.join(indexRoot, 'indexes', 'links.json'),
     )
-    expect(storage.paths.cache).toBe(path.join(root, '.mdm', 'cache'))
-    expect(storage.paths.parsed).toBe(
-      path.join(root, '.mdm', 'cache', 'parsed'),
+    expect(storage.paths).not.toHaveProperty('cache')
+    expect(storage.paths).not.toHaveProperty('parsed')
+    expect(storage.paths.bm25).toBe(path.join(indexRoot, 'bm25.json'))
+    expect(storage.paths.bm25Metadata).toBe(
+      path.join(indexRoot, 'bm25.meta.json'),
     )
   })
 })
@@ -131,35 +167,26 @@ describe('initializeIndex', () => {
     rootDir = await createTempDir()
   })
 
-  it('creates directory structure and default config', async () => {
-    const storage = createStorage(rootDir)
+  it('creates only index directories', async () => {
+    const storage = createTestStorage(rootDir)
     await run(initializeIndex(storage))
 
-    const config = await run(loadConfig(storage))
-    expect(config).not.toBeNull()
-    expect(config!.version).toBe(INDEX_VERSION)
-    expect(config!.rootPath).toBe(storage.rootPath)
-    expect(config!.include).toEqual(['**/*.md', '**/*.mdx'])
-    expect(config!.exclude).toEqual(['**/node_modules/**', '**/.*/**'])
+    await expect(fs.stat(storage.paths.root)).resolves.toBeDefined()
+    await expect(
+      fs.access(path.join(storage.indexRoot, 'config.json')),
+    ).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(
+      fs.access(path.join(storage.indexRoot, 'cache')),
+    ).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
-  it('does not overwrite existing config on re-initialization', async () => {
-    const storage = createStorage(rootDir)
+  it('is idempotent', async () => {
+    const storage = createTestStorage(rootDir)
     await run(initializeIndex(storage))
-    const firstConfig = await run(loadConfig(storage))
-
-    // Re-initialize should preserve the original config
     await run(initializeIndex(storage))
-    const secondConfig = await run(loadConfig(storage))
-    expect(secondConfig!.createdAt).toBe(firstConfig!.createdAt)
-  })
-
-  it('creates parsed cache directory', async () => {
-    const storage = createStorage(rootDir)
-    await run(initializeIndex(storage))
-
-    const stat = await fs.stat(storage.paths.parsed)
-    expect(stat.isDirectory()).toBe(true)
+    await expect(
+      fs.stat(path.dirname(storage.paths.documents)),
+    ).resolves.toBeDefined()
   })
 })
 
@@ -170,14 +197,14 @@ describe('initializeIndex', () => {
 describe('indexExists', () => {
   it('returns false when no index has been created', async () => {
     const dir = await createTempDir()
-    const storage = createStorage(dir)
+    const storage = createTestStorage(dir)
     const exists = await run(indexExists(storage))
     expect(exists).toBe(false)
   })
 
   it('returns true after initialization', async () => {
     const dir = await createTempDir()
-    const storage = createStorage(dir)
+    const storage = createTestStorage(dir)
     await run(initializeIndex(storage))
     const exists = await run(indexExists(storage))
     expect(exists).toBe(true)
@@ -193,24 +220,21 @@ describe('DocumentIndex round-trip', () => {
 
   beforeEach(async () => {
     const dir = await createTempDir()
-    storage = createStorage(dir)
+    storage = createTestStorage(dir)
     await run(initializeIndex(storage))
   })
 
   it('save then load preserves data', async () => {
+    const readmeKey = documentKey(storage.sourceRoot, 'README.md')
     const index: DocumentIndex = {
       version: INDEX_VERSION,
-      rootPath: storage.rootPath,
       documents: {
-        'doc-1': {
-          id: 'doc-1',
-          path: 'README.md',
-          title: 'README',
+        [readmeKey]: makeDocumentEntry(readmeKey, 'doc-1', 'README', {
           mtime: 1710000000000,
           hash: 'abcdef0123456789',
           tokenCount: 42,
           sectionCount: 3,
-        },
+        }),
       },
     }
 
@@ -219,7 +243,7 @@ describe('DocumentIndex round-trip', () => {
 
     expect(loaded).not.toBeNull()
     expect(loaded!.version).toBe(INDEX_VERSION)
-    const doc1 = loaded!.documents['doc-1']!
+    const doc1 = loaded!.documents[readmeKey]!
     expect(doc1.title).toBe('README')
     expect(doc1.tokenCount).toBe(42)
   })
@@ -230,9 +254,8 @@ describe('DocumentIndex round-trip', () => {
   })
 
   it('createEmptyDocumentIndex produces valid structure', () => {
-    const empty = createEmptyDocumentIndex(storage.rootPath)
+    const empty = createEmptyDocumentIndex()
     expect(empty.version).toBe(INDEX_VERSION)
-    expect(empty.rootPath).toBe(storage.rootPath)
     expect(Object.keys(empty.documents)).toHaveLength(0)
   })
 })
@@ -246,18 +269,19 @@ describe('SectionIndex round-trip', () => {
 
   beforeEach(async () => {
     const dir = await createTempDir()
-    storage = createStorage(dir)
+    storage = createTestStorage(dir)
     await run(initializeIndex(storage))
   })
 
   it('save then load preserves data', async () => {
+    const readmeKey = documentKey(storage.sourceRoot, 'README.md')
     const index: SectionIndex = {
       version: INDEX_VERSION,
       sections: {
         'sec-1': {
           id: 'sec-1',
           documentId: 'doc-1',
-          documentPath: 'README.md',
+          documentPath: readmeKey,
           heading: 'Introduction',
           level: 1,
           startLine: 1,
@@ -304,25 +328,37 @@ describe('LinkIndex round-trip', () => {
 
   beforeEach(async () => {
     const dir = await createTempDir()
-    storage = createStorage(dir)
+    storage = createTestStorage(dir)
     await run(initializeIndex(storage))
   })
 
   it('save then load preserves data', async () => {
+    const a = documentKey(storage.sourceRoot, 'a.md')
+    const b = documentKey(storage.sourceRoot, 'b.md')
+    const c = documentKey(storage.sourceRoot, 'c.md')
+    const d = expandDeclaredPath(path.join(storage.sourceRoot, 'd.md'))
     const index: LinkIndex = {
       version: INDEX_VERSION,
-      forward: { 'a.md': ['b.md', 'c.md'] },
-      backward: { 'b.md': ['a.md'], 'c.md': ['a.md'] },
-      broken: ['d.md'],
+      forward: { [a]: [{ documentPath: b }, { documentPath: c }] },
+      backward: {
+        [b]: [{ documentPath: a }],
+        [c]: [{ documentPath: a }],
+      },
+      brokenBySource: { [a]: [d] },
+      broken: [d],
     }
 
     await run(saveLinkIndex(storage, index))
     const loaded = await run(loadLinkIndex(storage))
 
     expect(loaded).not.toBeNull()
-    expect(loaded!.forward['a.md']).toEqual(['b.md', 'c.md'])
-    expect(loaded!.backward['b.md']).toEqual(['a.md'])
-    expect(loaded!.broken).toEqual(['d.md'])
+    expect(loaded!.forward[a]).toEqual([
+      { documentPath: b },
+      { documentPath: c },
+    ])
+    expect(loaded!.backward[b]).toEqual([{ documentPath: a }])
+    expect(loaded!.brokenBySource[a]).toEqual([d])
+    expect(loaded!.broken).toEqual([d])
   })
 
   it('returns null when link index does not exist', async () => {
@@ -335,34 +371,8 @@ describe('LinkIndex round-trip', () => {
     expect(empty.version).toBe(INDEX_VERSION)
     expect(Object.keys(empty.forward)).toHaveLength(0)
     expect(Object.keys(empty.backward)).toHaveLength(0)
+    expect(Object.keys(empty.brokenBySource)).toHaveLength(0)
     expect(empty.broken).toEqual([])
-  })
-})
-
-// ============================================================================
-// Config: save/load round-trip
-// ============================================================================
-
-describe('Config round-trip', () => {
-  let storage: ReturnType<typeof createStorage>
-
-  beforeEach(async () => {
-    const dir = await createTempDir()
-    storage = createStorage(dir)
-    await run(initializeIndex(storage))
-  })
-
-  it('saveConfig updates the updatedAt timestamp', async () => {
-    const config = await run(loadConfig(storage))
-    expect(config).not.toBeNull()
-
-    const originalUpdatedAt = config!.updatedAt
-    // Small delay to ensure timestamp differs
-    await new Promise((r) => setTimeout(r, 10))
-
-    await run(saveConfig(storage, config!))
-    const reloaded = await run(loadConfig(storage))
-    expect(reloaded!.updatedAt).not.toBe(originalUpdatedAt)
   })
 })
 
@@ -375,7 +385,7 @@ describe('malformed JSON handling', () => {
 
   beforeEach(async () => {
     const dir = await createTempDir()
-    storage = createStorage(dir)
+    storage = createTestStorage(dir)
     await run(initializeIndex(storage))
   })
 
@@ -443,14 +453,47 @@ describe('malformed JSON handling', () => {
     }
   })
 
-  it('loadConfig returns IndexCorruptedError on malformed config', async () => {
-    await fs.writeFile(storage.paths.config, '{broken', 'utf-8')
-    const exit = await runExit(loadConfig(storage))
+  it('rejects a relative document identity in the canonical schema', async () => {
+    const canonical = documentKey(storage.sourceRoot, 'README.md')
+    await fs.writeFile(
+      storage.paths.documents,
+      JSON.stringify({
+        version: INDEX_VERSION,
+        documents: {
+          'README.md': {
+            id: 'doc-1',
+            path: canonical,
+            paths: [canonical],
+            declaredPaths: [path.join(storage.sourceRoot, 'README.md')],
+            identity: { device: '1', inode: '2' },
+            comparisonKey: canonical,
+            title: 'README',
+            mtime: 0,
+            hash: 'hash',
+            tokenCount: 0,
+            sectionCount: 0,
+          },
+        },
+      }),
+    )
 
-    expect(Exit.isFailure(exit)).toBe(true)
-    if (Exit.isFailure(exit)) {
-      expect(String(exit.cause)).toContain('IndexCorruptedError')
-    }
+    expect(Exit.isFailure(await runExit(loadDocumentIndex(storage)))).toBe(true)
+  })
+
+  it('rejects a relative broken link in the canonical schema', async () => {
+    const source = path.join(storage.sourceRoot, 'README.md')
+    await fs.writeFile(
+      storage.paths.links,
+      JSON.stringify({
+        version: INDEX_VERSION,
+        forward: { [source]: [] },
+        backward: {},
+        brokenBySource: { [source]: ['missing.md'] },
+        broken: ['missing.md'],
+      }),
+    )
+
+    expect(Exit.isFailure(await runExit(loadLinkIndex(storage)))).toBe(true)
   })
 })
 
@@ -461,26 +504,25 @@ describe('malformed JSON handling', () => {
 describe('large index handling', () => {
   it('serializes and deserializes 10k document entries correctly', async () => {
     const dir = await createTempDir()
-    const storage = createStorage(dir)
+    const storage = createTestStorage(dir)
     await run(initializeIndex(storage))
 
     const documents: DocumentIndex['documents'] = {}
+    const keys: DocumentKey[] = []
     for (let i = 0; i < 10_000; i++) {
       const id = `doc-${i}`
-      documents[id] = {
-        id,
-        path: `folder/file-${i}.md`,
-        title: `Document ${i}`,
+      const key = documentKey(storage.sourceRoot, `folder/file-${i}.md`)
+      keys.push(key)
+      documents[key] = makeDocumentEntry(key, id, `Document ${i}`, {
         mtime: 1710000000000 + i,
         hash: computeHash(`content-${i}`),
         tokenCount: 100 + i,
         sectionCount: (i % 5) + 1,
-      }
+      })
     }
 
     const index: DocumentIndex = {
       version: INDEX_VERSION,
-      rootPath: storage.rootPath,
       documents,
     }
 
@@ -489,9 +531,51 @@ describe('large index handling', () => {
 
     expect(loaded).not.toBeNull()
     expect(Object.keys(loaded!.documents)).toHaveLength(10_000)
-    expect(loaded!.documents['doc-0']!.title).toBe('Document 0')
-    expect(loaded!.documents['doc-9999']!.title).toBe('Document 9999')
-    expect(loaded!.documents['doc-5000']!.tokenCount).toBe(5100)
+    expect(loaded!.documents[keys[0]!]!.title).toBe('Document 0')
+    expect(loaded!.documents[keys[9999]!]!.title).toBe('Document 9999')
+    expect(loaded!.documents[keys[5000]!]!.tokenCount).toBe(5100)
+  })
+})
+
+describe('selective cache eviction', () => {
+  it('clears one generation root while retaining another root', async () => {
+    const first = createTestStorage(await createTempDir())
+    const second = createTestStorage(await createTempDir())
+    const fixedTime = new Date('2026-01-01T00:00:00.000Z')
+    const indexWithTitle = (
+      storage: ReturnType<typeof createStorage>,
+      title: string,
+    ): DocumentIndex => {
+      const key = documentKey(storage.sourceRoot, 'document.md')
+      return {
+        version: INDEX_VERSION,
+        documents: { [key]: makeDocumentEntry(key, title, title) },
+      }
+    }
+    for (const storage of [first, second]) {
+      await run(saveDocumentIndex(storage, indexWithTitle(storage, 'old')))
+      await fs.utimes(storage.paths.documents, fixedTime, fixedTime)
+      expect(
+        Object.values((await run(loadDocumentIndex(storage)))!.documents)[0]!
+          .title,
+      ).toBe('old')
+      await fs.writeFile(
+        storage.paths.documents,
+        JSON.stringify(indexWithTitle(storage, 'new')),
+      )
+      await fs.utimes(storage.paths.documents, fixedTime, fixedTime)
+    }
+
+    clearIndexCache(first.indexRoot)
+
+    expect(
+      Object.values((await run(loadDocumentIndex(first)))!.documents)[0]!.title,
+    ).toBe('new')
+    expect(
+      Object.values((await run(loadDocumentIndex(second)))!.documents)[0]!
+        .title,
+    ).toBe('old')
+    clearIndexCache()
   })
 })
 
@@ -500,11 +584,11 @@ describe('atomic writes', () => {
 
   beforeEach(async () => {
     const dir = await createTempDir()
-    storage = createStorage(dir)
+    storage = createTestStorage(dir)
   })
 
   it('leaves no .tmp files in the index directory after a successful save', async () => {
-    const index = createEmptyDocumentIndex(storage.rootPath)
+    const index = createEmptyDocumentIndex()
     await run(saveDocumentIndex(storage, index))
 
     const dir = path.dirname(storage.paths.documents)
@@ -514,19 +598,12 @@ describe('atomic writes', () => {
   })
 
   it('a stale .tmp file does not affect reads or block subsequent saves', async () => {
+    const firstKey = documentKey(storage.sourceRoot, 'a.md')
+    const secondKey = documentKey(storage.sourceRoot, 'b.md')
     const v1: DocumentIndex = {
       version: INDEX_VERSION,
-      rootPath: storage.rootPath,
       documents: {
-        'doc-1': {
-          id: 'doc-1',
-          path: 'a.md',
-          title: 'A',
-          mtime: 0,
-          hash: 'hash-a',
-          tokenCount: 0,
-          sectionCount: 0,
-        },
+        [firstKey]: makeDocumentEntry(firstKey, 'doc-1', 'A'),
       },
     }
     await run(saveDocumentIndex(storage, v1))
@@ -548,18 +625,9 @@ describe('atomic writes', () => {
     // A new save succeeds (unique tmp names — stale tmp does not collide).
     const v2: DocumentIndex = {
       version: INDEX_VERSION,
-      rootPath: storage.rootPath,
       documents: {
-        'doc-1': v1.documents['doc-1']!,
-        'doc-2': {
-          id: 'doc-2',
-          path: 'b.md',
-          title: 'B',
-          mtime: 0,
-          hash: 'hash-b',
-          tokenCount: 0,
-          sectionCount: 0,
-        },
+        [firstKey]: v1.documents[firstKey]!,
+        [secondKey]: makeDocumentEntry(secondKey, 'doc-2', 'B'),
       },
     }
     await run(saveDocumentIndex(storage, v2))
@@ -577,7 +645,7 @@ describe('atomic writes', () => {
     // with EISDIR (Linux) / ENOTEMPTY (macOS) / EPERM (Windows).
     await fs.mkdir(storage.paths.documents, { recursive: true })
 
-    const index = createEmptyDocumentIndex(storage.rootPath)
+    const index = createEmptyDocumentIndex()
     const exit = await runExit(saveDocumentIndex(storage, index))
     expect(Exit.isFailure(exit)).toBe(true)
 

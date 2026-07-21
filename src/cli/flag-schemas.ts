@@ -36,6 +36,9 @@ export interface CommandSchema {
   flags: FlagSpec[]
 }
 
+export const MANIFEST_WATCH_UNAVAILABLE_DESCRIPTION =
+  'Fails until multi-root manifest watching is available'
+
 // ============================================================================
 // Shared Flags (used by multiple commands)
 // ============================================================================
@@ -82,7 +85,7 @@ export const indexSchema: CommandSchema = {
     {
       name: 'no-embed',
       type: 'boolean',
-      description: 'Skip semantic search prompt',
+      description: 'Skip semantic vector pruning and refresh',
     },
     {
       name: 'exclude',
@@ -125,14 +128,7 @@ export const indexSchema: CommandSchema = {
       name: 'watch',
       type: 'boolean',
       alias: 'w',
-      description: 'Watch for changes',
-    },
-    {
-      name: 'all',
-      type: 'boolean',
-      alias: 'a',
-      description:
-        'Index all registered sources from global config (~/.mdm/.mdm.toml)',
+      description: MANIFEST_WATCH_UNAVAILABLE_DESCRIPTION,
     },
     forceFlag,
     jsonFlag,
@@ -159,7 +155,7 @@ export const searchSchema: CommandSchema = {
       name: 'mode',
       type: 'string',
       alias: 'm',
-      description: 'Force search mode (semantic or keyword)',
+      description: 'Force search mode (semantic, keyword, or hybrid)',
     },
     {
       name: 'limit',
@@ -235,11 +231,6 @@ export const searchSchema: CommandSchema = {
       name: 'rerank-init',
       type: 'boolean',
       description: 'Initialize re-ranking model',
-    },
-    {
-      name: 'timeout',
-      type: 'string',
-      description: 'Search timeout in milliseconds',
     },
     {
       name: 'summarize',

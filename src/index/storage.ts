@@ -6,19 +6,18 @@ import * as crypto from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { Effect, Schema } from 'effect'
-
+import {
+  DeclaredPathSchema,
+  DocumentKeySchema,
+  isDocumentKey,
+} from '../db/canonical.js'
 import {
   DirectoryCreateError,
   FileReadError,
   FileWriteError,
   IndexCorruptedError,
 } from '../errors/index.js'
-import type {
-  DocumentIndex,
-  IndexConfig,
-  LinkIndex,
-  SectionIndex,
-} from './types.js'
+import type { DocumentIndex, LinkIndex, SectionIndex } from './types.js'
 import { getIndexPaths, INDEX_VERSION } from './types.js'
 
 // ============================================================================
@@ -27,7 +26,14 @@ import { getIndexPaths, INDEX_VERSION } from './types.js'
 
 const DocumentEntrySchema = Schema.Struct({
   id: Schema.String,
-  path: Schema.String,
+  path: DocumentKeySchema,
+  paths: Schema.Array(DocumentKeySchema),
+  declaredPaths: Schema.Array(DeclaredPathSchema),
+  identity: Schema.Struct({
+    device: Schema.String,
+    inode: Schema.String,
+  }),
+  comparisonKey: Schema.String,
   title: Schema.String,
   mtime: Schema.Number,
   hash: Schema.String,
@@ -35,16 +41,22 @@ const DocumentEntrySchema = Schema.Struct({
   sectionCount: Schema.Number,
 })
 
+const documentKeyRecord = <A, I, R>(value: Schema.Schema<A, I, R>) =>
+  Schema.Record({ key: Schema.String, value }).pipe(
+    Schema.filter((record) => Object.keys(record).every(isDocumentKey), {
+      identifier: 'DocumentKeyRecord',
+    }),
+  )
+
 const DocumentIndexSchema = Schema.Struct({
-  version: Schema.Number,
-  rootPath: Schema.String,
-  documents: Schema.Record({ key: Schema.String, value: DocumentEntrySchema }),
+  version: Schema.Literal(INDEX_VERSION),
+  documents: documentKeyRecord(DocumentEntrySchema),
 })
 
 const SectionEntrySchema = Schema.Struct({
   id: Schema.String,
   documentId: Schema.String,
-  documentPath: Schema.String,
+  documentPath: DocumentKeySchema,
   heading: Schema.String,
   level: Schema.Literal(1, 2, 3, 4, 5, 6),
   startLine: Schema.Number,
@@ -56,7 +68,7 @@ const SectionEntrySchema = Schema.Struct({
 })
 
 const SectionIndexSchema = Schema.Struct({
-  version: Schema.Number,
+  version: Schema.Literal(INDEX_VERSION),
   sections: Schema.Record({ key: Schema.String, value: SectionEntrySchema }),
   byHeading: Schema.Record({
     key: Schema.String,
@@ -68,26 +80,17 @@ const SectionIndexSchema = Schema.Struct({
   }),
 })
 
-const LinkIndexSchema = Schema.Struct({
-  version: Schema.Number,
-  forward: Schema.Record({
-    key: Schema.String,
-    value: Schema.Array(Schema.String),
-  }),
-  backward: Schema.Record({
-    key: Schema.String,
-    value: Schema.Array(Schema.String),
-  }),
-  broken: Schema.Array(Schema.String),
+const LinkEdgeSchema = Schema.Struct({
+  documentPath: DocumentKeySchema,
+  sectionId: Schema.optional(Schema.String),
 })
 
-const IndexConfigSchema = Schema.Struct({
-  version: Schema.Number,
-  rootPath: Schema.String,
-  include: Schema.Array(Schema.String),
-  exclude: Schema.Array(Schema.String),
-  createdAt: Schema.String,
-  updatedAt: Schema.String,
+const LinkIndexSchema = Schema.Struct({
+  version: Schema.Literal(INDEX_VERSION),
+  forward: documentKeyRecord(Schema.Array(LinkEdgeSchema)),
+  backward: documentKeyRecord(Schema.Array(LinkEdgeSchema)),
+  brokenBySource: documentKeyRecord(Schema.Array(DeclaredPathSchema)),
+  broken: Schema.Array(DeclaredPathSchema),
 })
 
 // ============================================================================
@@ -102,11 +105,24 @@ const IndexConfigSchema = Schema.Struct({
 type CacheEntry<T> = { mtimeMs: number; data: T }
 const indexCache = new Map<string, CacheEntry<unknown>>()
 
-/**
- * Clear the entire index cache. Useful for testing.
- */
-export const clearIndexCache = (): void => {
-  indexCache.clear()
+/** Clear one index root, or the entire in-memory cache when omitted. */
+export const clearIndexCache = (indexRoot?: string): void => {
+  if (indexRoot === undefined) {
+    indexCache.clear()
+    return
+  }
+  const root = path.resolve(indexRoot)
+  for (const filePath of indexCache.keys()) {
+    const relative = path.relative(root, filePath)
+    if (
+      relative === '' ||
+      (!path.isAbsolute(relative) &&
+        relative !== '..' &&
+        !relative.startsWith(`..${path.sep}`))
+    ) {
+      indexCache.delete(filePath)
+    }
+  }
 }
 
 /**
@@ -224,6 +240,21 @@ const readJsonFile = <A, I>(
         }),
     })
 
+    if (
+      parsed !== null &&
+      typeof parsed === 'object' &&
+      'version' in parsed &&
+      parsed.version !== INDEX_VERSION
+    ) {
+      return yield* Effect.fail(
+        new IndexCorruptedError({
+          path: filePath,
+          reason: 'VersionMismatch',
+          details: `Expected index version ${INDEX_VERSION}, received ${String(parsed.version)}`,
+        }),
+      )
+    }
+
     // Validate against schema
     return yield* Schema.decodeUnknown(schema)(parsed).pipe(
       Effect.mapError(
@@ -286,57 +317,26 @@ export const computeHash = (content: string): string => {
 // ============================================================================
 
 export interface IndexStorage {
-  readonly rootPath: string
+  readonly sourceRoot: string
+  readonly indexRoot: string
   readonly paths: ReturnType<typeof getIndexPaths>
 }
 
-export const createStorage = (rootPath: string): IndexStorage => ({
-  rootPath: path.resolve(rootPath),
-  paths: getIndexPaths(path.resolve(rootPath)),
+export const createStorage = (
+  sourceRoot: string,
+  indexRoot: string,
+): IndexStorage => ({
+  sourceRoot: path.resolve(sourceRoot),
+  indexRoot: path.resolve(indexRoot),
+  paths: getIndexPaths(indexRoot),
 })
 
 export const initializeIndex = (
   storage: IndexStorage,
-): Effect.Effect<
-  void,
-  DirectoryCreateError | FileReadError | FileWriteError | IndexCorruptedError
-> =>
+): Effect.Effect<void, DirectoryCreateError> =>
   Effect.gen(function* () {
     yield* ensureDir(storage.paths.root)
-    yield* ensureDir(storage.paths.parsed)
     yield* ensureDir(path.dirname(storage.paths.documents))
-
-    // Create default config if it doesn't exist
-    const existingConfig = yield* loadConfig(storage)
-    if (!existingConfig) {
-      const config: IndexConfig = {
-        version: INDEX_VERSION,
-        rootPath: storage.rootPath,
-        include: ['**/*.md', '**/*.mdx'],
-        exclude: ['**/node_modules/**', '**/.*/**'],
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      }
-      yield* saveConfig(storage, config)
-    }
-  })
-
-// ============================================================================
-// Config Operations
-// ============================================================================
-
-export const loadConfig = (
-  storage: IndexStorage,
-): Effect.Effect<IndexConfig | null, FileReadError | IndexCorruptedError> =>
-  readJsonFile(storage.paths.config, IndexConfigSchema)
-
-export const saveConfig = (
-  storage: IndexStorage,
-  config: IndexConfig,
-): Effect.Effect<void, DirectoryCreateError | FileWriteError> =>
-  writeJsonFile(storage.paths.config, {
-    ...config,
-    updatedAt: new Date().toISOString(),
   })
 
 // ============================================================================
@@ -354,9 +354,8 @@ export const saveDocumentIndex = (
 ): Effect.Effect<void, DirectoryCreateError | FileWriteError> =>
   writeJsonFile(storage.paths.documents, index)
 
-export const createEmptyDocumentIndex = (rootPath: string): DocumentIndex => ({
+export const createEmptyDocumentIndex = (): DocumentIndex => ({
   version: INDEX_VERSION,
-  rootPath,
   documents: {},
 })
 
@@ -401,6 +400,7 @@ export const createEmptyLinkIndex = (): LinkIndex => ({
   version: INDEX_VERSION,
   forward: Object.create(null),
   backward: Object.create(null),
+  brokenBySource: Object.create(null),
   broken: [],
 })
 
@@ -413,8 +413,9 @@ export const indexExists = (
 ): Effect.Effect<boolean, FileReadError> =>
   Effect.tryPromise({
     try: async () => {
+      const indexesDir = path.dirname(storage.paths.documents)
       try {
-        await fs.access(storage.paths.config)
+        await fs.access(indexesDir)
         return true
       } catch {
         return false
@@ -422,7 +423,7 @@ export const indexExists = (
     },
     catch: (e) =>
       new FileReadError({
-        path: storage.paths.config,
+        path: path.dirname(storage.paths.documents),
         message: e instanceof Error ? e.message : String(e),
         cause: e,
       }),

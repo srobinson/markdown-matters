@@ -2,7 +2,7 @@ name: CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, 'design/**']
   workflow_dispatch:
     inputs:
       include_embed_tests:
