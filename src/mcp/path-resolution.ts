@@ -6,6 +6,12 @@ import { candidatesWithinRoots } from '../db/canonical.js'
 import type { GenerationReadSession } from '../db/generation-reader.js'
 import { resolveIndexedDocumentKey } from '../index/link-index.js'
 import { loadManifest } from '../manifest.js'
+import {
+  buildOutOfCorpusGuidance,
+  type CorpusInspection,
+  formatReadGuidance,
+} from '../read-guidance.js'
+import { inspectCorpus } from '../search/path-matcher.js'
 
 export class PathNotInIndexedCorpusError extends Data.TaggedError(
   'PathNotInIndexedCorpusError',
@@ -14,10 +20,13 @@ export class PathNotInIndexedCorpusError extends Data.TaggedError(
   readonly message: string
 }> {}
 
-const notInCorpus = (filePath: string): PathNotInIndexedCorpusError =>
+const notInCorpus = (
+  filePath: string,
+  inspection: CorpusInspection,
+): PathNotInIndexedCorpusError =>
   new PathNotInIndexedCorpusError({
     path: filePath,
-    message: `Path not in indexed corpus: ${filePath}`,
+    message: formatReadGuidance(buildOutOfCorpusGuidance(inspection, filePath)),
   })
 
 export const resolveMcpDocumentPath = (
@@ -31,8 +40,15 @@ export const resolveMcpDocumentPath = (
       candidatesWithinRoots(roots, filePath),
     )
 
-    if (candidates.length === 0)
-      return yield* Effect.fail(notInCorpus(filePath))
+    if (candidates.length === 0) {
+      const inspection = yield* inspectCorpus(
+        session,
+        roots[0] ?? session.indexRoot,
+        undefined,
+        manifest,
+      )
+      return yield* Effect.fail(notInCorpus(filePath, inspection))
+    }
 
     for (const candidate of path.isAbsolute(filePath)
       ? candidates.slice(0, 1)

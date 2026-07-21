@@ -9,10 +9,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defaultConfig } from '../config/schema.js'
 import type { DocumentKey } from '../db/canonical.js'
 import { refreshManifestIndex } from '../index/manifest-refresh.js'
-import { createStorage, loadDocumentIndex } from '../index/storage.js'
+import {
+  createStorage,
+  loadDocumentIndex,
+  loadSectionIndex,
+} from '../index/storage.js'
 import { appendManifestDirectory } from '../manifest.js'
+import { mcpText } from './adapter.js'
 
 const semanticResult = vi.hoisted(() => ({
+  calls: 0,
+  error: null as Error | null,
   current: [] as Array<{
     id: string
     sectionId: string
@@ -35,15 +42,20 @@ vi.mock('../embeddings/semantic-search.js', async (importOriginal) => {
       sourceRoot: string,
       query: string,
       options: Parameters<typeof postProcessResults>[4],
-    ) =>
-      postProcessResults(
+    ) => {
+      semanticResult.calls += 1
+      if (semanticResult.error !== null) {
+        return Effect.fail(semanticResult.error)
+      }
+      return postProcessResults(
         session,
         sourceRoot,
         semanticResult.current,
         query,
         options,
         options.limit ?? 5,
-      ).pipe(Effect.map(({ results }) => results)),
+      ).pipe(Effect.map(({ results }) => results))
+    },
   }
 })
 
@@ -60,6 +72,10 @@ interface PathFixture {
   readonly parent: string
   readonly home: string
   readonly callerRoot: string
+  readonly corpusRoots: readonly string[]
+  readonly contentDocumentCount: number
+  readonly documentCount: number
+  readonly examplePaths: readonly string[]
   readonly repoRoot: string
   readonly source: string
   readonly sourceAlias: string
@@ -74,6 +90,7 @@ interface PathFixture {
   readonly literalMeta: string | null
   readonly literalDecoy: string | null
   readonly outside: string
+  readonly sourceSectionTokenCount: number
 }
 
 const resultText = (result: CallToolResult): string =>
@@ -156,6 +173,10 @@ const createFixture = async (): Promise<PathFixture> => {
   const documentIndex = await Effect.runPromise(
     loadDocumentIndex(createStorage(repoRoot, published.indexRoot)),
   )
+  const sectionIndex = await Effect.runPromise(
+    loadSectionIndex(createStorage(repoRoot, published.indexRoot)),
+  )
+  const documents = Object.values(documentIndex?.documents ?? {})
   const hardlinkPaths = new Set([
     await fs.realpath(hardlinkSource),
     await fs.realpath(hardlinkAlias),
@@ -174,13 +195,27 @@ const createFixture = async (): Promise<PathFixture> => {
   if (!nonSurvivingAlias) {
     throw new Error('Hardlink fixture has no non-surviving alias')
   }
+  const canonicalSource = await fs.realpath(source)
+  const sourceSection = Object.values(sectionIndex?.sections ?? {}).find(
+    (section) =>
+      section.documentPath === canonicalSource &&
+      section.heading === 'Search Source',
+  )
+  if (!sourceSection) throw new Error('Search source section was not indexed')
 
   return {
     parent,
     home,
     callerRoot,
+    corpusRoots: [mdxRoot, repoRoot],
+    contentDocumentCount: literalMeta === null ? 3 : 5,
+    documentCount: documents.length,
+    examplePaths: documents
+      .map((document) => document.path)
+      .sort()
+      .slice(0, 3),
     repoRoot,
-    source: await fs.realpath(source),
+    source: canonicalSource,
     sourceAlias,
     target: await fs.realpath(target),
     inbound: await fs.realpath(inbound),
@@ -193,6 +228,7 @@ const createFixture = async (): Promise<PathFixture> => {
     literalMeta: literalMeta ? await fs.realpath(literalMeta) : null,
     literalDecoy: literalDecoy ? await fs.realpath(literalDecoy) : null,
     outside: await fs.realpath(outside),
+    sourceSectionTokenCount: sourceSection.tokenCount,
   }
 }
 
@@ -240,15 +276,43 @@ const filteredPaths = (
   emittedKeywordPaths(results[1]),
 ]
 
+const firstRunPointer =
+  'No index found.\n\nRun: mdm index /path/to/docs\n  Add --embed for semantic search capabilities'
+
+const filterMissPointer = (): string =>
+  `path_filter matched 0 of ${fixture.documentCount} documents. Corpus paths look like: ${fixture.examplePaths.join(', ')}. Corpus roots: [${fixture.corpusRoots.join(', ')}].`
+
+const queryMissPointer = (query: string, matchingDocuments?: number): string =>
+  matchingDocuments === undefined
+    ? `no matches for "${query}" across ${fixture.documentCount} indexed documents`
+    : `no matches for "${query}" among the ${matchingDocuments} documents matching your path_filter`
+
+const expectedSourceInspection = (): readonly CallToolResult[] => [
+  mcpText(
+    `# Search Source\nPath: ${fixture.source}\nTokens: 99 (89% reduction from 19)\n\n**Topics:** search source\n\n# Search Source [L1-3]\nTarget`,
+  ),
+  mcpText(
+    `# Search Source\nPath: ${fixture.source}\nTotal tokens: 19\n\n# Search Source (${fixture.sourceSectionTokenCount} tokens)\n`,
+  ),
+  mcpText(
+    `Outgoing links from ${fixture.source}:\n\n  -> ${fixture.target}\n\nTotal: 1 links`,
+  ),
+  mcpText(
+    `Incoming links to ${fixture.source}:\n\n  <- ${fixture.inbound}\n\nTotal: 1 backlinks`,
+  ),
+]
+
 let fixture: PathFixture
 
-describe('MCP multi-root path round-trip contract', () => {
+const usePathFixture = (): void => {
   let previousHome: string | undefined
 
   beforeEach(async () => {
     previousHome = process.env.MDM_HOME
     fixture = await createFixture()
     process.env.MDM_HOME = fixture.home
+    semanticResult.calls = 0
+    semanticResult.error = null
     semanticResult.current = [
       fixture.source,
       fixture.target,
@@ -270,11 +334,17 @@ describe('MCP multi-root path round-trip contract', () => {
   })
 
   afterEach(async () => {
+    semanticResult.calls = 0
+    semanticResult.error = null
     semanticResult.current = []
     if (previousHome === undefined) delete process.env.MDM_HOME
     else process.env.MDM_HOME = previousHome
     await fs.rm(fixture.parent, { recursive: true, force: true })
   })
+}
+
+describe('MCP multi-root search path filters', () => {
+  usePathFixture()
 
   it('round-trips every canonical path emitted by md_search through all four tools', async () => {
     const search = await handleMdSearch(
@@ -293,11 +363,9 @@ describe('MCP multi-root path round-trip contract', () => {
       expect(results.every((result) => !result.isError)).toBe(true)
     }
 
-    const sourceResults = await inspectWithEveryPathTool(fixture.source)
-    expect(resultText(sourceResults[0]!)).toContain('Search Source')
-    expect(resultText(sourceResults[1]!)).toContain('Search Source')
-    expect(resultText(sourceResults[2]!)).toContain(fixture.target)
-    expect(resultText(sourceResults[3]!)).toContain(fixture.inbound)
+    expect(await inspectWithEveryPathTool(fixture.source)).toEqual(
+      expectedSourceInspection(),
+    )
   })
 
   it('reuses every displayed absolute search path as a canonical filter', async () => {
@@ -396,26 +464,183 @@ describe('MCP multi-root path round-trip contract', () => {
     const results = await filterWithBothSearchTools(fixture.outside)
 
     expect(results.every((result) => !result.isError)).toBe(true)
-    expect(resultText(results[0])).toContain('No results found')
-    expect(resultText(results[1])).toContain('No sections found')
+    expect(results.map(resultText)).toEqual([
+      filterMissPointer(),
+      filterMissPointer(),
+    ])
+    expect(semanticResult.calls).toBe(1)
     expect(filteredPaths(results)).toEqual([[], []])
   })
+})
+
+describe('MCP multi-root empty result guidance', () => {
+  usePathFixture()
+
+  it('uses first-run guidance for both search tools when no generation exists', async () => {
+    const emptyHome = path.join(fixture.parent, 'no-generation-home')
+    await fs.mkdir(emptyHome)
+    process.env.MDM_HOME = emptyHome
+
+    const results = await Promise.all([
+      handleMdSearch({ query: 'anything' }, fixture.callerRoot, defaultConfig),
+      handleMdKeywordSearch({ heading: 'anything' }, fixture.callerRoot),
+    ])
+
+    expect(results.every((result) => result.isError)).toBe(true)
+    for (const result of results) {
+      expect(resultText(result)).toContain(firstRunPointer)
+      expect(resultText(result)).not.toMatch(
+        /GenerationReadError|No current generation exists|Stack trace/,
+      )
+    }
+    expect(semanticResult.calls).toBe(0)
+  })
+
+  it('uses first-run guidance for both search tools when the indexed corpus is empty', async () => {
+    const emptyHome = path.join(fixture.parent, 'empty-corpus-home')
+    const emptyRoot = path.join(fixture.parent, 'empty-corpus-root')
+    await fs.mkdir(emptyRoot)
+    await Effect.runPromise(
+      appendManifestDirectory(emptyHome, { path: emptyRoot }),
+    )
+    await Effect.runPromise(
+      refreshManifestIndex(emptyHome, undefined, {
+        force: true,
+        semantic: { mode: 'skip' },
+      }),
+    )
+    process.env.MDM_HOME = emptyHome
+    semanticResult.current = []
+    semanticResult.error = new Error('Embeddings unavailable')
+
+    const results = await Promise.all([
+      handleMdSearch({ query: 'anything' }, fixture.callerRoot, defaultConfig),
+      handleMdKeywordSearch({ heading: 'anything' }, fixture.callerRoot),
+    ])
+
+    expect(results[0].isError).toBe(true)
+    expect(results[1].isError).toBeFalsy()
+    expect(results.map(resultText)).toEqual([
+      `Error: ${firstRunPointer}`,
+      firstRunPointer,
+    ])
+    expect(semanticResult.calls).toBe(1)
+  })
+
+  it('preserves search errors when the corpus contains documents', async () => {
+    semanticResult.error = new Error('Provider unavailable')
+
+    const result = await handleMdSearch(
+      { query: 'anything' },
+      fixture.callerRoot,
+      defaultConfig,
+    )
+
+    expect(result.isError).toBe(true)
+    expect(resultText(result)).toBe('Error: Provider unavailable')
+    expect(resultText(result)).not.toMatch(
+      /path_filter matched|corpus roots|no matches for|mdm index/,
+    )
+    expect(semanticResult.calls).toBe(1)
+  })
+
+  it('distinguishes query misses across both search tools', async () => {
+    semanticResult.current = []
+    const semanticQuery = 'no semantic match'
+    const keywordQuery = 'zzz_no_heading_match_zzz'
+
+    const results = await Promise.all([
+      handleMdSearch(
+        { query: semanticQuery },
+        fixture.callerRoot,
+        defaultConfig,
+      ),
+      handleMdKeywordSearch({ heading: keywordQuery }, fixture.callerRoot),
+    ])
+
+    expect(results.every((result) => !result.isError)).toBe(true)
+    expect(results.map(resultText)).toEqual([
+      queryMissPointer(semanticQuery),
+      queryMissPointer(keywordQuery),
+    ])
+    expect(semanticResult.calls).toBe(1)
+  })
+
+  it('counts only documents in a satisfiable path filter for query misses', async () => {
+    semanticResult.current = []
+    const pathFilter = 'content/*.md'
+    const semanticQuery = 'no filtered semantic match'
+    const keywordQuery = 'zzz_no_filtered_heading_match_zzz'
+
+    const results = await Promise.all([
+      handleMdSearch(
+        { query: semanticQuery, path_filter: pathFilter },
+        fixture.callerRoot,
+        defaultConfig,
+      ),
+      handleMdKeywordSearch(
+        { heading: keywordQuery, path_filter: pathFilter },
+        fixture.callerRoot,
+      ),
+    ])
+
+    expect(results.every((result) => !result.isError)).toBe(true)
+    expect(results.map(resultText)).toEqual([
+      queryMissPointer(semanticQuery, fixture.contentDocumentCount),
+      queryMissPointer(keywordQuery, fixture.contentDocumentCount),
+    ])
+    expect(semanticResult.calls).toBe(1)
+  })
+})
+
+describe('MCP multi-root successful search responses', () => {
+  usePathFixture()
+
+  it('keeps successful search responses unchanged and pointer-free', async () => {
+    semanticResult.current = [semanticResult.current[0]!]
+    const semanticQuery = 'stable-success'
+    const [semantic, keyword] = await Promise.all([
+      handleMdSearch(
+        { query: semanticQuery, limit: 1 },
+        fixture.callerRoot,
+        defaultConfig,
+      ),
+      handleMdKeywordSearch(
+        { heading: '^Search Source$', limit: 1 },
+        fixture.callerRoot,
+      ),
+    ])
+
+    expect(resultText(semantic)).toBe(
+      `Found 1 results for "${semanticQuery}":\n\n1. **search-source** (99.0% match)\n   ${fixture.source}`,
+    )
+    expect(resultText(keyword)).toBe(
+      `Found 1 sections:\n\n1. **Search Source**\n   ${fixture.source} (${fixture.sourceSectionTokenCount} tokens)`,
+    )
+    for (const result of [semantic, keyword]) {
+      expect(result.isError).toBeFalsy()
+      expect(resultText(result)).not.toMatch(
+        /path_filter matched|corpus roots|no matches for|mdm index/,
+      )
+    }
+  })
+})
+
+describe('MCP multi-root path inspection', () => {
+  usePathFixture()
 
   it('normalizes a symlink alias to the emitted canonical document path', async () => {
     const canonical = await inspectWithEveryPathTool(fixture.source)
     const alias = await inspectWithEveryPathTool(fixture.sourceAlias)
 
-    expect(alias.map(resultText)).toEqual(canonical.map(resultText))
+    expect(canonical).toEqual(expectedSourceInspection())
+    expect(alias).toEqual(expectedSourceInspection())
   })
 
   it('resolves relative paths against every served root instead of process CWD', async () => {
     const results = await inspectWithEveryPathTool('content/search-source.md')
 
-    expect(results.every((result) => !result.isError)).toBe(true)
-    expect(resultText(results[0]!)).toContain('Search Source')
-    expect(resultText(results[1]!)).toContain('Search Source')
-    expect(resultText(results[2]!)).toContain(fixture.target)
-    expect(resultText(results[3]!)).toContain(fixture.inbound)
+    expect(results).toEqual(expectedSourceInspection())
   })
 
   it('returns a clear typed signal for a path outside the indexed corpus', async () => {
@@ -424,6 +649,12 @@ describe('MCP multi-root path round-trip contract', () => {
     for (const result of results) {
       expect(result.isError).toBe(true)
       expect(resultText(result)).toContain('Path not in indexed corpus')
+      expect(resultText(result)).toContain(
+        `use an indexed path like [${fixture.examplePaths.join(', ')}]`,
+      )
+      expect(resultText(result)).toContain(
+        `corpus roots: [${fixture.corpusRoots.join(', ')}]`,
+      )
     }
     expect(resultText(results[2]!)).not.toContain('No outgoing links')
     expect(resultText(results[3]!)).not.toContain('No incoming links')

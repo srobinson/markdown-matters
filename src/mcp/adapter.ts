@@ -9,6 +9,8 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { Effect, Schema } from 'effect'
 
 import { resolvePathWithinRoot } from '../db/canonical.js'
+import { GenerationReadError } from '../db/generation-errors.js'
+import { formatFirstRunGuidance } from '../read-guidance.js'
 
 // ============================================================================
 // MCP Result Constructors
@@ -47,7 +49,16 @@ export const effectToMcpResult = async <A, E extends { message: string }>(
   Effect.runPromise(
     effect.pipe(
       Effect.map(format),
-      Effect.catchAll((e: E) => Effect.succeed(mcpError(e.message))),
+      Effect.catchAll((e: E) =>
+        Effect.succeed(
+          mcpError(
+            e instanceof GenerationReadError &&
+              e.reason === 'NoCurrentGeneration'
+              ? formatFirstRunGuidance()
+              : e.message,
+          ),
+        ),
+      ),
     ),
   )
 

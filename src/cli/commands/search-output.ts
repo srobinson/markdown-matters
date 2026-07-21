@@ -76,13 +76,24 @@ interface HybridOutputOptions {
   readonly pretty: boolean
   readonly modeReason: string
   readonly query: string
+  readonly guidance?: string | undefined
 }
 
 export const renderHybridOutput = (
   options: HybridOutputOptions,
 ): Effect.Effect<void> =>
   Effect.gen(function* () {
-    const { results, stats, rerank, json, pretty, modeReason, query } = options
+    const {
+      results,
+      stats,
+      rerank,
+      json,
+      pretty,
+      modeReason,
+      query,
+      guidance,
+    } = options
+    const emptyGuidance = results.length === 0 ? guidance : undefined
     if (rerank && !stats.reranked && !json) {
       yield* Console.log(
         'Note: --rerank requested but @huggingface/transformers not installed',
@@ -108,6 +119,7 @@ export const renderHybridOutput = (
             query,
             stats,
             moreAvailable,
+            ...(emptyGuidance === undefined ? {} : { guidance: emptyGuidance }),
             results: results.map((result) => ({
               path: result.documentPath,
               heading: result.heading,
@@ -136,6 +148,10 @@ export const renderHybridOutput = (
         : `Results: ${results.length}`,
     )
     yield* Console.log('')
+    if (emptyGuidance !== undefined) {
+      yield* Console.log(emptyGuidance)
+      yield* Console.log('')
+    }
     for (const result of results) {
       yield* Console.log(`  ${result.documentPath}`)
       yield* Console.log(
@@ -166,6 +182,7 @@ interface KeywordOutputOptions {
   readonly headingOnly: boolean
   readonly json: boolean
   readonly pretty: boolean
+  readonly guidance?: string | undefined
 }
 
 export const renderKeywordOutput = (
@@ -184,7 +201,9 @@ export const renderKeywordOutput = (
       headingOnly,
       json,
       pretty,
+      guidance,
     } = options
+    const emptyGuidance = results.length === 0 ? guidance : undefined
     if (json) {
       yield* Console.log(
         formatJson(
@@ -197,6 +216,7 @@ export const renderKeywordOutput = (
             fuzzy,
             stem,
             ...(fuzzyDistance !== undefined && { fuzzyDistance }),
+            ...(emptyGuidance === undefined ? {} : { guidance: emptyGuidance }),
             results: results.map((result) => ({
               path: result.section.documentPath,
               heading: result.section.heading,
@@ -228,6 +248,10 @@ export const renderKeywordOutput = (
     )
     yield* Console.log(`Results: ${results.length}`)
     yield* Console.log('')
+    if (emptyGuidance !== undefined) {
+      yield* Console.log(emptyGuidance)
+      yield* Console.log('')
+    }
     for (const result of results) {
       yield* Console.log(
         `  ${result.section.documentPath}:${result.section.startLine}`,
@@ -278,6 +302,7 @@ interface SemanticOutputOptions {
   readonly hyde: boolean
   readonly json: boolean
   readonly pretty: boolean
+  readonly guidance?: string | undefined
 }
 
 export const renderSemanticOutput = (
@@ -295,7 +320,9 @@ export const renderSemanticOutput = (
       hyde,
       json,
       pretty,
+      guidance,
     } = options
+    const emptyGuidance = results.length === 0 ? guidance : undefined
     const moreAvailable =
       totalAvailable !== undefined && totalAvailable > results.length
         ? totalAvailable - results.length
@@ -314,6 +341,7 @@ export const renderSemanticOutput = (
             belowThresholdCount,
             belowThresholdHighest,
             moreAvailable,
+            ...(emptyGuidance === undefined ? {} : { guidance: emptyGuidance }),
           },
           pretty,
         ),
@@ -334,6 +362,10 @@ export const renderSemanticOutput = (
         : `Results: ${results.length}`,
     )
     yield* Console.log('')
+    if (emptyGuidance !== undefined) {
+      yield* Console.log(emptyGuidance)
+      yield* Console.log('')
+    }
     for (const result of results) {
       yield* Console.log(`  ${result.documentPath}`)
       yield* Console.log(

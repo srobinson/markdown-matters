@@ -238,7 +238,9 @@ describe('MCP Server', () => {
 
       expect(result.isError).toBeFalsy()
       const text = getText(result)
-      expect(text).toContain('No sections found')
+      expect(text).toBe(
+        'no matches for "zzz_nonexistent_heading_zzz" across 3 indexed documents',
+      )
     })
 
     it('should respect limit parameter', async () => {
