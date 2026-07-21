@@ -39,5 +39,7 @@ it('does not lease source-only commands', async () => {
 
 it('passes one CLI search scope through every search channel', async () => {
   const source = await readCommand('search-mode')
-  expect(source.match(/pathPattern: context\.pathPattern/g)).toHaveLength(4)
+  expect(
+    source.match(/\.\.\.pathScopeOptions\(context\.pathPattern\)/g),
+  ).toHaveLength(4)
 })

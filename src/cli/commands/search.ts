@@ -12,7 +12,7 @@ const searchOptions = {
   ),
   path: Args.directory({ name: 'path' }).pipe(
     Args.withDescription('Directory to search in'),
-    Args.withDefault('.'),
+    Args.optional,
   ),
   keyword: Options.boolean('keyword').pipe(
     Options.withAlias('k'),

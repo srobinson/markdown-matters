@@ -7,7 +7,11 @@
 import * as path from 'node:path'
 import { Args, Command, Options } from '@effect/cli'
 import { Console, Effect, Option } from 'effect'
-import { detectDuplicates } from '../../duplicates/index.js'
+import type { GenerationReadSession } from '../../db/generation-reader.js'
+import {
+  type DuplicateDetectionResult,
+  detectDuplicates,
+} from '../../duplicates/index.js'
 import { resolveMdmHome } from '../../home.js'
 import { jsonOption, prettyOption } from '../options.js'
 import {
@@ -16,6 +20,64 @@ import {
   renderNoIndexGuidance,
   withCurrentGenerationGuidance,
 } from '../utils.js'
+
+const emptyDuplicateResult: DuplicateDetectionResult = {
+  groups: [],
+  sectionsAnalyzed: 0,
+  duplicatePairs: 0,
+  sectionsWithDuplicates: 0,
+}
+
+const renderDuplicateJson = (
+  result: DuplicateDetectionResult,
+  pretty: boolean,
+): Effect.Effect<void> =>
+  Console.log(
+    formatJson(
+      {
+        sectionsAnalyzed: result.sectionsAnalyzed,
+        duplicatePairs: result.duplicatePairs,
+        sectionsWithDuplicates: result.sectionsWithDuplicates,
+        groupCount: result.groups.length,
+        groups: result.groups.map((group) => ({
+          primary: {
+            path: group.primary.documentPath,
+            heading: group.primary.heading,
+            line: group.primary.startLine,
+          },
+          duplicates: group.duplicates.map((duplicate) => ({
+            path: duplicate.documentPath,
+            heading: duplicate.heading,
+            line: duplicate.startLine,
+          })),
+          method: group.method,
+          similarity: group.similarity,
+        })),
+      },
+      pretty,
+    ),
+  )
+
+const renderMissingDuplicateIndex = (
+  json: boolean,
+  pretty: boolean,
+): Effect.Effect<void> =>
+  json
+    ? renderDuplicateJson(emptyDuplicateResult, pretty)
+    : renderNoIndexGuidance(false, pretty)
+
+const withDuplicateGeneration = <A, E>(
+  json: boolean,
+  pretty: boolean,
+  use: (session: GenerationReadSession) => Effect.Effect<A, E>,
+) =>
+  withCurrentGenerationGuidance(
+    resolveMdmHome(),
+    json,
+    pretty,
+    use,
+    renderMissingDuplicateIndex,
+  )
 
 export const duplicatesCommand = Command.make(
   'duplicates',
@@ -39,7 +101,7 @@ export const duplicatesCommand = Command.make(
     pretty: prettyOption,
   },
   ({ path: dirPath, minLength, pathPattern, json, pretty }) =>
-    withCurrentGenerationGuidance(resolveMdmHome(), json, pretty, (session) =>
+    withDuplicateGeneration(json, pretty, (session) =>
       Effect.gen(function* () {
         const resolvedDir = path.resolve(dirPath)
 
@@ -47,7 +109,7 @@ export const duplicatesCommand = Command.make(
         const indexInfo = yield* getIndexInfo(session)
 
         if (!indexInfo.exists) {
-          yield* renderNoIndexGuidance(json, pretty)
+          yield* renderMissingDuplicateIndex(json, pretty)
           return
         }
 
@@ -58,27 +120,7 @@ export const duplicatesCommand = Command.make(
         })
 
         if (json) {
-          const output = {
-            sectionsAnalyzed: result.sectionsAnalyzed,
-            duplicatePairs: result.duplicatePairs,
-            sectionsWithDuplicates: result.sectionsWithDuplicates,
-            groupCount: result.groups.length,
-            groups: result.groups.map((g) => ({
-              primary: {
-                path: g.primary.documentPath,
-                heading: g.primary.heading,
-                line: g.primary.startLine,
-              },
-              duplicates: g.duplicates.map((d) => ({
-                path: d.documentPath,
-                heading: d.heading,
-                line: d.startLine,
-              })),
-              method: g.method,
-              similarity: g.similarity,
-            })),
-          }
-          yield* Console.log(formatJson(output, pretty))
+          yield* renderDuplicateJson(result, pretty)
         } else {
           yield* Console.log('Duplicate Content Analysis')
           yield* Console.log('')

@@ -55,13 +55,17 @@ export const withCurrentGenerationGuidance = <A, E>(
   json: boolean,
   pretty: boolean,
   use: (session: GenerationReadSession) => Effect.Effect<A, E>,
+  renderMissingGeneration: (
+    json: boolean,
+    pretty: boolean,
+  ) => Effect.Effect<void> = renderNoIndexGuidance,
 ) =>
   withCurrentGeneration(home, use).pipe(
     Effect.catchIf(
       (error): error is GenerationReadError =>
         error instanceof GenerationReadError &&
         error.reason === 'NoCurrentGeneration',
-      () => renderNoIndexGuidance(json, pretty),
+      () => renderMissingGeneration(json, pretty),
     ),
   )
 
