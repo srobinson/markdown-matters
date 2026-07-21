@@ -349,58 +349,56 @@ describe('stop / shutdown', () => {
 })
 
 describe('generation publication', () => {
-  const publicationTimeoutMs = process.platform === 'win32' ? 30_000 : 10_000
+  it('publishes watcher changes through the shared transaction', async () => {
+    vi.useRealTimers()
+    vi.doUnmock('./manifest-refresh.js')
+    vi.resetModules()
+    const parent = await fs.mkdtemp(path.join(os.tmpdir(), 'mdm-watch-gen-'))
+    const sourceRoot = path.join(parent, 'source')
+    const home = path.join(parent, 'home')
+    await Promise.all([
+      fs.mkdir(sourceRoot, { recursive: true }),
+      fs.mkdir(home, { recursive: true }),
+    ])
+    const sourceFile = path.join(sourceRoot, 'doc.md')
+    await fs.writeFile(sourceFile, '# One\nInitial body.\n')
+    let initialPublicationComplete = false
+    let resolveChangedPublication: (() => void) | undefined
+    const changedPublication = new Promise<void>((resolve) => {
+      resolveChangedPublication = resolve
+    })
 
-  it(
-    'publishes watcher changes through the shared transaction',
-    async () => {
-      vi.useRealTimers()
-      vi.doUnmock('./manifest-refresh.js')
-      vi.resetModules()
-      const parent = await fs.mkdtemp(path.join(os.tmpdir(), 'mdm-watch-gen-'))
-      const sourceRoot = path.join(parent, 'source')
-      const home = path.join(parent, 'home')
-      await Promise.all([
-        fs.mkdir(sourceRoot, { recursive: true }),
-        fs.mkdir(home, { recursive: true }),
-      ])
-      const sourceFile = path.join(sourceRoot, 'doc.md')
-      await fs.writeFile(sourceFile, '# One\nInitial body.\n')
+    try {
+      const watcherModule = await import('./watcher.js')
+      const paths = await import('../db/generation-paths.js')
+      const watcher = await Effect.runPromise(
+        watcherModule.watchDirectory(sourceRoot, {
+          indexRoot: home,
+          debounceMs: 20,
+          onIndex: () => {
+            if (initialPublicationComplete) resolveChangedPublication?.()
+          },
+        }),
+      )
+      expect(await Effect.runPromise(paths.readCurrentGeneration(home))).toBe(
+        'gen-1',
+      )
+      initialPublicationComplete = true
 
-      try {
-        const watcherModule = await import('./watcher.js')
-        const paths = await import('../db/generation-paths.js')
-        const watcher = await Effect.runPromise(
-          watcherModule.watchDirectory(sourceRoot, {
-            indexRoot: home,
-            debounceMs: 20,
-          }),
-        )
-        expect(await Effect.runPromise(paths.readCurrentGeneration(home))).toBe(
-          'gen-1',
-        )
-
-        await fs.writeFile(sourceFile, '# Two\nChanged body.\n')
-        mockWatcher.emit('change', sourceFile)
-        const deadline = Date.now() + publicationTimeoutMs
-        while (
-          (await Effect.runPromise(paths.readCurrentGeneration(home))) !==
-          'gen-2'
-        ) {
-          if (Date.now() > deadline)
-            throw new Error('Timed out waiting for gen-2')
-          await new Promise((resolve) => setTimeout(resolve, 25))
-        }
-        watcher.stop()
-      } finally {
-        await fs.rm(parent, {
-          recursive: true,
-          force: true,
-          maxRetries: 5,
-          retryDelay: 100,
-        })
-      }
-    },
-    publicationTimeoutMs + 10_000,
-  )
+      await fs.writeFile(sourceFile, '# Two\nChanged body.\n')
+      mockWatcher.emit('change', sourceFile)
+      await changedPublication
+      expect(await Effect.runPromise(paths.readCurrentGeneration(home))).toBe(
+        'gen-2',
+      )
+      watcher.stop()
+    } finally {
+      await fs.rm(parent, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 100,
+      })
+    }
+  }, 60_000)
 })
