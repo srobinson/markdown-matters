@@ -42,8 +42,8 @@ import {
   rerankResults,
 } from './cross-encoder.js'
 import {
-  prepareUserPathFilter,
   type PreparedPathFilter,
+  prepareUserPathFilter,
 } from './path-matcher.js'
 
 // ============================================================================
