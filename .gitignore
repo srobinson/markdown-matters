@@ -44,3 +44,6 @@ tests/fixtures/cli/.mdm/indexes/
 # Temporary files
 *.tmp
 *.temp
+
+# Editor workspace files (local only)
+*.code-workspace

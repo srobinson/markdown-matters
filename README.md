@@ -26,6 +26,8 @@ Your documentation is 50K tokens of markdown. LLM context windows are limited. R
 
 mdm extracts *structure* instead of dumping *text*. The result: **80%+ fewer tokens** while preserving everything needed to understand your docs.
 
+mdm indexes Obsidian, Foam, and Logseq style `[[wikilinks]]` alongside standard Markdown links.
+
 ```bash
 npm install -g markdown-matters
 mdm index .                     # Append this path and refresh the manifest
@@ -156,15 +158,14 @@ mdm search "how to implement auth" --hyde   # Expands query semantically
 
 #### AI Summarization
 
-Generate AI-powered summaries of search results:
+Generate AI summaries of search results with an installed, authenticated Claude Code CLI:
 
 ```bash
 mdm search "authentication" --summarize     # Get AI summary of results
-mdm search "error handling" -s --yes        # Skip cost confirmation
-mdm search "database" -s --stream           # Stream output in real-time
+mdm search "database" -s --stream           # Forward output chunks as received
 ```
 
-Uses your existing AI subscription (Claude Code, Copilot CLI) for free, or pay-per-use API providers. See [AI Summarization](#ai-summarization) for setup.
+Summarization currently uses `claude -p` with Claude Code's active authentication, including supported subscriptions. Other CLI and API summarization providers are not yet implemented. See [AI Summarization](#ai-summarization) for setup.
 
 ### context
 
@@ -208,6 +209,15 @@ Auto-detection: Directory shows file list, file shows document outline.
 ### links / backlinks
 
 Analyze link relationships.
+
+mdm indexes standard Markdown links such as `[Guide](./guide.md)` and these wikilink forms:
+
+- `[[Note]]` links to a note.
+- `[[Note|alias]]` uses the alias for display only.
+- `[[Note#Heading]]` records a section edge.
+- `[[folder/Note]]` targets a path.
+
+Path shaped targets resolve exactly. Other targets resolve by basename, case insensitively, across the indexed corpus. Unresolved targets are reported as broken links and do not create phantom edges.
 
 ```bash
 mdm links README.md             # What does this file link to?
@@ -396,24 +406,20 @@ Each refresh builds and validates a complete generation under `staging/`, rename
 
 ## AI Summarization
 
-Transform search results into actionable insights using AI.
+Transform search results into a Claude Code summary.
 
 ### Quick Start
 
 ```bash
-# Basic usage (auto-detects installed CLI tools)
 mdm search "authentication" --summarize
-
-# Skip confirmation for scripts
-mdm search "error handling" --summarize --yes
-
-# Stream output in real-time
 mdm search "database" --summarize --stream
 ```
 
-### First-Time Setup
+### Setup
 
-On first use, mdm auto-detects available providers:
+Install Claude Code and authenticate it before using `--summarize`. mdm invokes `claude -p` and uses Claude Code's active authentication. Claude Pro, Max, Team, and Enterprise subscriptions can authenticate through Claude Code. If `ANTHROPIC_API_KEY` is set, Claude Code applies its own credential precedence.
+
+mdm reports the selected provider before the summary:
 
 ```
 Using claude (subscription - FREE)
@@ -423,49 +429,20 @@ Using claude (subscription - FREE)
 Based on the search results, here are the key findings...
 ```
 
-### Providers
+### Current Provider
 
-**CLI Providers (FREE with subscription):**
-
-| Provider | Command | Subscription Required |
-|----------|---------|----------------------|
-| Claude Code | `claude` | Claude Pro/Team |
-| GitHub Copilot | `copilot` | Copilot subscription |
-| OpenCode | `opencode` | BYOK (any provider) |
-
-**API Providers (pay-per-use):**
-
-| Provider | Cost per 1M tokens* | Notes |
-|----------|--------------------|-------|
-| [DeepSeek](https://api-docs.deepseek.com/quick_start/pricing/) | $0.14–$0.87 | Ultra-cheap (V4 Flash→Pro) |
-| [Qwen](https://www.alibabacloud.com/help/en/model-studio/model-pricing) | $0.05–$7.50 | Budget (Flash→3.7-Max, intl list) |
-| [Google Gemini](https://ai.google.dev/gemini-api/docs/pricing) | $0.10–$18 | Balanced (2.5 Flash-Lite→3.1 Pro) |
-| [OpenAI GPT](https://developers.openai.com/api/docs/pricing) | $1–$30 | Premium (GPT-5.6 Luna→Sol) |
-| [Anthropic Claude](https://claude.com/pricing) | $1–$50 | Premium (Haiku 4.5→Fable 5) |
-
-*Pricing accurate as of 2026-07-21; standard pay-as-you-go rates, excludes batch/cache/Pro tiers. Provider list prices change frequently. Verify at the linked source.
+| Provider | Command | Status |
+|----------|---------|--------|
+| Claude Code | `claude` | Supported |
+| Other CLI and API providers | | Not yet implemented |
 
 ### Configuration
-
-**Option 1: Auto-detection (recommended)**
-
-Just run `--summarize` - mdm finds installed CLI tools automatically.
-
-**Option 2: Config file**
 
 ```toml
 # .mdm.toml
 [aiSummarization]
-mode = "cli"        # 'cli' (free) or 'api' (paid)
-provider = "claude" # Provider name
-```
-
-**Option 3: Environment variables**
-
-```bash
-export MDM_AISUMMARIZATION_MODE=api
-export MDM_AISUMMARIZATION_PROVIDER=deepseek
-export DEEPSEEK_API_KEY=sk-...
+mode = "cli"
+provider = "claude"
 ```
 
 ### CLI Flags
@@ -473,30 +450,7 @@ export DEEPSEEK_API_KEY=sk-...
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--summarize` | `-s` | Enable AI summarization |
-| `--yes` | `-y` | Skip cost confirmation |
-| `--stream` | | Stream output in real-time |
-
-### Cost Transparency
-
-API providers show cost estimates before proceeding:
-
-```
-Cost Estimate:
-  Provider: deepseek
-  Input tokens: ~2,500
-  Output tokens: ~500
-  Estimated cost: $0.0007
-
-Continue with summarization? [Y/n]:
-```
-
-CLI providers show free status:
-
-```
-Using claude (subscription - FREE)
-```
-
-See [docs/summarization.md](./docs/summarization.md) for architecture details and troubleshooting.
+| `--stream` | | Forward Claude CLI output chunks as received |
 
 ---
 
