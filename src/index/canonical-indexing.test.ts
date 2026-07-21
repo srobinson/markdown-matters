@@ -241,7 +241,7 @@ describe('canonical index construction', () => {
     )
     const newKey = (await fs.realpath(newSurvivor)) as DocumentKey
     const inboundKey = (await fs.realpath(inbound)) as DocumentKey
-    expect(links?.forward[inboundKey]).toEqual([newKey])
-    expect(links?.backward[newKey]).toEqual([inboundKey])
+    expect(links?.forward[inboundKey]).toEqual([{ documentPath: newKey }])
+    expect(links?.backward[newKey]).toEqual([{ documentPath: inboundKey }])
   })
 })

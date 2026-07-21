@@ -63,6 +63,17 @@ const loadStructuralState = (indexRoot: string) => {
   })
 }
 
+const loadCurrentStructuralState = (indexRoot: string | undefined) => {
+  if (indexRoot === undefined) return Effect.succeed(null)
+  return loadStructuralState(indexRoot).pipe(
+    Effect.catchTag('IndexCorruptedError', (error) =>
+      error.reason === 'VersionMismatch'
+        ? Effect.succeed(null)
+        : Effect.fail(error),
+    ),
+  )
+}
+
 const logicalVectorIndex = (index: VectorIndex) => ({
   ...index,
   createdAt: undefined,
@@ -146,9 +157,9 @@ export const buildManifestIndex = (
   options: ManifestBuildOptions,
 ) =>
   Effect.gen(function* () {
-    const currentStructural = options.currentIndexRoot
-      ? yield* loadStructuralState(options.currentIndexRoot)
-      : null
+    const currentStructural = yield* loadCurrentStructuralState(
+      options.currentIndexRoot,
+    )
     const roots = manifest.directories.map((directory) => directory.path)
     const results = yield* Effect.all(
       manifest.directories.map((directory) =>

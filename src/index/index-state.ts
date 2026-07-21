@@ -14,6 +14,7 @@ import {
 import type {
   DocumentEntry,
   DocumentIndex,
+  LinkEdge,
   LinkIndex,
   SectionEntry,
   SectionIndex,
@@ -27,8 +28,8 @@ export interface MutableIndexState {
   readonly sections: Record<string, SectionEntry>
   readonly byHeading: Record<string, string[]>
   readonly byDocument: Record<string, string[]>
-  readonly forward: Record<DocumentKey, DocumentKey[]>
-  readonly backward: Record<DocumentKey, DocumentKey[]>
+  readonly forward: Record<DocumentKey, LinkEdge[]>
+  readonly backward: Record<DocumentKey, LinkEdge[]>
   readonly brokenBySource: Record<DocumentKey, DeclaredPath[]>
 }
 
@@ -79,10 +80,12 @@ const removeForwardEdges = (
   source: DocumentKey,
 ): void => {
   for (const target of state.forward[source] ?? []) {
-    const backList = state.backward[target]
-    const index = backList?.indexOf(source) ?? -1
+    const backList = state.backward[target.documentPath]
+    const index =
+      backList?.findIndex((candidate) => candidate.documentPath === source) ??
+      -1
     if (index !== -1) backList?.splice(index, 1)
-    if (backList?.length === 0) delete state.backward[target]
+    if (backList?.length === 0) delete state.backward[target.documentPath]
   }
   delete state.forward[source]
 }
@@ -92,10 +95,10 @@ const removeIncomingEdges = (
   target: DocumentKey,
 ): void => {
   for (const source of state.backward[target] ?? []) {
-    const targets = state.forward[source]
+    const targets = state.forward[source.documentPath]
     if (targets) {
-      state.forward[source] = targets.filter(
-        (candidate) => candidate !== target,
+      state.forward[source.documentPath] = targets.filter(
+        (candidate) => candidate.documentPath !== target,
       )
     }
   }
@@ -132,7 +135,7 @@ export const deleteIndexedDocument = (
   if (entry) deleteIndexedDocumentByKey(state, entry.path)
 }
 
-const flattenSections = (
+export const flattenDocumentSections = (
   sections: readonly MdSection[],
   documentId: string,
   documentPath: DocumentKey,
@@ -161,7 +164,7 @@ const flattenSections = (
 export interface ApplyDocumentInput {
   readonly document: MdDocument
   readonly source: CanonicalSourceSelection
-  readonly resolvedLinks: readonly DocumentKey[]
+  readonly resolvedLinks: readonly LinkEdge[]
   readonly brokenLinks: readonly DeclaredPath[]
   readonly hash: string
   readonly mtime: number
@@ -197,7 +200,11 @@ export const applyDocument = (
     sectionCount: document.metadata.headingCount,
   }
 
-  const sections = flattenSections(document.sections, document.id, source.key)
+  const sections = flattenDocumentSections(
+    document.sections,
+    document.id,
+    source.key,
+  )
   state.byDocument[document.id] = []
   for (const section of sections) {
     state.sections[section.id] = section
@@ -208,9 +215,13 @@ export const applyDocument = (
   }
 
   for (const target of resolvedLinks) {
-    state.backward[target] ??= []
-    if (!state.backward[target]?.includes(source.key)) {
-      state.backward[target]?.push(source.key)
+    state.backward[target.documentPath] ??= []
+    if (
+      !state.backward[target.documentPath]?.some(
+        (candidate) => candidate.documentPath === source.key,
+      )
+    ) {
+      state.backward[target.documentPath]?.push({ documentPath: source.key })
     }
   }
   state.forward[source.key] = [...resolvedLinks]

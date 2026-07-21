@@ -339,8 +339,11 @@ describe('LinkIndex round-trip', () => {
     const d = expandDeclaredPath(path.join(storage.sourceRoot, 'd.md'))
     const index: LinkIndex = {
       version: INDEX_VERSION,
-      forward: { [a]: [b, c] },
-      backward: { [b]: [a], [c]: [a] },
+      forward: { [a]: [{ documentPath: b }, { documentPath: c }] },
+      backward: {
+        [b]: [{ documentPath: a }],
+        [c]: [{ documentPath: a }],
+      },
       brokenBySource: { [a]: [d] },
       broken: [d],
     }
@@ -349,8 +352,11 @@ describe('LinkIndex round-trip', () => {
     const loaded = await run(loadLinkIndex(storage))
 
     expect(loaded).not.toBeNull()
-    expect(loaded!.forward[a]).toEqual([b, c])
-    expect(loaded!.backward[b]).toEqual([a])
+    expect(loaded!.forward[a]).toEqual([
+      { documentPath: b },
+      { documentPath: c },
+    ])
+    expect(loaded!.backward[b]).toEqual([{ documentPath: a }])
     expect(loaded!.brokenBySource[a]).toEqual([d])
     expect(loaded!.broken).toEqual([d])
   })

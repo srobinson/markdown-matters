@@ -123,9 +123,9 @@ describe('buildIndex', () => {
       const guideKey = await fs.realpath(path.join(dir, 'guide.md'))
       const missingPath = path.resolve(dir, 'missing.md')
 
-      expect(documents?.version).toBe(2)
-      expect(sections?.version).toBe(2)
-      expect(links?.version).toBe(2)
+      expect(documents?.version).toBe(3)
+      expect(sections?.version).toBe(3)
+      expect(links?.version).toBe(3)
       expect(Object.keys(documents?.documents ?? {})).toContain(readmeKey)
       expect(documents?.documents[readmeKey as DocumentKey]?.path).toBe(
         readmeKey,
@@ -135,8 +135,12 @@ describe('buildIndex', () => {
           path.isAbsolute(section.documentPath),
         ),
       ).toBe(true)
-      expect(links?.forward[readmeKey as DocumentKey]).toContain(guideKey)
-      expect(links?.backward[guideKey as DocumentKey]).toContain(readmeKey)
+      expect(links?.forward[readmeKey as DocumentKey]).toContainEqual({
+        documentPath: guideKey,
+      })
+      expect(links?.backward[guideKey as DocumentKey]).toContainEqual({
+        documentPath: readmeKey,
+      })
       expect(links?.brokenBySource[readmeKey as DocumentKey]).toContain(
         missingPath,
       )
@@ -175,7 +179,7 @@ describe('buildIndex', () => {
           ),
         ),
       ).toEqual(new Set([key]))
-      expect(links?.forward[key]).toEqual([key])
+      expect(links?.forward[key]).toEqual([{ documentPath: key }])
       expect(links?.broken).toEqual([missing])
     })
 
@@ -427,7 +431,7 @@ describe('buildIndex', () => {
 
       expect(result.errors).toHaveLength(0)
       expect(result.totalDocuments).toBe(2) // other.md + new-name.md
-      expect(result.documentsIndexed).toBe(1) // only new-name.md was indexed
+      expect(result.documentsIndexed).toBe(2) // membership changes re-resolve name links
     })
   })
 

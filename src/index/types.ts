@@ -5,11 +5,10 @@
 import * as path from 'node:path'
 
 import type { HeadingLevel } from '../core/types.js'
-import {
-  CANONICAL_SCHEMA_VERSION,
-  type DeclaredPath,
-  type DocumentKey,
-  type FileIdentity,
+import type {
+  DeclaredPath,
+  DocumentKey,
+  FileIdentity,
 } from '../db/canonical.js'
 
 // ============================================================================
@@ -66,10 +65,15 @@ export interface SectionEntry {
 
 export interface LinkIndex {
   readonly version: typeof INDEX_VERSION
-  readonly forward: Record<DocumentKey, readonly DocumentKey[]>
-  readonly backward: Record<DocumentKey, readonly DocumentKey[]>
+  readonly forward: Record<DocumentKey, readonly LinkEdge[]>
+  readonly backward: Record<DocumentKey, readonly LinkEdge[]>
   readonly brokenBySource: Record<DocumentKey, readonly DeclaredPath[]>
   readonly broken: readonly DeclaredPath[]
+}
+
+export interface LinkEdge {
+  readonly documentPath: DocumentKey
+  readonly sectionId?: string | undefined
 }
 
 // ============================================================================
@@ -134,7 +138,7 @@ export interface FileProcessingError {
 // Index Paths
 // ============================================================================
 
-export const INDEX_VERSION = CANONICAL_SCHEMA_VERSION
+export const INDEX_VERSION = 3 as const
 
 export const getIndexPaths = (indexRoot: string) => {
   const root = path.resolve(indexRoot)

@@ -59,11 +59,16 @@ export interface SectionMetadata {
 // ============================================================================
 
 export type LinkType = 'internal' | 'external' | 'image'
+export type LinkSyntax = 'markdown' | 'wikilink'
+export type InternalLinkLookup = 'path' | 'basename'
 
 export interface MdLink {
   readonly type: LinkType
+  readonly syntax: LinkSyntax
+  readonly lookup: InternalLinkLookup
   readonly href: string
   readonly text: string
+  readonly heading?: string
   readonly sectionId: string
   readonly line: number
 }

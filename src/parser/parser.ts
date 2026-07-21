@@ -19,7 +19,7 @@ import type {
 import remarkGfm from 'remark-gfm'
 import remarkParse from 'remark-parse'
 import { unified } from 'unified'
-import { visit } from 'unist-util-visit'
+import { SKIP, visit } from 'unist-util-visit'
 import { parseDocument } from 'yaml'
 
 import type {
@@ -81,6 +81,41 @@ const isInternalLink = (href: string): boolean => {
   if (href.endsWith('.md') || href.includes('.md#')) return true
   return !href.includes('://')
 }
+
+const WIKILINK_PATTERN = /\[\[([^\][\n]+)\]\]/g
+
+const splitOnce = (value: string, separator: string): [string, string?] => {
+  const index = value.indexOf(separator)
+  return index === -1
+    ? [value]
+    : [value.slice(0, index), value.slice(index + separator.length)]
+}
+
+const extractWikilinks = (node: Text, sectionId: string): readonly MdLink[] =>
+  [...node.value.matchAll(WIKILINK_PATTERN)].flatMap((match) => {
+    const inner = match[1]?.trim() ?? ''
+    const [rawTarget, rawAlias] = splitOnce(inner, '|')
+    const target = rawTarget.trim()
+    const [rawDocumentTarget, rawHeading] = splitOnce(target, '#')
+    const documentTarget = rawDocumentTarget.trim()
+    if (!documentTarget) return []
+
+    const heading = rawHeading?.trim()
+    const prefix = node.value.slice(0, match.index)
+    const line = getNodeStartLine(node) + (prefix.match(/\n/g)?.length ?? 0)
+    return [
+      {
+        type: 'internal',
+        syntax: 'wikilink',
+        lookup: documentTarget.includes('/') ? 'path' : 'basename',
+        href: documentTarget,
+        text: rawAlias?.trim() || target,
+        ...(heading ? { heading } : {}),
+        sectionId,
+        line,
+      } satisfies MdLink,
+    ]
+  })
 
 const extractPlainText = (node: Parent | Root): string => {
   const texts: string[] = []
@@ -243,6 +278,7 @@ const extractLinks = (tree: Root, docId: string): MdLink[] => {
   visit(tree, (node) => {
     if (node.type === 'heading') {
       currentSectionId = `${docId}-${slugify(extractPlainText(node as Heading))}-L${getNodeStartLine(node)}`
+      return SKIP
     }
 
     if (node.type === 'link') {
@@ -250,23 +286,33 @@ const extractLinks = (tree: Root, docId: string): MdLink[] => {
       const internal = isInternalLink(link.url)
       links.push({
         type: internal ? 'internal' : 'external',
+        syntax: 'markdown',
+        lookup: 'path',
         href: link.url,
         text: extractPlainText(link),
         sectionId: currentSectionId,
         line: getNodeStartLine(node),
       })
+      return SKIP
     }
 
     if (node.type === 'image') {
       const img = node as Image
       links.push({
         type: 'image',
+        syntax: 'markdown',
+        lookup: 'path',
         href: img.url,
         text: img.alt ?? '',
         sectionId: currentSectionId,
         line: getNodeStartLine(node),
       })
     }
+
+    if (node.type === 'text') {
+      links.push(...extractWikilinks(node as Text, currentSectionId))
+    }
+    return undefined
   })
 
   return links
