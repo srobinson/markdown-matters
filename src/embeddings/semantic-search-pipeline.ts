@@ -217,7 +217,10 @@ export const prepareSearchPipeline = (
     const queryProviderConfig = options.providerConfig ?? { provider: 'openai' }
     const currentProviderName: ProviderId = queryProviderConfig.provider
     const queryModel = queryProviderConfig.model ?? 'text-embedding-3-small'
-    const dimensions = getRecommendedDimensions(queryModel) ?? 512
+    const dimensions =
+      queryProviderConfig.dimensions ??
+      getRecommendedDimensions(queryModel) ??
+      512
     const client = yield* createEmbeddingClient(currentProviderName, {
       baseURL: queryProviderConfig.baseURL,
     })

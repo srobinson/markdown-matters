@@ -253,6 +253,39 @@ describe('writeGeneration', () => {
 })
 
 describe('writeGeneration validation', () => {
+  it('discards a validated no-op staging generation', async () => {
+    const home = await createHome()
+    const oldRoot = await seedCurrent(home)
+    const events: string[] = []
+
+    const published = await Effect.runPromise(
+      writeGeneration(
+        {
+          home,
+          build: (context) => writeTitle(context, 'discarded'),
+          validate: (context) =>
+            validateGeneration(context.indexRoot).pipe(
+              Effect.tap(() => Effect.sync(() => events.push('validated'))),
+              Effect.asVoid,
+            ),
+          shouldPublish: () => false,
+        },
+        { scheduleReap: () => events.push('reaped') },
+      ),
+    )
+
+    expect(published).toMatchObject({
+      generation: 'gen-1',
+      indexRoot: oldRoot,
+      value: 'discarded',
+    })
+    expect(events).toEqual(['validated'])
+    expect(await Effect.runPromise(readCurrentGeneration(home))).toBe('gen-1')
+    expect(await readTitle(oldRoot)).toBe('old')
+    expect(await exists(path.join(home, 'gen-2'))).toBe(false)
+    expect(await fs.readdir(path.join(home, 'staging'))).toEqual([])
+  })
+
   it('runs prepare, build, and validation under the transaction in order', async () => {
     const home = await createHome()
     await seedCurrent(home)

@@ -6,6 +6,7 @@ import {
   type MdmConfig,
 } from '../../config/index.js'
 import type { GenerationReadSession } from '../../db/generation-reader.js'
+import { resolveQueryProviderConfig } from '../../embeddings/query-provider-config.js'
 import { semanticSearchWithStats } from '../../embeddings/semantic-search.js'
 import type { SearchQuality } from '../../embeddings/types.js'
 import { CliValidationError } from '../../errors/index.js'
@@ -31,7 +32,6 @@ import { getIndexInfo, type IndexInfo, isRegexPattern } from '../utils.js'
 import {
   handleMissingEmbeddings,
   initializeSearchReranker,
-  resolveProviderConfig,
   type SearchProvider,
 } from './search-embeddings.js'
 import {
@@ -127,6 +127,11 @@ const runHybridMode = (context: ExecutionContext) =>
       refineTerms.length > 0
         ? context.effectiveLimit * 5
         : context.effectiveLimit
+    const providerConfig = yield* resolveQueryProviderConfig(
+      context.session,
+      context.config.embeddings,
+      Option.getOrUndefined(input.provider),
+    )
     const { results: rawResults, stats } = yield* hybridSearch(
       context.session,
       context.sourceRoot,
@@ -142,6 +147,7 @@ const runHybridMode = (context: ExecutionContext) =>
         contextBefore: context.contextBefore,
         contextAfter: context.contextAfter,
         ...pathScopeOptions(context.pathPattern),
+        providerConfig,
       },
     )
     let results = rawResults
@@ -276,6 +282,11 @@ const runSemanticMode = (context: ExecutionContext) =>
       refineTerms.length > 0
         ? context.effectiveLimit * 5
         : context.effectiveLimit
+    const providerConfig = yield* resolveQueryProviderConfig(
+      context.session,
+      context.config.embeddings,
+      Option.getOrUndefined(input.provider),
+    )
     const searchResult = yield* semanticSearchWithStats(
       context.session,
       context.sourceRoot,
@@ -283,7 +294,7 @@ const runSemanticMode = (context: ExecutionContext) =>
       {
         limit: fetchLimit,
         threshold: context.effectiveThreshold,
-        providerConfig: resolveProviderConfig(input.provider),
+        providerConfig,
         quality: Option.getOrUndefined(input.quality) as
           | SearchQuality
           | undefined,

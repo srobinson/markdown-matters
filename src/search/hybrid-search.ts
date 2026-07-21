@@ -15,6 +15,7 @@ import type { GenerationReadSession } from '../db/generation-reader.js'
 import { listNamespaces } from '../embeddings/embedding-namespace.js'
 import { semanticSearch } from '../embeddings/semantic-search.js'
 import type {
+  EmbeddingProviderConfig,
   SearchQuality,
   SemanticSearchResult,
 } from '../embeddings/types.js'
@@ -68,6 +69,8 @@ export interface HybridSearchOptions {
   readonly contextBefore?: number | undefined
   /** Lines of context after matches */
   readonly contextAfter?: number | undefined
+  /** Complete query provider configuration resolved by the caller. */
+  readonly providerConfig?: EmbeddingProviderConfig | undefined
 }
 
 export interface HybridSearchResult {
@@ -98,10 +101,16 @@ export interface HybridSearchStats {
   readonly combinedResults: number
   readonly bm25Available: boolean
   readonly embeddingsAvailable: boolean
+  readonly semanticDegradation?: SemanticDegradation | undefined
   /** Whether re-ranking was applied */
   readonly reranked?: boolean
   /** Total unique results available before limit was applied */
   readonly totalAvailable?: number
+}
+
+export interface SemanticDegradation {
+  readonly reason: string
+  readonly message: string
 }
 
 export type HybridSearchError =
@@ -119,11 +128,22 @@ export interface SearchChannels {
   readonly keywordResults: readonly BM25SearchResult[]
   readonly hasEmbeddings: boolean
   readonly hasBM25: boolean
+  readonly semanticDegradation?: SemanticDegradation | undefined
 }
 
 type ProjectionOptions = Required<
   Pick<HybridSearchOptions, 'limit' | 'bm25Weight' | 'semanticWeight' | 'rrfK'>
 >
+
+const activeEmbeddingsExist = (indexRoot: string) =>
+  listNamespaces(indexRoot).pipe(
+    Effect.map((namespaces) =>
+      namespaces.some(
+        (namespace) => namespace.isActive && namespace.vectorCount > 0,
+      ),
+    ),
+    Effect.catchAll(() => Effect.succeed(false)),
+  )
 
 // ============================================================================
 // RRF Fusion
@@ -276,10 +296,11 @@ export const collectSearchChannels = (
       options.pathPattern,
     )
     const hasBM25 = yield* bm25IndexExists(session.indexRoot)
-    let hasEmbeddings = false
+    const hasEmbeddings = yield* activeEmbeddingsExist(session.indexRoot)
     let semanticResults: readonly SemanticSearchResult[] = []
+    let semanticDegradation: SemanticDegradation | undefined
 
-    if (options.mode !== 'keyword') {
+    if (options.mode !== 'keyword' && hasEmbeddings) {
       const semanticTry = yield* Effect.either(
         semanticSearch(session, sourceRoot, query, {
           limit: limit * 2,
@@ -289,11 +310,16 @@ export const collectSearchChannels = (
           quality: options.quality,
           contextBefore: options.contextBefore,
           contextAfter: options.contextAfter,
+          providerConfig: options.providerConfig,
         }),
       )
       if (semanticTry._tag === 'Right') {
-        hasEmbeddings = true
         semanticResults = semanticTry.right
+      } else {
+        semanticDegradation = {
+          reason: semanticTry.left._tag,
+          message: semanticTry.left.message,
+        }
       }
     }
 
@@ -305,7 +331,13 @@ export const collectSearchChannels = (
       )
     }
 
-    return { semanticResults, keywordResults, hasEmbeddings, hasBM25 }
+    return {
+      semanticResults,
+      keywordResults,
+      hasEmbeddings,
+      hasBM25,
+      ...(semanticDegradation ? { semanticDegradation } : {}),
+    }
   })
 
 export const selectEffectiveMode = (
@@ -451,6 +483,9 @@ export const hybridSearch = (
       combinedResults: reranking.results.length,
       bm25Available: channels.hasBM25,
       embeddingsAvailable: channels.hasEmbeddings,
+      ...(channels.semanticDegradation
+        ? { semanticDegradation: channels.semanticDegradation }
+        : {}),
       reranked: reranking.reranked,
       ...(projected.totalAvailable === undefined
         ? {}
@@ -477,10 +512,7 @@ export const detectSearchModes = (
     const hasBM25 = yield* bm25IndexExists(session.indexRoot)
 
     // Check embeddings by looking for namespaced vector stores
-    const hasEmbeddings = yield* listNamespaces(session.indexRoot).pipe(
-      Effect.map((namespaces) => namespaces.length > 0),
-      Effect.catchAll(() => Effect.succeed(false)),
-    )
+    const hasEmbeddings = yield* activeEmbeddingsExist(session.indexRoot)
 
     let recommendedMode: SearchMode
     if (hasBM25 && hasEmbeddings) {

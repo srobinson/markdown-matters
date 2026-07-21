@@ -1,10 +1,18 @@
+import { isDeepStrictEqual } from 'node:util'
 import { Effect } from 'effect'
 
 import { isPathWithin } from '../db/canonical.js'
 import {
+  listNamespaces,
+  readActiveProvider,
+} from '../embeddings/embedding-namespace.js'
+import { getMetaPath } from '../embeddings/embedding-namespace-paths.js'
+import type { VectorIndex } from '../embeddings/types.js'
+import {
   pruneVectorNamespaces,
   sectionDocumentHashes,
 } from '../embeddings/vector-prune.js'
+import { loadVectorIndex } from '../embeddings/vector-store-codec.js'
 import type { ManifestDirectory, MdmManifest } from '../manifest.js'
 import { buildBM25Index } from './bm25-build.js'
 import {
@@ -17,12 +25,85 @@ import { buildDiscoveredIndex, type IndexOptions } from './index-build.js'
 import {
   createStorage,
   loadDocumentIndex,
+  loadLinkIndex,
   loadSectionIndex,
 } from './storage.js'
+import type { DocumentIndex, IndexResult } from './types.js'
 
 export interface ManifestBuildOptions extends IndexOptions {
   readonly reconcileVectors?: boolean | undefined
+  readonly currentIndexRoot?: string | undefined
 }
+
+export interface ManifestBuildResult extends IndexResult {
+  readonly mutation: {
+    readonly structural: boolean
+  }
+}
+
+const logicalDocuments = (index: DocumentIndex | null) =>
+  index === null
+    ? null
+    : {
+        ...index,
+        documents: Object.fromEntries(
+          Object.entries(index.documents).map(([key, entry]) => [
+            key,
+            { ...entry, mtime: undefined },
+          ]),
+        ),
+      }
+
+const loadStructuralState = (indexRoot: string) => {
+  const storage = createStorage(indexRoot, indexRoot)
+  return Effect.all({
+    documents: loadDocumentIndex(storage).pipe(Effect.map(logicalDocuments)),
+    sections: loadSectionIndex(storage),
+    links: loadLinkIndex(storage),
+  })
+}
+
+const logicalVectorIndex = (index: VectorIndex) => ({
+  ...index,
+  createdAt: undefined,
+  updatedAt: undefined,
+  totalCost: undefined,
+  totalTokens: undefined,
+})
+
+const loadSemanticState = (indexRoot: string) =>
+  Effect.gen(function* () {
+    const active = yield* readActiveProvider(indexRoot)
+    const namespaces = yield* listNamespaces(indexRoot)
+    const vectors = yield* Effect.all(
+      [...namespaces]
+        .sort((left, right) => left.namespace.localeCompare(right.namespace))
+        .map((namespace) =>
+          loadVectorIndex(getMetaPath(indexRoot, namespace.namespace)).pipe(
+            Effect.map((index) => ({
+              namespace: namespace.namespace,
+              index: logicalVectorIndex(index),
+            })),
+          ),
+        ),
+      { concurrency: 4 },
+    )
+    return {
+      active: active === null ? null : { ...active, activatedAt: undefined },
+      vectors,
+    }
+  })
+
+export const semanticIndexChanged = (
+  currentIndexRoot: string,
+  stagedIndexRoot: string,
+) =>
+  Effect.all({
+    current: loadSemanticState(currentIndexRoot),
+    staged: loadSemanticState(stagedIndexRoot),
+  }).pipe(
+    Effect.map(({ current, staged }) => !isDeepStrictEqual(current, staged)),
+  )
 
 const emptyDiscovery = (): FileDiscoveryResult => ({
   files: [],
@@ -65,6 +146,9 @@ export const buildManifestIndex = (
   options: ManifestBuildOptions,
 ) =>
   Effect.gen(function* () {
+    const currentStructural = options.currentIndexRoot
+      ? yield* loadStructuralState(options.currentIndexRoot)
+      : null
     const roots = manifest.directories.map((directory) => directory.path)
     const results = yield* Effect.all(
       manifest.directories.map((directory) =>
@@ -111,5 +195,13 @@ export const buildManifestIndex = (
       )
     }
     yield* buildBM25Index(options.indexRoot, { force: true })
-    return result
+    const stagedStructural = yield* loadStructuralState(options.indexRoot)
+    return {
+      ...result,
+      mutation: {
+        structural:
+          currentStructural === null ||
+          !isDeepStrictEqual(currentStructural, stagedStructural),
+      },
+    } satisfies ManifestBuildResult
   })

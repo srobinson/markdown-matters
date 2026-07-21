@@ -497,3 +497,132 @@ it('keeps current unchanged when staged semantic refresh fails', async () => {
     fs.access(path.join(fixture.home, 'indexes')),
   ).rejects.toMatchObject({ code: 'ENOENT' })
 })
+
+it('publishes only structural changes across identical, edited, and deleted corpora', async () => {
+  const fixture = await makeManifestRoots()
+  await Effect.runPromise(
+    appendManifestDirectory(fixture.home, { path: fixture.first }),
+  )
+  const source = path.join(fixture.first, 'first.md')
+
+  const first = await Effect.runPromise(
+    refreshManifestIndex(fixture.home, undefined, {
+      semantic: { mode: 'skip' },
+    }),
+  )
+  const touched = new Date(Date.now() + 10_000)
+  await fs.utimes(source, touched, touched)
+  const identical = await Effect.runPromise(
+    refreshManifestIndex(fixture.home, undefined, {
+      semantic: { mode: 'skip' },
+    }),
+  )
+
+  expect(identical.generation).toBe(first.generation)
+  expect(identical.indexRoot).toBe(first.indexRoot)
+  expect(identical.mutation).toEqual({
+    structural: false,
+    semantic: false,
+    changed: false,
+  })
+  await expect(
+    fs.access(path.join(fixture.home, 'gen-2')),
+  ).rejects.toMatchObject({ code: 'ENOENT' })
+
+  await fs.writeFile(
+    source,
+    '# first\n\nupdated corpus content with enough words for a real logical index change',
+  )
+  const edited = await Effect.runPromise(
+    refreshManifestIndex(fixture.home, undefined, {
+      semantic: { mode: 'skip' },
+    }),
+  )
+  expect(edited.generation).not.toBe(first.generation)
+  expect(edited.mutation).toMatchObject({ structural: true, changed: true })
+
+  await fs.rm(source)
+  const deleted = await Effect.runPromise(
+    refreshManifestIndex(fixture.home, undefined, {
+      semantic: { mode: 'skip' },
+    }),
+  )
+  expect(deleted.generation).not.toBe(edited.generation)
+  expect(deleted.value.documentsIndexed).toBe(0)
+  expect(deleted.value.totalDocuments).toBe(0)
+  expect(deleted.mutation).toMatchObject({ structural: true, changed: true })
+})
+
+it('detects semantic no-ops and embedding-only changes', async () => {
+  const fixture = await makeManifestRoots()
+  await Effect.runPromise(
+    appendManifestDirectory(fixture.home, { path: fixture.first }),
+  )
+  const firstClient: EmbeddingClient = {
+    embed: (texts) =>
+      Effect.succeed({
+        embeddings: texts.map(() => [1, 0]),
+        model: 'test-model',
+        usage: { inputTokens: texts.length },
+      }),
+  }
+  const first = await Effect.runPromise(
+    refreshManifestIndex(fixture.home, undefined, {
+      semantic: {
+        mode: 'build',
+        options: {
+          client: firstClient,
+          providerConfig: {
+            provider: 'openai',
+            model: 'test-model',
+            dimensions: 2,
+          },
+        },
+      },
+    }),
+  )
+  const identical = await Effect.runPromise(
+    refreshManifestIndex(fixture.home, undefined, {
+      semantic: { mode: 'active', client: firstClient },
+    }),
+  )
+
+  expect(identical.generation).toBe(first.generation)
+  expect(identical.mutation).toEqual({
+    structural: false,
+    semantic: false,
+    changed: false,
+  })
+
+  const changedClient: EmbeddingClient = {
+    embed: (texts) =>
+      Effect.succeed({
+        embeddings: texts.map(() => [0, 1]),
+        model: 'test-model',
+        usage: { inputTokens: texts.length },
+      }),
+  }
+  const reembedded = await Effect.runPromise(
+    refreshManifestIndex(fixture.home, undefined, {
+      semantic: {
+        mode: 'build',
+        options: {
+          force: true,
+          client: changedClient,
+          providerConfig: {
+            provider: 'openai',
+            model: 'test-model',
+            dimensions: 2,
+          },
+        },
+      },
+    }),
+  )
+
+  expect(reembedded.generation).not.toBe(first.generation)
+  expect(reembedded.mutation).toEqual({
+    structural: false,
+    semantic: true,
+    changed: true,
+  })
+})

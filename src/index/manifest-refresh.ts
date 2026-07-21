@@ -5,6 +5,7 @@ import type {
   ProcessIdentityError,
   WriterLockError,
 } from '../db/generation-errors.js'
+import { generationLayout } from '../db/generation-paths.js'
 import type {
   GenerationPreflight,
   PublishedGeneration,
@@ -19,7 +20,11 @@ import {
   manifestPath,
 } from '../manifest.js'
 import type { IndexOptions } from './index-build.js'
-import { buildManifestIndex } from './manifest-build.js'
+import {
+  buildManifestIndex,
+  type ManifestBuildResult,
+  semanticIndexChanged,
+} from './manifest-build.js'
 import {
   refreshSemanticGeneration,
   type SemanticRefreshError,
@@ -28,13 +33,21 @@ import {
 import type { IndexResult } from './types.js'
 
 interface ManifestGenerationResult {
-  readonly index: IndexResult
+  readonly index: ManifestBuildResult
   readonly semantic: BuildEmbeddingsResult | null
+  readonly mutation: ManifestMutationSummary
+}
+
+export interface ManifestMutationSummary {
+  readonly structural: boolean
+  readonly semantic: boolean
+  readonly changed: boolean
 }
 
 export interface ManifestRefreshResult
   extends PublishedGeneration<IndexResult> {
   readonly semantic: BuildEmbeddingsResult | null
+  readonly mutation: ManifestMutationSummary
 }
 
 export interface ManifestRefreshOptions<P = never>
@@ -85,9 +98,13 @@ export const refreshManifestIndex = <P = never>(
           )
         }
 
+        const currentIndexRoot = generation.previous
+          ? generationLayout(home, generation.previous).root
+          : undefined
         const index = yield* buildManifestIndex(manifest, {
           ...indexOptions,
           indexRoot: generation.indexRoot,
+          currentIndexRoot,
           reconcileVectors: semantic.mode !== 'skip',
         })
         const semanticResult = yield* refreshSemanticGeneration(
@@ -95,15 +112,25 @@ export const refreshManifestIndex = <P = never>(
           generation.indexRoot,
           semantic,
         )
-        return { index, semantic: semanticResult }
+        const semanticChanged = currentIndexRoot
+          ? yield* semanticIndexChanged(currentIndexRoot, generation.indexRoot)
+          : true
+        const mutation: ManifestMutationSummary = {
+          structural: index.mutation.structural,
+          semantic: semanticChanged,
+          changed: index.mutation.structural || semanticChanged,
+        }
+        return { index, semantic: semanticResult, mutation }
       }),
     validate: () => Effect.void,
+    shouldPublish: (_, result) => result.mutation.changed,
   }).pipe(
     Effect.map((published) => ({
       generation: published.generation,
       indexRoot: published.indexRoot,
       value: published.value.index,
       semantic: published.value.semantic,
+      mutation: published.value.mutation,
     })),
   )
 }

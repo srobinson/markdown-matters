@@ -71,7 +71,6 @@ export {
   type BuildEmbeddingsResult,
   buildEmbeddings,
   type EmbeddingBatchProgress,
-  type EmbeddingProviderConfig,
   type FileProgress,
 } from './semantic-search-build.js'
 export {
@@ -87,6 +86,7 @@ export {
   type EmbeddingStats,
   getEmbeddingStats,
 } from './semantic-search-stats.js'
+export type { EmbeddingProviderConfig } from './types.js'
 
 // ----------------------------------------------------------------------------
 // Public API
