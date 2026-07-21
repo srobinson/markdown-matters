@@ -11,12 +11,17 @@ import type { SearchQuality } from '../../embeddings/types.js'
 import { CliValidationError } from '../../errors/index.js'
 import { createStorage, loadSectionIndex } from '../../index/storage.js'
 import {
+  buildEmptySearchGuidance,
+  formatReadGuidance,
+} from '../../read-guidance.js'
+import {
   detectSearchModes,
   hybridSearch,
   type SearchMode,
 } from '../../search/hybrid-search.js'
 import {
   canonicalSubtreePathPattern,
+  inspectCorpus,
   resolveCanonicalSourceRoot,
 } from '../../search/path-matcher.js'
 import { isAdvancedQuery } from '../../search/query-parser.js'
@@ -92,6 +97,28 @@ const pathScopeOptions = (
 ): { readonly pathPattern?: string } =>
   pathPattern === undefined ? {} : { pathPattern }
 
+const resolveEmptyGuidance = (
+  context: ExecutionContext,
+  resultCount: number,
+) => {
+  if (resultCount > 0) return Effect.succeed(undefined)
+  return inspectCorpus(
+    context.session,
+    context.sourceRoot,
+    context.pathPattern,
+  ).pipe(
+    Effect.map((inspection) =>
+      formatReadGuidance(
+        buildEmptySearchGuidance(
+          inspection,
+          context.input.query,
+          context.pathPattern,
+        ),
+      ),
+    ),
+  )
+}
+
 const runHybridMode = (context: ExecutionContext) =>
   Effect.gen(function* () {
     const { input } = context
@@ -140,6 +167,7 @@ const runHybridMode = (context: ExecutionContext) =>
         )
       }
     }
+    const guidance = yield* resolveEmptyGuidance(context, results.length)
     yield* renderHybridOutput({
       results,
       stats,
@@ -148,6 +176,7 @@ const runHybridMode = (context: ExecutionContext) =>
       pretty: input.pretty,
       modeReason: context.modeReason,
       query: input.query,
+      guidance,
     })
     if (input.summarize && results.length > 0) {
       const summaryResults: SummarizableResult[] = results.map((result) => ({
@@ -207,6 +236,7 @@ const runKeywordMode = (context: ExecutionContext) =>
         }),
       )
     }
+    const guidance = yield* resolveEmptyGuidance(context, results.length)
     yield* renderKeywordOutput({
       results,
       indexInfo: context.indexInfo,
@@ -220,6 +250,7 @@ const runKeywordMode = (context: ExecutionContext) =>
       headingOnly: input.headingOnly,
       json: input.json,
       pretty: input.pretty,
+      guidance,
     })
     if (input.summarize && results.length > 0) {
       yield* runSummarization({
@@ -285,6 +316,7 @@ const runSemanticMode = (context: ExecutionContext) =>
         )
       }
     }
+    const guidance = yield* resolveEmptyGuidance(context, results.length)
     yield* renderSemanticOutput({
       results,
       belowThresholdCount: searchResult.belowThresholdCount,
@@ -296,6 +328,7 @@ const runSemanticMode = (context: ExecutionContext) =>
       hyde: input.hyde,
       json: input.json,
       pretty: input.pretty,
+      guidance,
     })
     if (input.summarize && results.length > 0) {
       yield* runSummarization({

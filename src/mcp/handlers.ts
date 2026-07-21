@@ -9,7 +9,7 @@
 import * as path from 'node:path'
 
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
-import { Effect, Option } from 'effect'
+import { Effect, Either, Option } from 'effect'
 
 import type { MdmConfig } from '../config/schema.js'
 import type { MdSection } from '../core/types.js'
@@ -23,12 +23,18 @@ import {
   refreshManifestIndex,
 } from '../index/indexer.js'
 import { parseFile } from '../parser/parser.js'
+import {
+  buildEmptySearchGuidance,
+  formatReadGuidance,
+} from '../read-guidance.js'
+import { inspectCorpus } from '../search/path-matcher.js'
 import { search } from '../search/searcher.js'
 import { formatSummary, summarizeFile } from '../summarize/summarizer.js'
 import {
   effectToMcpResult,
   isPathError,
   isValidationError,
+  mcpError,
   mcpText,
   resolveAndValidatePath,
   validateArgs,
@@ -43,6 +49,56 @@ import {
   MdSearchArgs,
   MdStructureArgs,
 } from './schemas.js'
+
+const formatSearchOutcome = <A, E>(
+  session: Parameters<typeof inspectCorpus>[0],
+  sourceRoot: string,
+  query: string,
+  pathFilter: string | undefined,
+  searchEffect: Effect.Effect<readonly A[], E>,
+  formatSuccess: (results: readonly A[]) => CallToolResult,
+) =>
+  Effect.gen(function* () {
+    const outcome = yield* Effect.either(searchEffect)
+    if (Either.isLeft(outcome)) {
+      const inspected = yield* Effect.either(
+        inspectCorpus(session, sourceRoot, pathFilter),
+      )
+      if (Either.isRight(inspected) && inspected.right.documentCount === 0) {
+        return mcpError(
+          formatReadGuidance(
+            buildEmptySearchGuidance(inspected.right, query, pathFilter),
+          ),
+        )
+      }
+      return yield* Effect.fail(outcome.left)
+    }
+    if (outcome.right.length > 0) return formatSuccess(outcome.right)
+
+    const inspection = yield* inspectCorpus(session, sourceRoot, pathFilter)
+    return mcpText(
+      formatReadGuidance(
+        buildEmptySearchGuidance(inspection, query, pathFilter),
+      ),
+    )
+  })
+
+const keywordQueryLabel = (options: {
+  readonly heading?: string | undefined
+  readonly hasCode?: boolean | undefined
+  readonly hasList?: boolean | undefined
+  readonly hasTable?: boolean | undefined
+}): string => {
+  if (options.heading !== undefined) return options.heading
+  const criteria = [
+    ['has_code', options.hasCode],
+    ['has_list', options.hasList],
+    ['has_table', options.hasTable],
+  ]
+    .filter((entry): entry is [string, boolean] => entry[1] !== undefined)
+    .map(([name, value]) => `${name}=${value}`)
+  return criteria.length > 0 ? criteria.join(', ') : 'requested criteria'
+}
 
 // ============================================================================
 // Handler: md_search
@@ -69,24 +125,27 @@ export const handleMdSearch = async (
 
   return effectToMcpResult(
     withCurrentGeneration(resolveMdmHome(), (session) =>
-      semanticSearch(session, rootPath, query, {
-        limit,
-        threshold,
-        pathPattern: pathFilter,
-        providerConfig,
-      }).pipe(
-        Effect.map((results) => {
+      formatSearchOutcome(
+        session,
+        rootPath,
+        query,
+        pathFilter,
+        semanticSearch(session, rootPath, query, {
+          limit,
+          threshold,
+          pathPattern: pathFilter,
+          providerConfig,
+        }),
+        (results) => {
           const formatted = results.map((r, i) => {
             const similarity = (r.similarity * 100).toFixed(1)
             return `${i + 1}. **${r.heading}** (${similarity}% match)\n   ${r.documentPath}`
           })
 
           return mcpText(
-            formatted.length > 0
-              ? `Found ${formatted.length} results for "${query}":\n\n${formatted.join('\n\n')}`
-              : `No results found for "${query}"`,
+            `Found ${formatted.length} results for "${query}":\n\n${formatted.join('\n\n')}`,
           )
-        }),
+        },
       ),
     ),
     (result) => result,
@@ -182,15 +241,20 @@ export const handleMdKeywordSearch = async (
 
   return effectToMcpResult(
     withCurrentGeneration(resolveMdmHome(), (session) =>
-      search(session, rootPath, {
-        heading,
-        pathPattern: pathFilter,
-        hasCode,
-        hasList,
-        hasTable,
-        limit,
-      }).pipe(
-        Effect.map((results) => {
+      formatSearchOutcome(
+        session,
+        rootPath,
+        keywordQueryLabel({ heading, hasCode, hasList, hasTable }),
+        pathFilter,
+        search(session, rootPath, {
+          heading,
+          pathPattern: pathFilter,
+          hasCode,
+          hasList,
+          hasTable,
+          limit,
+        }),
+        (results) => {
           const formatted = results.map((r, i) => {
             const meta: string[] = []
             if (r.section.hasCode) meta.push('code')
@@ -202,11 +266,9 @@ export const handleMdKeywordSearch = async (
           })
 
           return mcpText(
-            formatted.length > 0
-              ? `Found ${formatted.length} sections:\n\n${formatted.join('\n\n')}`
-              : 'No sections found matching criteria',
+            `Found ${formatted.length} sections:\n\n${formatted.join('\n\n')}`,
           )
-        }),
+        },
       ),
     ),
     (result) => result,

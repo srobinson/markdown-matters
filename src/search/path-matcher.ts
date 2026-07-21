@@ -18,7 +18,8 @@ import type { GenerationReadSession } from '../db/generation-reader.js'
 import { resolveIndexedDocumentKey } from '../index/link-index.js'
 import { createStorage, loadDocumentIndex } from '../index/storage.js'
 import type { DocumentIndex } from '../index/types.js'
-import { loadManifest } from '../manifest.js'
+import { loadManifest, type MdmManifest } from '../manifest.js'
+import type { CorpusInspection } from '../read-guidance.js'
 
 export const resolveCanonicalSourceRoot = (sourceRoot: string) =>
   Effect.promise(() => resolveCanonicalPathOrFallbackAsync(sourceRoot))
@@ -232,23 +233,21 @@ const exactCandidates = (roots: readonly MatcherRoot[], pattern: string) =>
     ),
   )
 
-export const prepareUserPathFilter = (
+const prepareUserPathFilterFromCorpus = (
   session: GenerationReadSession,
   sourceRoot: string,
   pattern: string | undefined,
+  manifest: MdmManifest,
+  documentIndex: DocumentIndex | null,
 ) =>
   Effect.gen(function* () {
     if (pattern === undefined) return matchAllPaths
 
-    const manifest = yield* loadManifest(session.home)
     const roots = yield* prepareMatcherRoots(
       uniqueRoots(
         sourceRoot,
         manifest.directories.map((directory) => directory.path),
       ),
-    )
-    const documentIndex = yield* loadDocumentIndex(
-      createStorage(sourceRoot, session.indexRoot),
     )
     const hasGlob = globMetaIndex(toMatcherPath(pattern)) >= 0
     if (!hasGlob && !hasPathSeparator(pattern)) {
@@ -279,6 +278,73 @@ export const prepareUserPathFilter = (
     }
 
     return yield* prepareGlobPathFilter(pattern, roots, documentIndex)
+  })
+
+const loadPathFilterCorpus = (
+  session: GenerationReadSession,
+  sourceRoot: string,
+  manifest: MdmManifest | undefined,
+) =>
+  Effect.all([
+    manifest === undefined
+      ? loadManifest(session.home)
+      : Effect.succeed(manifest),
+    loadDocumentIndex(createStorage(sourceRoot, session.indexRoot)),
+  ] as const)
+
+export const prepareUserPathFilter = (
+  session: GenerationReadSession,
+  sourceRoot: string,
+  pattern: string | undefined,
+) => {
+  if (pattern === undefined) return Effect.succeed(matchAllPaths)
+  return Effect.gen(function* () {
+    const [manifest, documentIndex] = yield* loadPathFilterCorpus(
+      session,
+      sourceRoot,
+      undefined,
+    )
+    return yield* prepareUserPathFilterFromCorpus(
+      session,
+      sourceRoot,
+      pattern,
+      manifest,
+      documentIndex,
+    )
+  })
+}
+
+export const inspectCorpus = (
+  session: GenerationReadSession,
+  sourceRoot: string,
+  pathFilter: string | undefined,
+  loadedManifest?: MdmManifest,
+) =>
+  Effect.gen(function* () {
+    const [manifest, documentIndex] = yield* loadPathFilterCorpus(
+      session,
+      sourceRoot,
+      loadedManifest,
+    )
+    const documents = Object.values(documentIndex?.documents ?? {})
+    const predicate = yield* prepareUserPathFilterFromCorpus(
+      session,
+      sourceRoot,
+      pathFilter,
+      manifest,
+      documentIndex,
+    )
+    return {
+      documentCount: documents.length,
+      pathFilterDocumentCount: documents.filter((document) =>
+        predicate(document.path),
+      ).length,
+      roots: manifest.directories.map((directory) => directory.path),
+      examplePaths: documents
+        .map((document) => document.path)
+        .sort()
+        .slice(0, 3),
+    } satisfies CorpusInspection
   })
 
 export const canonicalSubtreePathPattern = (canonicalPath: string): string => {

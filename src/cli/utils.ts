@@ -20,6 +20,7 @@ import {
   type IndexCorruptedError,
 } from '../errors/index.js'
 import { createStorage, loadSectionIndex } from '../index/storage.js'
+import { FIRST_RUN_GUIDANCE } from '../read-guidance.js'
 
 /**
  * Format object as JSON string
@@ -36,18 +37,18 @@ export const renderNoIndexGuidance = (
     ? Console.log(
         formatJson(
           {
-            error: 'No index found.',
-            guidance: 'Run: mdm index /path/to/docs',
-            hint: 'Add --embed for semantic search capabilities',
+            error: FIRST_RUN_GUIDANCE.error,
+            guidance: FIRST_RUN_GUIDANCE.guidance,
+            hint: FIRST_RUN_GUIDANCE.hint,
           },
           pretty,
         ),
       )
     : Effect.gen(function* () {
-        yield* Console.log('No index found.')
+        yield* Console.log(FIRST_RUN_GUIDANCE.error)
         yield* Console.log('')
-        yield* Console.log('Run: mdm index /path/to/docs')
-        yield* Console.log('  Add --embed for semantic search capabilities')
+        yield* Console.log(FIRST_RUN_GUIDANCE.guidance)
+        yield* Console.log(`  ${FIRST_RUN_GUIDANCE.hint}`)
       })
 
 export const withCurrentGenerationGuidance = <A, E>(
