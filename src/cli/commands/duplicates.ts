@@ -7,11 +7,15 @@
 import * as path from 'node:path'
 import { Args, Command, Options } from '@effect/cli'
 import { Console, Effect, Option } from 'effect'
-import { withCurrentGeneration } from '../../db/generation-reader.js'
 import { detectDuplicates } from '../../duplicates/index.js'
 import { resolveMdmHome } from '../../home.js'
 import { jsonOption, prettyOption } from '../options.js'
-import { formatJson, getIndexInfo } from '../utils.js'
+import {
+  formatJson,
+  getIndexInfo,
+  renderNoIndexGuidance,
+  withCurrentGenerationGuidance,
+} from '../utils.js'
 
 export const duplicatesCommand = Command.make(
   'duplicates',
@@ -35,17 +39,15 @@ export const duplicatesCommand = Command.make(
     pretty: prettyOption,
   },
   ({ path: dirPath, minLength, pathPattern, json, pretty }) =>
-    withCurrentGeneration(resolveMdmHome(), (session) =>
+    withCurrentGenerationGuidance(resolveMdmHome(), json, pretty, (session) =>
       Effect.gen(function* () {
         const resolvedDir = path.resolve(dirPath)
 
         // Check for index
         const indexInfo = yield* getIndexInfo(session)
 
-        if (!indexInfo.exists && !json) {
-          yield* Console.log('No index found.')
-          yield* Console.log('')
-          yield* Console.log('Run: mdm index /path/to/docs')
+        if (!indexInfo.exists) {
+          yield* renderNoIndexGuidance(json, pretty)
           return
         }
 

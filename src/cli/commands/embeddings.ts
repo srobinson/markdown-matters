@@ -6,7 +6,6 @@
 
 import { Args, Command } from '@effect/cli'
 import { Console, Effect } from 'effect'
-import { withCurrentGeneration } from '../../db/generation-reader.js'
 import {
   type EmbeddingNamespace,
   getActiveNamespace,
@@ -14,7 +13,7 @@ import {
 } from '../../embeddings/embedding-namespace.js'
 import { resolveMdmHome } from '../../home.js'
 import { jsonOption, prettyOption } from '../options.js'
-import { formatJson } from '../utils.js'
+import { formatJson, withCurrentGenerationGuidance } from '../utils.js'
 
 // ============================================================================
 // List Subcommand
@@ -31,7 +30,7 @@ const listSubcommand = Command.make(
     pretty: prettyOption,
   },
   ({ path: _dirPath, json, pretty }) =>
-    withCurrentGeneration(resolveMdmHome(), (session) =>
+    withCurrentGenerationGuidance(resolveMdmHome(), json, pretty, (session) =>
       Effect.gen(function* () {
         const indexRoot = session.indexRoot
 
@@ -89,7 +88,7 @@ const currentSubcommand = Command.make(
     pretty: prettyOption,
   },
   ({ path: _dirPath, json, pretty }) =>
-    withCurrentGeneration(resolveMdmHome(), (session) =>
+    withCurrentGenerationGuidance(resolveMdmHome(), json, pretty, (session) =>
       Effect.gen(function* () {
         const indexRoot = session.indexRoot
 

@@ -15,6 +15,7 @@ import {
   hybridSearch,
   type SearchMode,
 } from '../../search/hybrid-search.js'
+import { resolveCanonicalSourceRoot } from '../../search/path-matcher.js'
 import { isAdvancedQuery } from '../../search/query-parser.js'
 import { search, searchContent } from '../../search/searcher.js'
 import type { SummarizableResult } from '../../summarization/index.js'
@@ -29,6 +30,7 @@ import {
   renderHybridOutput,
   renderIndexInfo,
   renderKeywordOutput,
+  renderNoIndexedPathGuidance,
   renderSemanticOutput,
 } from './search-output.js'
 import { filterResultsByRefineTerms } from './search-refine.js'
@@ -66,6 +68,7 @@ interface ExecutionContext {
   readonly input: SearchCommandInput
   readonly session: GenerationReadSession
   readonly sourceRoot: string
+  readonly pathPattern: string
   readonly config: MdmConfig
   readonly indexInfo: IndexInfo
   readonly effectiveLimit: number
@@ -103,6 +106,7 @@ const runHybridMode = (context: ExecutionContext) =>
           | undefined,
         contextBefore: context.contextBefore,
         contextAfter: context.contextAfter,
+        pathPattern: context.pathPattern,
       },
     )
     let results = rawResults
@@ -171,10 +175,12 @@ const runKeywordMode = (context: ExecutionContext) =>
       ? yield* search(context.session, context.sourceRoot, {
           heading: input.query,
           limit: fetchLimit,
+          pathPattern: context.pathPattern,
         })
       : yield* searchContent(context.session, context.sourceRoot, {
           content: input.query,
           limit: fetchLimit,
+          pathPattern: context.pathPattern,
           contextBefore: context.contextBefore,
           contextAfter: context.contextAfter,
           fuzzy: input.fuzzy,
@@ -245,6 +251,7 @@ const runSemanticMode = (context: ExecutionContext) =>
         hyde: input.hyde,
         contextBefore: context.contextBefore,
         contextAfter: context.contextAfter,
+        pathPattern: context.pathPattern,
       },
     )
     let { results } = searchResult
@@ -379,6 +386,12 @@ export const runSearchCommand = (
       yield* initializeSearchReranker()
       return
     }
+    const requestedPath = yield* resolveCanonicalSourceRoot(resolvedDir)
+    const directoryName = path.basename(requestedPath)
+    const sourceRoot = directoryName
+      ? path.dirname(requestedPath)
+      : requestedPath
+    const pathPattern = directoryName ? `${directoryName}/**` : '**'
     const config = yield* Effect.serviceOption(ConfigService).pipe(
       Effect.map(Option.getOrElse(() => defaultConfig)),
     )
@@ -391,10 +404,22 @@ export const runSearchCommand = (
       () => config.search.autoIndexThreshold,
     )
     const indexInfo = yield* getIndexInfo(session)
+    const indexedScope = yield* search(session, sourceRoot, {
+      pathPattern,
+      limit: 1,
+    })
+    if (indexedScope.length === 0) {
+      yield* renderNoIndexedPathGuidance(
+        requestedPath,
+        input.json,
+        input.pretty,
+      )
+      return
+    }
     const resolvedMode = yield* resolveMode(
       input,
       session,
-      resolvedDir,
+      requestedPath,
       autoIndexThreshold,
     )
     if (!resolvedMode) return
@@ -404,7 +429,8 @@ export const runSearchCommand = (
     const execution: ExecutionContext = {
       input,
       session,
-      sourceRoot: resolvedDir,
+      sourceRoot,
+      pathPattern,
       config,
       indexInfo,
       effectiveLimit,

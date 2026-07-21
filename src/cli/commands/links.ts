@@ -7,14 +7,13 @@
 import * as path from 'node:path'
 import { Args, Command, Options } from '@effect/cli'
 import { Console, Effect } from 'effect'
-import { withCurrentGeneration } from '../../db/generation-reader.js'
 import { resolveMdmHome } from '../../home.js'
 import {
   getOutgoingLinks,
   resolveIndexedDocumentKey,
 } from '../../index/indexer.js'
 import { jsonOption, prettyOption } from '../options.js'
-import { formatJson } from '../utils.js'
+import { formatJson, withCurrentGenerationGuidance } from '../utils.js'
 
 export const linksCommand = Command.make(
   'links',
@@ -31,7 +30,7 @@ export const linksCommand = Command.make(
     pretty: prettyOption,
   },
   ({ file, root: _root, json, pretty }) =>
-    withCurrentGeneration(resolveMdmHome(), (session) =>
+    withCurrentGenerationGuidance(resolveMdmHome(), json, pretty, (session) =>
       Effect.gen(function* () {
         const resolvedFile = path.resolve(file)
 

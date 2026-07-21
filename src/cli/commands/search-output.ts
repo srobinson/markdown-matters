@@ -8,6 +8,30 @@ import type {
 import type { SearchResult } from '../../search/searcher.js'
 import { formatJson, type IndexInfo } from '../utils.js'
 
+export const renderNoIndexedPathGuidance = (
+  requestedPath: string,
+  json: boolean,
+  pretty: boolean,
+): Effect.Effect<void> => {
+  const guidance = `Run: mdm index ${requestedPath}`
+  return json
+    ? Console.log(
+        formatJson(
+          {
+            error: 'No indexed documents found.',
+            path: requestedPath,
+            guidance,
+          },
+          pretty,
+        ),
+      )
+    : Effect.gen(function* () {
+        yield* Console.log(`No indexed documents found in ${requestedPath}.`)
+        yield* Console.log('')
+        yield* Console.log(guidance)
+      })
+}
+
 export const promptUser = (message: string): Promise<string> => {
   if (!(process.stdout.isTTY && process.stdin.isTTY)) {
     return Promise.resolve('n')
