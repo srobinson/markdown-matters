@@ -132,79 +132,79 @@ describe('generation read leases', () => {
     }
   })
 
-  it.each([
-    'after-current-read',
-    'before-lease-insert',
-  ] as const)('retries when the gate closes at %s', async (racePhase) => {
-    const home = await createHome()
-    const gen1 = await generation(home, 'gen-1')
-    const gen2 = await generation(home, 'gen-2')
-    await publish(home, 'gen-1')
-    let raced = false
-    const callbackGenerations: string[] = []
-    const fileSystem = fileSystemWithCheckpoint(async (phase, layout) => {
-      if (!raced && layout.name === gen1.name && phase === racePhase) {
-        raced = true
-        await publish(home, 'gen-2')
-        await fs.rename(gen1.openLeases, gen1.closedLeases)
+  it.each(['after-current-read', 'before-lease-insert'] as const)(
+    'retries when the gate closes at %s',
+    async (racePhase) => {
+      const home = await createHome()
+      const gen1 = await generation(home, 'gen-1')
+      const gen2 = await generation(home, 'gen-2')
+      await publish(home, 'gen-1')
+      let raced = false
+      const callbackGenerations: string[] = []
+      const fileSystem = fileSystemWithCheckpoint(async (phase, layout) => {
+        if (!raced && layout.name === gen1.name && phase === racePhase) {
+          raced = true
+          await publish(home, 'gen-2')
+          await fs.rename(gen1.openLeases, gen1.closedLeases)
+        }
+      })
+
+      try {
+        await run(
+          withCurrentGeneration(
+            home,
+            (session) =>
+              Effect.sync(() => {
+                callbackGenerations.push(session.generation)
+              }),
+            { inspector: processInspector, fileSystem },
+          ),
+        )
+
+        expect(callbackGenerations).toEqual(['gen-2'])
+        expect(await listAllLeases([gen1, gen2])).toEqual([])
+      } finally {
+        await fs.rm(home, { recursive: true, force: true })
       }
-    })
+    },
+  )
 
-    try {
-      await run(
-        withCurrentGeneration(
-          home,
-          (session) =>
-            Effect.sync(() => {
-              callbackGenerations.push(session.generation)
-            }),
-          { inspector: processInspector, fileSystem },
-        ),
-      )
+  it.each(['after-lease-insert', 'before-current-reread'] as const)(
+    'retries when current changes at %s',
+    async (racePhase) => {
+      const home = await createHome()
+      const gen1 = await generation(home, 'gen-1')
+      const gen2 = await generation(home, 'gen-2')
+      await publish(home, 'gen-1')
+      let raced = false
+      const callbackGenerations: string[] = []
+      const fileSystem = fileSystemWithCheckpoint(async (phase, layout) => {
+        if (!raced && layout.name === gen1.name && phase === racePhase) {
+          raced = true
+          await publish(home, 'gen-2')
+          await fs.rename(gen1.openLeases, gen1.closedLeases)
+        }
+      })
 
-      expect(callbackGenerations).toEqual(['gen-2'])
-      expect(await listAllLeases([gen1, gen2])).toEqual([])
-    } finally {
-      await fs.rm(home, { recursive: true, force: true })
-    }
-  })
+      try {
+        await run(
+          withCurrentGeneration(
+            home,
+            (session) =>
+              Effect.sync(() => {
+                callbackGenerations.push(session.generation)
+              }),
+            { inspector: processInspector, fileSystem },
+          ),
+        )
 
-  it.each([
-    'after-lease-insert',
-    'before-current-reread',
-  ] as const)('retries when current changes at %s', async (racePhase) => {
-    const home = await createHome()
-    const gen1 = await generation(home, 'gen-1')
-    const gen2 = await generation(home, 'gen-2')
-    await publish(home, 'gen-1')
-    let raced = false
-    const callbackGenerations: string[] = []
-    const fileSystem = fileSystemWithCheckpoint(async (phase, layout) => {
-      if (!raced && layout.name === gen1.name && phase === racePhase) {
-        raced = true
-        await publish(home, 'gen-2')
-        await fs.rename(gen1.openLeases, gen1.closedLeases)
+        expect(callbackGenerations).toEqual(['gen-2'])
+        expect(await listAllLeases([gen1, gen2])).toEqual([])
+      } finally {
+        await fs.rm(home, { recursive: true, force: true })
       }
-    })
-
-    try {
-      await run(
-        withCurrentGeneration(
-          home,
-          (session) =>
-            Effect.sync(() => {
-              callbackGenerations.push(session.generation)
-            }),
-          { inspector: processInspector, fileSystem },
-        ),
-      )
-
-      expect(callbackGenerations).toEqual(['gen-2'])
-      expect(await listAllLeases([gen1, gen2])).toEqual([])
-    } finally {
-      await fs.rm(home, { recursive: true, force: true })
-    }
-  })
+    },
+  )
 })
 
 describe('generation read lease release', () => {

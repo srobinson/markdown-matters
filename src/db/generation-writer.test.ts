@@ -386,38 +386,38 @@ describe('writeGeneration validation', () => {
     expect(await fs.readFile(currentPath, 'utf8')).toBe(beforeCurrent)
   })
 
-  it.each([
-    'build',
-    'validate',
-  ] as const)('retains current when %s rejects', async (failurePoint) => {
-    const home = await createHome()
-    const oldRoot = await seedCurrent(home)
-    const failure = new Error(`${failurePoint} rejected`)
+  it.each(['build', 'validate'] as const)(
+    'retains current when %s rejects',
+    async (failurePoint) => {
+      const home = await createHome()
+      const oldRoot = await seedCurrent(home)
+      const failure = new Error(`${failurePoint} rejected`)
 
-    const exit = await Effect.runPromiseExit(
-      writeGeneration(
-        {
-          home,
-          build: (context) =>
-            failurePoint === 'build'
-              ? Effect.fail(failure)
-              : writeTitle(context, 'rejected'),
-          validate: (context) =>
-            failurePoint === 'validate'
-              ? Effect.fail(failure)
-              : validateGeneration(context.indexRoot).pipe(Effect.asVoid),
-        },
-        testRuntime(),
-      ),
-    )
+      const exit = await Effect.runPromiseExit(
+        writeGeneration(
+          {
+            home,
+            build: (context) =>
+              failurePoint === 'build'
+                ? Effect.fail(failure)
+                : writeTitle(context, 'rejected'),
+            validate: (context) =>
+              failurePoint === 'validate'
+                ? Effect.fail(failure)
+                : validateGeneration(context.indexRoot).pipe(Effect.asVoid),
+          },
+          testRuntime(),
+        ),
+      )
 
-    expect(exit).toMatchObject({
-      _tag: 'Failure',
-      cause: { _tag: 'Fail', error: failure },
-    })
-    expect(await Effect.runPromise(readCurrentGeneration(home))).toBe('gen-1')
-    expect(await readTitle(oldRoot)).toBe('old')
-  })
+      expect(exit).toMatchObject({
+        _tag: 'Failure',
+        cause: { _tag: 'Fail', error: failure },
+      })
+      expect(await Effect.runPromise(readCurrentGeneration(home))).toBe('gen-1')
+      expect(await readTitle(oldRoot)).toBe('old')
+    },
+  )
 
   it('always rejects an incomplete artifact set before publication', async () => {
     const home = await createHome()

@@ -79,17 +79,16 @@ describe('config validation', () => {
     expect(issues.map((issue) => issue.path)).toEqual(['index.fileExtensions'])
   })
 
-  it.each([
-    '',
-    '0x10',
-    '1e2',
-  ])('rejects non-decimal numeric env values: %s', (value) => {
-    process.env.MDM_SEARCH_DEFAULTLIMIT = value
-    const config = mergeWithDefaults(readEnvVars())
-    const issues = collectConfigIssues(config)
+  it.each(['', '0x10', '1e2'])(
+    'rejects non-decimal numeric env values: %s',
+    (value) => {
+      process.env.MDM_SEARCH_DEFAULTLIMIT = value
+      const config = mergeWithDefaults(readEnvVars())
+      const issues = collectConfigIssues(config)
 
-    expect(issues.map((issue) => issue.path)).toContain('search.defaultLimit')
-  })
+      expect(issues.map((issue) => issue.path)).toContain('search.defaultLimit')
+    },
+  )
 
   it('keeps validation rules and generated TOML aligned with defaultConfig', () => {
     const defaultPaths = flattenPaths(defaultConfig)

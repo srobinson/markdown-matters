@@ -159,16 +159,16 @@ describe('filesystem durability primitives', () => {
     expect(fileSystem.events).toEqual([])
   })
 
-  it.each([
-    'linux',
-    'darwin',
-  ] as const)('attempts directory sync on %s', async (platform) => {
-    const fileSystem = recordingFileSystem(new Map(), platform)
+  it.each(['linux', 'darwin'] as const)(
+    'attempts directory sync on %s',
+    async (platform) => {
+      const fileSystem = recordingFileSystem(new Map(), platform)
 
-    await Effect.runPromise(syncDirectory('/home/gen', fileSystem))
+      await Effect.runPromise(syncDirectory('/home/gen', fileSystem))
 
-    expect(fileSystem.events).toEqual(['sync-dir:gen'])
-  })
+      expect(fileSystem.events).toEqual(['sync-dir:gen'])
+    },
+  )
 
   it('fails clearly for an unhandled directory sync platform', async () => {
     const fileSystem = recordingFileSystem(new Map(), 'aix')
@@ -271,16 +271,19 @@ describe('durable filesystem mutations', () => {
     ['sync-file', '/home/current.tmp'],
     ['rename', '/home/current'],
     ['sync-directory', '/home'],
-  ] as const)('reports %s replacement failures', async (operation, failedPath) => {
-    const fileSystem = recordingFileSystem()
-    fileSystem.failAt = operation
+  ] as const)(
+    'reports %s replacement failures',
+    async (operation, failedPath) => {
+      const fileSystem = recordingFileSystem()
+      fileSystem.failAt = operation
 
-    await expectDurabilityFailure(
-      durableReplaceText('/home/current', 'gen-2', fileSystem),
-      operation,
-      failedPath,
-    )
-  })
+      await expectDurabilityFailure(
+        durableReplaceText('/home/current', 'gen-2', fileSystem),
+        operation,
+        failedPath,
+      )
+    },
+  )
 
   it('prepares, syncs, and links an immutable record', async () => {
     const fileSystem = recordingFileSystem()
