@@ -41,12 +41,10 @@ interface PathFixture {
   readonly parent: string
   readonly home: string
   readonly callerRoot: string
-  readonly firstRoot: string
-  readonly secondRoot: string
   readonly source: string
+  readonly sourceAlias: string
   readonly target: string
   readonly inbound: string
-  readonly second: string
   readonly outside: string
 }
 
@@ -59,34 +57,38 @@ const resultText = (result: CallToolResult): string =>
     .join('\n')
 
 const createFixture = async (): Promise<PathFixture> => {
-  const parent = await fs.mkdtemp(path.join(os.tmpdir(), 'mdm-mcp-path-'))
-  const home = path.join(parent, 'home')
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), 'mdm-round-trip-'))
+  const home = path.join(parent, 'mdm-home')
   const callerRoot = path.join(parent, 'caller')
-  const firstRoot = path.join(parent, 'first')
-  const secondRoot = path.join(parent, 'second')
+  const mdxRoot = path.join(parent, 'home-corpus', '.mdx')
+  const repoRoot = path.join(parent, 'workspace', 'project-docs')
   await Promise.all(
-    [home, callerRoot, firstRoot, secondRoot].map((directory) =>
+    [home, callerRoot, mdxRoot, repoRoot].map((directory) =>
       fs.mkdir(directory, { recursive: true }),
     ),
   )
 
-  const source = path.join(firstRoot, 'source.md')
-  const target = path.join(firstRoot, 'target.md')
-  const inbound = path.join(firstRoot, 'inbound.md')
-  const second = path.join(secondRoot, 'second.md')
+  const contentRoot = path.join(repoRoot, 'content')
+  const source = path.join(contentRoot, 'search-source.md')
+  const sourceAlias = path.join(repoRoot, 'search-source-alias.md')
+  const target = path.join(contentRoot, 'target.md')
+  const inbound = path.join(contentRoot, 'inbound.md')
   const outside = path.join(callerRoot, 'outside.md')
+  await fs.mkdir(contentRoot, { recursive: true })
   await Promise.all([
     fs.writeFile(source, '# Search Source\n\n[Target](./target.md)\n'),
     fs.writeFile(target, '# Target\n\nTarget content.\n'),
-    fs.writeFile(inbound, '# Inbound\n\n[Source](./source.md)\n'),
-    fs.writeFile(second, '# Second Root\n\nSecond root content.\n'),
+    fs.writeFile(inbound, '# Inbound\n\n[Source](./search-source.md)\n'),
+    fs.writeFile(path.join(mdxRoot, 'notes.md'), '# MDX Notes\n'),
     fs.writeFile(outside, '# Outside\n\nCaller content.\n'),
   ])
-  await Effect.runPromise(appendManifestDirectory(home, { path: firstRoot }))
-  await Effect.runPromise(appendManifestDirectory(home, { path: secondRoot }))
+  await fs.symlink(source, sourceAlias, 'file')
+  await Effect.runPromise(appendManifestDirectory(home, { path: mdxRoot }))
+  await Effect.runPromise(appendManifestDirectory(home, { path: repoRoot }))
   await Effect.runPromise(
     refreshManifestIndex(home, undefined, {
       force: true,
+      followSymlinks: true,
       semantic: { mode: 'skip' },
     }),
   )
@@ -95,12 +97,10 @@ const createFixture = async (): Promise<PathFixture> => {
     parent,
     home,
     callerRoot,
-    firstRoot,
-    secondRoot,
     source: await fs.realpath(source),
+    sourceAlias,
     target: await fs.realpath(target),
     inbound: await fs.realpath(inbound),
-    second: await fs.realpath(second),
     outside: await fs.realpath(outside),
   }
 }
@@ -115,7 +115,13 @@ const inspectWithEveryPathTool = (
     handleMdBacklinks({ path: filePath }),
   ])
 
-describe('MCP indexed corpus path resolution', () => {
+const emittedSearchPaths = (result: CallToolResult): readonly string[] =>
+  resultText(result)
+    .split('\n')
+    .filter((line) => line.startsWith('   '))
+    .map((line) => line.trim())
+
+describe('MCP multi-root path round-trip contract', () => {
   let fixture: PathFixture
   let previousHome: string | undefined
 
@@ -140,26 +146,35 @@ describe('MCP indexed corpus path resolution', () => {
     await fs.rm(fixture.parent, { recursive: true, force: true })
   })
 
-  it('round-trips an absolute path emitted by md_search through all four tools', async () => {
+  it('round-trips every canonical path emitted by md_search through all four tools', async () => {
     const search = await handleMdSearch(
       { query: 'search source' },
       fixture.callerRoot,
       defaultConfig,
     )
     expect(search.isError).toBeFalsy()
-    expect(resultText(search)).toContain(fixture.source)
+    const searchPaths = emittedSearchPaths(search)
+    expect(searchPaths).toEqual([fixture.source])
 
-    const results = await inspectWithEveryPathTool(fixture.source)
-
-    expect(results.every((result) => !result.isError)).toBe(true)
-    expect(resultText(results[0]!)).toContain('Search Source')
-    expect(resultText(results[1]!)).toContain('Search Source')
-    expect(resultText(results[2]!)).toContain(fixture.target)
-    expect(resultText(results[3]!)).toContain(fixture.inbound)
+    for (const emittedPath of searchPaths) {
+      const results = await inspectWithEveryPathTool(emittedPath)
+      expect(results.every((result) => !result.isError)).toBe(true)
+      expect(resultText(results[0]!)).toContain('Search Source')
+      expect(resultText(results[1]!)).toContain('Search Source')
+      expect(resultText(results[2]!)).toContain(fixture.target)
+      expect(resultText(results[3]!)).toContain(fixture.inbound)
+    }
   })
 
-  it('resolves relative paths against served roots instead of process CWD', async () => {
-    const results = await inspectWithEveryPathTool('source.md')
+  it('normalizes a symlink alias to the emitted canonical document path', async () => {
+    const canonical = await inspectWithEveryPathTool(fixture.source)
+    const alias = await inspectWithEveryPathTool(fixture.sourceAlias)
+
+    expect(alias.map(resultText)).toEqual(canonical.map(resultText))
+  })
+
+  it('resolves relative paths against every served root instead of process CWD', async () => {
+    const results = await inspectWithEveryPathTool('content/search-source.md')
 
     expect(results.every((result) => !result.isError)).toBe(true)
     expect(resultText(results[0]!)).toContain('Search Source')
@@ -177,15 +192,5 @@ describe('MCP indexed corpus path resolution', () => {
     }
     expect(resultText(results[2]!)).not.toContain('No outgoing links')
     expect(resultText(results[3]!)).not.toContain('No incoming links')
-  })
-
-  it('resolves a document under a non-first manifest root', async () => {
-    const results = await inspectWithEveryPathTool('second.md')
-
-    expect(results.every((result) => !result.isError)).toBe(true)
-    expect(resultText(results[0]!)).toContain('Second Root')
-    expect(resultText(results[1]!)).toContain('Second Root')
-    expect(resultText(results[2]!)).toContain(fixture.second)
-    expect(resultText(results[3]!)).toContain(fixture.second)
   })
 })

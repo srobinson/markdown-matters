@@ -28,14 +28,20 @@ const candidatesWithinRoots = (
   Promise.all(roots.map(resolveCanonicalPathOrFallbackAsync))
     .then((canonicalRoots) =>
       Promise.all(
-        canonicalRoots.map((root) => resolveAndValidatePath(root, filePath)),
+        roots.flatMap((root, index) =>
+          [...new Set([root, canonicalRoots[index]!])].map((rootAlias) =>
+            resolveAndValidatePath(rootAlias, filePath),
+          ),
+        ),
       ),
     )
-    .then((candidates) =>
-      candidates.filter(
-        (candidate): candidate is string => !isPathError(candidate),
+    .then((candidates) => [
+      ...new Set(
+        candidates.filter(
+          (candidate): candidate is string => !isPathError(candidate),
+        ),
       ),
-    )
+    ])
 
 export const resolveMcpDocumentPath = (
   session: GenerationReadSession,
