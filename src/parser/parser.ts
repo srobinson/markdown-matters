@@ -278,7 +278,6 @@ const extractLinks = (tree: Root, docId: string): MdLink[] => {
   visit(tree, (node) => {
     if (node.type === 'heading') {
       currentSectionId = `${docId}-${slugify(extractPlainText(node as Heading))}-L${getNodeStartLine(node)}`
-      return SKIP
     }
 
     if (node.type === 'link') {

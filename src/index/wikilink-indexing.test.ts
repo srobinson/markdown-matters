@@ -46,6 +46,25 @@ const runBuild = (
 const loadLinks = (root: string) =>
   Effect.runPromise(loadLinkIndex(createStorage(root, root)))
 
+const rewriteStructuralIndexVersion = async (
+  indexRoot: string,
+  version: number,
+): Promise<void> => {
+  const storage = createStorage(indexRoot, indexRoot)
+  for (const filePath of [
+    storage.paths.documents,
+    storage.paths.sections,
+    storage.paths.links,
+  ]) {
+    const persisted = JSON.parse(await fs.readFile(filePath, 'utf8')) as Record<
+      string,
+      unknown
+    >
+    await fs.writeFile(filePath, JSON.stringify({ ...persisted, version }))
+  }
+  clearIndexCache(indexRoot)
+}
+
 const outgoing = (root: string, relativePath: string) =>
   Effect.runPromise(
     getOutgoingLinks(
@@ -231,31 +250,53 @@ describe('wikilink indexing', () => {
     expect(await incoming(root, 'B.md')).toEqual([a])
   })
 
+  it('extracts a standard link inside a heading with its backlink', async () => {
+    const root = await makeCorpus({
+      'Source.md': '# [Target](./Target.md)\n\nBody.\n',
+      'Target.md': '# Target\n',
+    })
+    const source = await fs.realpath(path.join(root, 'Source.md'))
+    const target = await fs.realpath(path.join(root, 'Target.md'))
+
+    await runBuild(root)
+
+    expect(await outgoing(root, 'Source.md')).toEqual([target])
+    expect(await incoming(root, 'Target.md')).toEqual([source])
+  })
+
   it('rebuilds a persisted version 2 index under the new index version', async () => {
     const root = await makeCorpus({
       'Source.md': '# Source\n\n[[Target]]\n',
       'Target.md': '# Target\n',
     })
     await runBuild(root)
-    const storage = createStorage(root, root)
-
-    for (const filePath of [
-      storage.paths.documents,
-      storage.paths.sections,
-      storage.paths.links,
-    ]) {
-      const persisted = JSON.parse(
-        await fs.readFile(filePath, 'utf8'),
-      ) as Record<string, unknown>
-      await fs.writeFile(filePath, JSON.stringify({ ...persisted, version: 2 }))
-    }
-    clearIndexCache(root)
+    await rewriteStructuralIndexVersion(root, 2)
 
     const rebuilt = await runBuild(root)
 
     expect(INDEX_VERSION).toBe(3)
     expect(rebuilt.documentsIndexed).toBe(2)
     expect(rebuilt.skipped.unchanged).toBe(0)
+    expect(await outgoing(root, 'Source.md')).toEqual([
+      await fs.realpath(path.join(root, 'Target.md')),
+    ])
+  })
+
+  it('fully rebuilds a version 2 index after an incremental file change', async () => {
+    const root = await makeCorpus({
+      'Source.md': '# Source\n\n[[Target]]\n',
+      'Target.md': '# Target\n',
+    })
+    const sourcePath = path.join(root, 'Source.md')
+    await runBuild(root)
+    await rewriteStructuralIndexVersion(root, 2)
+    await fs.writeFile(sourcePath, '# Updated source\n\n[[Target]]\n')
+
+    const rebuilt = await runBuild(root, { changedPaths: [sourcePath] })
+
+    expect(rebuilt.documentsIndexed).toBe(2)
+    expect(rebuilt.skipped.unchanged).toBe(0)
+    expect(rebuilt.totalDocuments).toBe(2)
     expect(await outgoing(root, 'Source.md')).toEqual([
       await fs.realpath(path.join(root, 'Target.md')),
     ])
@@ -276,17 +317,7 @@ describe('wikilink indexing', () => {
       }),
     )
 
-    for (const filePath of [
-      path.join(first.indexRoot, 'indexes/documents.json'),
-      path.join(first.indexRoot, 'indexes/sections.json'),
-      path.join(first.indexRoot, 'indexes/links.json'),
-    ]) {
-      const persisted = JSON.parse(
-        await fs.readFile(filePath, 'utf8'),
-      ) as Record<string, unknown>
-      await fs.writeFile(filePath, JSON.stringify({ ...persisted, version: 2 }))
-    }
-    clearIndexCache(first.indexRoot)
+    await rewriteStructuralIndexVersion(first.indexRoot, 2)
 
     const rebuilt = await Effect.runPromise(
       refreshManifestIndex(home, undefined, {
@@ -311,6 +342,44 @@ describe('wikilink indexing', () => {
       path.join(root, 'Target.md'),
     )) as DocumentKey
     expect(links?.version).toBe(INDEX_VERSION)
+    expect(links?.forward[sourceKey]).toEqual([{ documentPath: targetKey }])
+  })
+
+  it('fully rebuilds a version 2 generation after an incremental file change', async () => {
+    const root = await makeCorpus({
+      'Source.md': '# Source\n\n[[Target]]\n',
+      'Target.md': '# Target\n',
+    })
+    const sourcePath = path.join(root, 'Source.md')
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), 'mdm-wikilink-home-'))
+    cleanup.push(home)
+    await Effect.runPromise(appendManifestDirectory(home, { path: root }))
+    const first = await Effect.runPromise(
+      refreshManifestIndex(home, undefined, {
+        force: false,
+        semantic: { mode: 'skip' },
+      }),
+    )
+    await rewriteStructuralIndexVersion(first.indexRoot, 2)
+    await fs.writeFile(sourcePath, '# Updated source\n\n[[Target]]\n')
+
+    const rebuilt = await Effect.runPromise(
+      refreshManifestIndex(home, undefined, {
+        force: false,
+        changedPaths: [sourcePath],
+        semantic: { mode: 'skip' },
+      }),
+    )
+
+    expect(rebuilt.generation).not.toBe(first.generation)
+    expect(rebuilt.value.documentsIndexed).toBe(2)
+    expect(rebuilt.value.skipped.unchanged).toBe(0)
+    expect(rebuilt.value.totalDocuments).toBe(2)
+    const links = await loadLinks(rebuilt.indexRoot)
+    const sourceKey = (await fs.realpath(sourcePath)) as DocumentKey
+    const targetKey = (await fs.realpath(
+      path.join(root, 'Target.md'),
+    )) as DocumentKey
     expect(links?.forward[sourceKey]).toEqual([{ documentPath: targetKey }])
   })
 

@@ -74,6 +74,24 @@ export interface DiscoveredCorpus {
   readonly complete: boolean
 }
 
+export const structuralIndexRequiresRebuild = (
+  indexRoot: string,
+): Effect.Effect<boolean, FileReadError | IndexCorruptedError> => {
+  const storage = createStorage(indexRoot, indexRoot)
+  return Effect.all([
+    loadDocumentIndex(storage),
+    loadSectionIndex(storage),
+    loadLinkIndex(storage),
+  ]).pipe(
+    Effect.as(false),
+    Effect.catchTag('IndexCorruptedError', (error) =>
+      error.reason === 'VersionMismatch'
+        ? Effect.succeed(true)
+        : Effect.fail(error),
+    ),
+  )
+}
+
 const loadMutableState = (
   storage: IndexStorage,
   force: boolean,
@@ -553,6 +571,10 @@ export const buildIndex = (
 > =>
   Effect.gen(function* () {
     const sourceRoot = path.resolve(rootPath)
+    const requiresRebuild = yield* structuralIndexRequiresRebuild(
+      options.indexRoot,
+    )
+    const changedPaths = requiresRebuild ? undefined : options.changedPaths
     const ignoreHierarchy = yield* createIgnoreFilter({
       rootPath: sourceRoot,
       cliPatterns: options.exclude,
@@ -560,7 +582,7 @@ export const buildIndex = (
       honorMdmignore: options.honorMdmignore ?? true,
     })
     const result = yield* discoverFiles(sourceRoot, ignoreHierarchy, {
-      changedPaths: options.changedPaths,
+      changedPaths,
       followSymlinks: options.followSymlinks,
     })
     const discovery = yield* canonicalizeDiscoveredFiles(result.files)
@@ -570,7 +592,7 @@ export const buildIndex = (
         discovery,
         deletedPaths: result.deletedPaths,
         skipped: result.skipped,
-        complete: (options.changedPaths?.length ?? 0) === 0,
+        complete: (changedPaths?.length ?? 0) === 0,
       },
       options,
     )
