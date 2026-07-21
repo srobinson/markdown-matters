@@ -443,7 +443,7 @@ Based on the search results, here are the key findings...
 | [OpenAI GPT](https://developers.openai.com/api/docs/pricing) | $1–$30 | Premium (GPT-5.6 Luna→Sol) |
 | [Anthropic Claude](https://claude.com/pricing) | $1–$50 | Premium (Haiku 4.5→Fable 5) |
 
-*Pricing accurate as of 2026-07-21; standard pay-as-you-go rates, excludes batch/cache/Pro tiers. Provider list prices change frequently — verify at the linked source.
+*Pricing accurate as of 2026-07-21; standard pay-as-you-go rates, excludes batch/cache/Pro tiers. Provider list prices change frequently. Verify at the linked source.
 
 ### Configuration
 
