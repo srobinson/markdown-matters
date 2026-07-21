@@ -123,7 +123,8 @@ export const refreshManifestIndex = <P = never>(
         return { index, semantic: semanticResult, mutation }
       }),
     validate: () => Effect.void,
-    shouldPublish: (_, result) => result.mutation.changed,
+    shouldPublish: (_, result) =>
+      indexOptions.force === true || result.mutation.changed,
   }).pipe(
     Effect.map((published) => ({
       generation: published.generation,
