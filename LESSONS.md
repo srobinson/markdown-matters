@@ -12,6 +12,15 @@ garbage). Reserve the Agent/subagent tool for single, self-contained delegated
 lookups. When Stuart says "all general agent, claude use opus," he means the
 warroom's general-agent preset with opus on the Claude panes. (2026-07-04)
 
+## Launch the full warroom roster up front, not incrementally
+Always spawn the complete standing roster at warroom start so every agent holds a
+fixed bus address for the whole job, rather than growing pane by pane per phase.
+The standing team spans all three model families, one each: **codex** scout/code,
+**opus** reviewer (cross-family vs the codex scout), **grok** personal
+assistant/ad-hoc queries. Do not defer the reviewer and assistant seats to a later
+phase; a fixed address that never churns is worth more than saving idle-pane
+overhead. (2026-07-23)
+
 ## Normalize paths at portable text boundaries
 Keep declared paths in the platform native form used by filesystem logic.
 Normalize backslashes to forward slashes only when writing portable text such
@@ -104,4 +113,11 @@ Do not add a regression test for an isolated copy change or literal replacement
 when existing behavior already exercises the path. Verify low risk wording edits
 through the existing command and relevant established gates. Add tests when they
 protect meaningful logic, branching, or a demonstrated recurring failure.
+(2026-07-22)
+
+## Let bus nudges drive inbox checks
+Do not poll Helioy Bus mail at task, turn, or session boundaries. Read the inbox
+after a "you have mail!" nudge or an explicit user request. The bus sends a nudge
+when mail arrives. If tmux readdresses the current pane, compare `whoami` with
+the current target and re-register stale Bus identity using the stable pane ID.
 (2026-07-22)
