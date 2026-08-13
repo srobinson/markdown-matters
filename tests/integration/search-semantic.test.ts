@@ -17,8 +17,14 @@ import {
   buildEmbeddings,
   semanticSearchWithStats,
 } from '../../src/embeddings/semantic-search.js'
+import type { SemanticSearchOptions } from '../../src/embeddings/types.js'
 import { buildIndex } from '../../src/index/indexer.js'
 import { registerDefaultProviders } from '../../src/providers/index.js'
+import {
+  loadSemanticSearchTestRuntime,
+  resolveSemanticSearchTestOptions,
+  type SemanticSearchTestRuntime,
+} from './semantic-search-test-runtime.js'
 
 const TEST_DIR = path.join(
   process.cwd(),
@@ -27,9 +33,18 @@ const TEST_DIR = path.join(
   'semantic-search',
 )
 const originalMdmHome = process.env.MDM_HOME
+let testRuntime: SemanticSearchTestRuntime
 
 const runEffect = <A, E>(effect: Effect.Effect<A, E>) =>
   Effect.runPromise(effect)
+
+const searchWithStats = (query: string, options: SemanticSearchOptions) =>
+  semanticSearchWithStats(
+    testRuntime.session,
+    TEST_DIR,
+    query,
+    resolveSemanticSearchTestOptions(testRuntime, options),
+  )
 
 const skipIfNoApiKey = () => {
   if (!process.env.OPENAI_API_KEY && !process.env.INCLUDE_EMBED_TESTS) {
@@ -209,6 +224,7 @@ Database migrations cannot be automatically rolled back.
         force: shouldRebuild,
       }),
     )
+    testRuntime = await runEffect(loadSemanticSearchTestRuntime(TEST_DIR))
   }, 60000)
 
   afterAll(async () => {
@@ -223,7 +239,7 @@ Database migrations cannot be automatically rolled back.
       if (skipIfNoApiKey()) return
 
       const result = await runEffect(
-        semanticSearchWithStats(TEST_DIR, 'how does user login work', {
+        searchWithStats('how does user login work', {
           limit: 5,
           threshold: 0.3,
         }),
@@ -242,7 +258,7 @@ Database migrations cannot be automatically rolled back.
       if (skipIfNoApiKey()) return
 
       const result = await runEffect(
-        semanticSearchWithStats(TEST_DIR, 'authentication', {
+        searchWithStats('authentication', {
           limit: 10,
           threshold: 0.2,
         }),
@@ -263,14 +279,14 @@ Database migrations cannot be automatically rolled back.
       if (skipIfNoApiKey()) return
 
       const lowThreshold = await runEffect(
-        semanticSearchWithStats(TEST_DIR, 'deployment', {
+        searchWithStats('deployment', {
           limit: 10,
           threshold: 0.2,
         }),
       )
 
       const highThreshold = await runEffect(
-        semanticSearchWithStats(TEST_DIR, 'deployment', {
+        searchWithStats('deployment', {
           limit: 10,
           threshold: 0.5,
         }),
@@ -289,7 +305,7 @@ Database migrations cannot be automatically rolled back.
       if (skipIfNoApiKey()) return
 
       const result = await runEffect(
-        semanticSearchWithStats(TEST_DIR, 'authentication', {
+        searchWithStats('authentication', {
           limit: 5,
           threshold: 0.99,
         }),
@@ -310,7 +326,7 @@ Database migrations cannot be automatically rolled back.
       if (skipIfNoApiKey()) return
 
       const result = await runEffect(
-        semanticSearchWithStats(TEST_DIR, 'api endpoints', {
+        searchWithStats('api endpoints', {
           limit: 3,
           threshold: 0.2,
         }),
@@ -323,7 +339,7 @@ Database migrations cannot be automatically rolled back.
       if (skipIfNoApiKey()) return
 
       const result = await runEffect(
-        semanticSearchWithStats(TEST_DIR, 'user', {
+        searchWithStats('user', {
           limit: 2,
           threshold: 0.2,
         }),
@@ -340,7 +356,7 @@ Database migrations cannot be automatically rolled back.
       if (skipIfNoApiKey()) return
 
       const result = await runEffect(
-        semanticSearchWithStats(TEST_DIR, 'authentication', {
+        searchWithStats('authentication', {
           limit: 100,
           threshold: 0.3,
         }),
@@ -356,7 +372,7 @@ Database migrations cannot be automatically rolled back.
       if (skipIfNoApiKey()) return
 
       const result = await runEffect(
-        semanticSearchWithStats(TEST_DIR, 'authentication', {
+        searchWithStats('authentication', {
           limit: 5,
           threshold: 0.3,
           contextBefore: 2,
@@ -381,7 +397,7 @@ Database migrations cannot be automatically rolled back.
       if (skipIfNoApiKey()) return
 
       const result = await runEffect(
-        semanticSearchWithStats(TEST_DIR, 'quantum physics blockchain AI', {
+        searchWithStats('quantum physics blockchain AI', {
           limit: 5,
           threshold: 0.7,
         }),
@@ -394,7 +410,7 @@ Database migrations cannot be automatically rolled back.
       if (skipIfNoApiKey()) return
 
       const result = await runEffect(
-        semanticSearchWithStats(TEST_DIR, 'api', {
+        searchWithStats('api', {
           limit: 5,
           threshold: 0.3,
         }),
@@ -410,7 +426,7 @@ Database migrations cannot be automatically rolled back.
         'I need to understand how the authentication system works including user login with email and password, OAuth integration with third-party providers like Google and GitHub, session management with Redis, and security best practices for production deployment'
 
       const result = await runEffect(
-        semanticSearchWithStats(TEST_DIR, longQuery, {
+        searchWithStats(longQuery, {
           limit: 5,
           threshold: 0.3,
         }),
@@ -423,7 +439,7 @@ Database migrations cannot be automatically rolled back.
       if (skipIfNoApiKey()) return
 
       const result = await runEffect(
-        semanticSearchWithStats(TEST_DIR, 'OAuth 2.0 & JWT tokens', {
+        searchWithStats('OAuth 2.0 & JWT tokens', {
           limit: 5,
           threshold: 0.3,
         }),
@@ -438,7 +454,7 @@ Database migrations cannot be automatically rolled back.
       if (skipIfNoApiKey()) return
 
       const result = await runEffect(
-        semanticSearchWithStats(TEST_DIR, 'database schema', {
+        searchWithStats('database schema', {
           limit: 5,
           threshold: 0.3,
         }),
@@ -470,14 +486,10 @@ Database migrations cannot be automatically rolled back.
       if (skipIfNoApiKey()) return
 
       const result = await runEffect(
-        semanticSearchWithStats(
-          TEST_DIR,
-          'configuration environment variables',
-          {
-            limit: 10,
-            threshold: 0.3,
-          },
-        ),
+        searchWithStats('configuration environment variables', {
+          limit: 10,
+          threshold: 0.3,
+        }),
       )
 
       expect(result.results.length).toBeGreaterThan(0)
@@ -490,7 +502,7 @@ Database migrations cannot be automatically rolled back.
       if (skipIfNoApiKey()) return
 
       const result = await runEffect(
-        semanticSearchWithStats(TEST_DIR, 'security and passwords', {
+        searchWithStats('security and passwords', {
           limit: 10,
           threshold: 0.3,
         }),
@@ -505,14 +517,14 @@ Database migrations cannot be automatically rolled back.
       if (skipIfNoApiKey()) return
 
       const authResult = await runEffect(
-        semanticSearchWithStats(TEST_DIR, 'OAuth authentication', {
+        searchWithStats('OAuth authentication', {
           limit: 5,
           threshold: 0.2,
         }),
       )
 
       const unrelatedResult = await runEffect(
-        semanticSearchWithStats(TEST_DIR, 'database backup', {
+        searchWithStats('database backup', {
           limit: 5,
           threshold: 0.2,
         }),
