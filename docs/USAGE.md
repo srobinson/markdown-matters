@@ -100,7 +100,8 @@ mdm index [path] [options]
 | ------------- | ------------------------------------------ |
 | `-e, --embed` | Also build semantic embeddings             |
 | `-w, --watch` | Show deferred manifest watch guidance      |
-| `--force`     | Force full rebuild (ignore cache)          |
+| `--force`     | Rebuild the structural index               |
+| `--force-embed` | Rebuild all semantic embeddings          |
 | `--json`      | Output as JSON                             |
 | `--pretty`    | Pretty-print JSON                          |
 
@@ -121,7 +122,14 @@ mdm index --watch
 
 # Force rebuild
 mdm index --force
+
+# Force a semantic rebuild
+mdm index --force-embed
 ```
+
+Sections larger than an embedding provider accepts are split automatically and
+stored as one normalized section vector. mdm reports the document and heading
+when this occurs.
 
 **Index location:** `.mdm/indexes/`
 

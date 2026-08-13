@@ -533,7 +533,11 @@ describe('validateConfig', () => {
         maxLimit: 5,
         defaultLimit: 10,
       },
-      embeddings: { ...defaultConfig.embeddings, batchSize: 0 },
+      embeddings: {
+        ...defaultConfig.embeddings,
+        batchSize: 0,
+        concurrency: 0,
+      },
     }
 
     const result = validateConfig(config)
@@ -542,6 +546,9 @@ describe('validateConfig', () => {
     expect(result.search.maxLimit).toBe(5)
     expect(result.search.defaultLimit).toBe(5)
     expect(result.embeddings.batchSize).toBe(defaultConfig.embeddings.batchSize)
+    expect(result.embeddings.concurrency).toBe(
+      defaultConfig.embeddings.concurrency,
+    )
     expect(warnSpy).toHaveBeenCalled()
     warnSpy.mockRestore()
   })
@@ -668,6 +675,9 @@ describe('generateDefaultToml round-trip', () => {
       defaultConfig.embeddings.dimensions,
     )
     expect(result.embeddings.batchSize).toBe(defaultConfig.embeddings.batchSize)
+    expect(result.embeddings.concurrency).toBe(
+      defaultConfig.embeddings.concurrency,
+    )
     expect(result.embeddings.maxRetries).toBe(
       defaultConfig.embeddings.maxRetries,
     )

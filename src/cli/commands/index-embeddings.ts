@@ -1,8 +1,10 @@
-import { Console, Effect } from 'effect'
+import { Console, Effect, Option } from 'effect'
 
+import type { EmbeddingsConfig } from '../../config/schema.js'
 import type {
   BuildEmbeddingsOptions,
   BuildEmbeddingsResult,
+  EmbeddingExecutionOptions,
   EmbeddingProviderConfig,
 } from '../../embeddings/semantic-search.js'
 import type { SemanticRefreshOptions } from '../../index/semantic-refresh.js'
@@ -11,6 +13,7 @@ import type { ProviderId } from '../../providers/index.js'
 export interface EmbeddingRefreshInput {
   readonly embed: boolean
   readonly noEmbed: boolean
+  readonly forceEmbed: boolean
   readonly force: boolean
   readonly json: boolean
   readonly provider: ProviderId | undefined
@@ -22,26 +25,39 @@ export interface EmbeddingRefreshInput {
 
 const providerConfig = (
   input: EmbeddingRefreshInput,
-): EmbeddingProviderConfig | undefined => {
-  if (input.provider !== undefined) {
-    return {
-      provider: input.provider,
-      baseURL: input.providerBaseUrl,
-      model: input.providerModel,
-    }
-  }
-  return undefined
-}
+  config: EmbeddingsConfig,
+): EmbeddingProviderConfig => ({
+  provider: input.provider ?? config.provider,
+  baseURL: input.providerBaseUrl ?? Option.getOrUndefined(config.baseURL),
+  model: input.providerModel ?? config.model,
+  dimensions: config.dimensions,
+})
 
-const hnswOptions = (input: EmbeddingRefreshInput) =>
-  input.hnswM !== undefined || input.hnswEfConstruction !== undefined
-    ? { m: input.hnswM, efConstruction: input.hnswEfConstruction }
-    : undefined
+const hnswOptions = (
+  input: EmbeddingRefreshInput,
+  config: EmbeddingsConfig,
+) => ({
+  m: input.hnswM ?? config.hnswM,
+  efConstruction: input.hnswEfConstruction ?? config.hnswEfConstruction,
+})
+
+const executionOptions = (
+  config: EmbeddingsConfig,
+): EmbeddingExecutionOptions => ({
+  batchSize: config.batchSize,
+  concurrency: config.concurrency,
+  maxRetries: config.maxRetries,
+  retryDelayMs: config.retryDelayMs,
+  timeoutMs: config.timeoutMs,
+})
 
 const progressOptions = (
   input: EmbeddingRefreshInput,
   showProgress: boolean,
-): Pick<BuildEmbeddingsOptions, 'onBatchProgress' | 'onFileProgress'> => ({
+): Pick<
+  BuildEmbeddingsOptions,
+  'onBatchProgress' | 'onFileProgress' | 'onSectionChunked'
+> => ({
   onFileProgress: (progress) => {
     if (!input.json && showProgress) {
       process.stdout.write(
@@ -56,21 +72,33 @@ const progressOptions = (
       )
     }
   },
+  onSectionChunked: (progress) => {
+    if (input.json) return
+    if (showProgress) process.stdout.write('\x1b[2K\r')
+    process.stderr.write(
+      `  Chunking oversized section: ${progress.documentPath} > ${progress.heading} (${progress.tokenCount} tokens into ${progress.chunkCount} inputs)\n`,
+    )
+  },
 })
 
 export const semanticRefreshOptions = (
   input: EmbeddingRefreshInput,
   showProgress: boolean,
+  config: EmbeddingsConfig,
 ): SemanticRefreshOptions => {
   if (input.noEmbed) return { mode: 'skip' }
   const progress = progressOptions(input, showProgress)
-  if (!input.embed) return { mode: 'active', ...progress }
+  const execution = executionOptions(config)
+  if (!input.embed && !input.forceEmbed) {
+    return { mode: 'active', execution, ...progress }
+  }
   return {
     mode: 'build',
     options: {
-      force: input.force,
-      providerConfig: providerConfig(input),
-      hnswOptions: hnswOptions(input),
+      force: input.forceEmbed,
+      providerConfig: providerConfig(input, config),
+      hnswOptions: hnswOptions(input, config),
+      execution,
       ...progress,
     },
   }
@@ -83,7 +111,7 @@ const renderEmbeddingResult = (result: BuildEmbeddingsResult) =>
       yield* Console.log(
         `Embeddings already exist (${result.existingVectors} vectors)`,
       )
-      yield* Console.log('  Use --force to rebuild')
+      yield* Console.log('  Use --force-embed to rebuild')
       return
     }
 

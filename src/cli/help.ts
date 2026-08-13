@@ -59,6 +59,7 @@ export const helpContent: Record<string, CommandHelp> = {
       'mdm index                    # Refresh the existing manifest',
       'mdm index docs/              # Append docs/ then refresh all roots',
       'mdm index --embed            # Refresh and build embeddings',
+      'mdm index --force-embed      # Rebuild every semantic embedding',
       'mdm index --watch            # Fails; manifest watch is unavailable',
       'mdm index --force            # Bypass cache, re-process all files',
       '',
@@ -113,6 +114,11 @@ export const helpContent: Record<string, CommandHelp> = {
         description:
           'Bypass mtime/hash cache and re-process every file (does not delete index)',
       },
+      {
+        name: '--force-embed',
+        description:
+          'Rebuild every semantic embedding instead of reusing vectors',
+      },
       { name: '--json', description: 'Output results as JSON' },
       { name: '--pretty', description: 'Pretty-print JSON output' },
     ],
@@ -120,7 +126,7 @@ export const helpContent: Record<string, CommandHelp> = {
       'With no path, index refreshes every directory in manifest.toml.',
       'With a path, index appends its absolute declared path before refreshing.',
       'An empty manifest requires mdm index <dir>; the current directory is never implicit.',
-      'Existing semantic embeddings refresh atomically; use --embed to create them or --no-embed to leave them unchanged.',
+      'Existing semantic embeddings refresh atomically. Use --embed to create them, --force-embed to rebuild them, or --no-embed to leave them unchanged.',
       'Providers: openai (default), ollama (free/local), lm-studio, openrouter, voyage.',
       'Set API keys: OPENAI_API_KEY, OPENROUTER_API_KEY, or use local providers.',
       'Manifest and index state are stored in the active MDM_HOME.',

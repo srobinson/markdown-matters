@@ -88,6 +88,11 @@ export const indexSchema: CommandSchema = {
       description: 'Skip semantic vector pruning and refresh',
     },
     {
+      name: 'force-embed',
+      type: 'boolean',
+      description: 'Rebuild every semantic embedding',
+    },
+    {
       name: 'exclude',
       type: 'string',
       alias: 'x',

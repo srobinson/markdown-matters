@@ -75,6 +75,7 @@ mdm index                       # Later: refresh all existing manifest directori
 mdm index ./docs                # Append path, then refresh all directories
 mdm index . --embed             # First index and build semantic embeddings
 mdm index --no-embed            # Leave semantic vectors unchanged
+mdm index --force-embed         # Rebuild every semantic embedding
 mdm index --watch               # Fails; multi-root manifest watch is unavailable
 mdm index --force               # Bypass cache, re-process all files
 mdm index --exclude "*.draft.md,research/**"  # Exclude patterns (comma-separated)

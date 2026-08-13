@@ -10,6 +10,8 @@ import {
   loadSectionIndex,
 } from '../index/storage.js'
 import type { EmbeddingClient } from '../providers/index.js'
+import { countTokens } from '../utils/tokens.js'
+import { EMBEDDING_INPUT_TOKEN_LIMIT } from './embedding-inputs.js'
 import {
   getActiveProviderPath,
   getMetaPath,
@@ -17,6 +19,7 @@ import {
 } from './embedding-namespace-paths.js'
 import { buildEmbeddings } from './semantic-search-build.js'
 import { createNamespacedVectorStore } from './vector-store.js'
+import { loadVectorIndex } from './vector-store-codec.js'
 
 const providerConfig = {
   provider: 'openai' as const,
@@ -259,6 +262,73 @@ it('publishes no semantic artifacts after a forced build has zero eligible secti
       ),
     )
     expect(existing.filter((filePath) => filePath !== null)).toEqual([])
+  } finally {
+    await fs.rm(fixture.parent, { recursive: true, force: true })
+  }
+})
+
+it('embeds an oversized section as one pooled vector', async () => {
+  const fixture = await makeEmbeddingFixture(
+    `# Oversized\n\n${'semantic content '.repeat(10_000)}`,
+  )
+  const embeddedInputs: string[] = []
+  let embeddingIndex = 0
+  const embed = vi.fn<EmbeddingClient['embed']>((texts, options) => {
+    embeddedInputs.push(...texts)
+    return Effect.succeed({
+      embeddings: texts.map(() =>
+        embeddingIndex++ % 2 === 0 ? [3, 0] : [0, 4],
+      ),
+      model: options?.model ?? 'test-model',
+      usage: { inputTokens: texts.length },
+    })
+  })
+  const batchProgress: { processedSections: number; totalSections: number }[] =
+    []
+  const chunkedSections: { heading: string; chunkCount: number }[] = []
+
+  try {
+    await Effect.runPromise(
+      buildIndex(fixture.sourceRoot, { indexRoot: fixture.indexRoot }),
+    )
+    const result = await Effect.runPromise(
+      buildEmbeddings(fixture.sourceRoot, {
+        indexRoot: fixture.indexRoot,
+        client: { embed },
+        providerConfig: {
+          provider: 'openai',
+          model: 'text-embedding-3-small',
+          dimensions: 2,
+        },
+        onBatchProgress: (progress) => batchProgress.push(progress),
+        onSectionChunked: ({ heading, chunkCount }) =>
+          chunkedSections.push({ heading, chunkCount }),
+      }),
+    )
+    const tokenCounts = await Promise.all(
+      embeddedInputs.map((text) => Effect.runPromise(countTokens(text))),
+    )
+    const vectorIndex = await Effect.runPromise(
+      loadVectorIndex(
+        getMetaPath(fixture.indexRoot, 'openai_text-embedding-3-small_2'),
+      ),
+    )
+    const vector = Object.values(vectorIndex.entries)[0]
+
+    expect(result.sectionsEmbedded).toBe(1)
+    expect(embeddedInputs.length).toBeGreaterThan(1)
+    expect(
+      tokenCounts.every((count) => count <= EMBEDDING_INPUT_TOKEN_LIMIT),
+    ).toBe(true)
+    expect(chunkedSections).toEqual([
+      { heading: 'Oversized', chunkCount: embeddedInputs.length },
+    ])
+    expect(batchProgress.at(-1)).toMatchObject({
+      processedSections: 1,
+      totalSections: 1,
+    })
+    expect(vector).toBeDefined()
+    expect(Math.hypot(...(vector?.embedding ?? []))).toBeCloseTo(1)
   } finally {
     await fs.rm(fixture.parent, { recursive: true, force: true })
   }

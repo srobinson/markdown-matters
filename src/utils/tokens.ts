@@ -30,6 +30,78 @@ export const countTokens = (
     return tokens.length
   })
 
+export interface TokenTextChunk {
+  readonly text: string
+  readonly tokenCount: number
+}
+
+const preferredChunkEnd = (
+  characters: readonly string[],
+  maximumEnd: number,
+): number => {
+  const minimumEnd = Math.floor(maximumEnd * 0.8)
+  for (let index = maximumEnd - 1; index >= minimumEnd; index--) {
+    if (/\s/u.test(characters[index] ?? '')) return index + 1
+  }
+  return maximumEnd
+}
+
+const largestTokenSafePrefix = (
+  text: string,
+  maxTokens: number,
+  enc: NonNullable<typeof encoder>,
+): TokenTextChunk => {
+  const characters = Array.from(text)
+  let low = 1
+  let high = characters.length
+  let maximumEnd = 1
+
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2)
+    const candidate = characters.slice(0, middle).join('')
+    if (enc.encode(candidate).length <= maxTokens) {
+      maximumEnd = middle
+      low = middle + 1
+    } else {
+      high = middle - 1
+    }
+  }
+
+  const end = preferredChunkEnd(characters, maximumEnd)
+  const chunk = characters.slice(0, end).join('')
+  return { text: chunk, tokenCount: enc.encode(chunk).length }
+}
+
+/**
+ * Split text without loss while keeping every chunk within an exact
+ * cl100k_base token ceiling. Natural whitespace near the boundary is
+ * preferred, and Unicode code points are never split.
+ */
+export const splitTextByTokens = (
+  text: string,
+  maxTokens: number,
+): Effect.Effect<readonly TokenTextChunk[], never, never> =>
+  Effect.gen(function* () {
+    if (text.length === 0) return []
+    const enc = yield* getEncoder
+    const tokenCount = enc.encode(text).length
+    if (tokenCount <= maxTokens) return [{ text, tokenCount }]
+
+    const chunks: TokenTextChunk[] = []
+    let remaining = text
+    while (remaining.length > 0) {
+      const remainingTokens = enc.encode(remaining).length
+      if (remainingTokens <= maxTokens) {
+        chunks.push({ text: remaining, tokenCount: remainingTokens })
+        break
+      }
+      const chunk = largestTokenSafePrefix(remaining, maxTokens, enc)
+      chunks.push(chunk)
+      remaining = remaining.slice(chunk.text.length)
+    }
+    return chunks
+  })
+
 /**
  * Synchronous token counting with improved approximation
  *

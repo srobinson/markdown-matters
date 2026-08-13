@@ -3,7 +3,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 
 import { Effect } from 'effect'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 
 import { type DocumentKey, expandDeclaredPath } from '../db/canonical.js'
 import { readCurrentGeneration } from '../db/generation-paths.js'
@@ -624,5 +624,52 @@ it('detects semantic no-ops and embedding-only changes', async () => {
     structural: false,
     semantic: true,
     changed: true,
+  })
+})
+
+it('reuses copied vectors during a forced structural rebuild', async () => {
+  const fixture = await makeManifestRoots()
+  await Effect.runPromise(
+    appendManifestDirectory(fixture.home, { path: fixture.first }),
+  )
+  const embed = vi.fn<EmbeddingClient['embed']>((texts) =>
+    Effect.succeed({
+      embeddings: texts.map(() => [1, 0]),
+      model: 'test-model',
+      usage: { inputTokens: texts.length },
+    }),
+  )
+  const semantic = {
+    mode: 'build' as const,
+    options: {
+      client: { embed } satisfies EmbeddingClient,
+      providerConfig: {
+        provider: 'openai' as const,
+        model: 'test-model',
+        dimensions: 2,
+      },
+    },
+  }
+
+  const first = await Effect.runPromise(
+    refreshManifestIndex(fixture.home, undefined, { semantic }),
+  )
+  const second = await Effect.runPromise(
+    refreshManifestIndex(fixture.home, undefined, {
+      force: true,
+      semantic,
+    }),
+  )
+
+  expect(embed).toHaveBeenCalledTimes(1)
+  expect(second.generation).not.toBe(first.generation)
+  expect(second.semantic).toMatchObject({
+    sectionsEmbedded: 0,
+    cacheHit: true,
+  })
+  expect(second.mutation).toEqual({
+    structural: false,
+    semantic: false,
+    changed: false,
   })
 })

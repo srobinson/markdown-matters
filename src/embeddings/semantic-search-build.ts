@@ -42,7 +42,17 @@ import {
   resolveCanonicalSourceRoot,
 } from '../search/path-matcher.js'
 import { getRecommendedDimensions, supportsMatryoshka } from './dimensions.js'
-import { createEmbeddingClient, embedInBatches } from './embed-batched.js'
+import {
+  createEmbeddingClient,
+  EMBEDDING_REQUEST_TOKEN_LIMIT,
+  type EmbeddingExecutionOptions,
+  embedInBatches,
+} from './embed-batched.js'
+import {
+  type EmbeddingSourceInput,
+  poolEmbeddingsBySource,
+  prepareEmbeddingInputs,
+} from './embedding-inputs.js'
 import {
   type EmbeddingNamespaceError,
   generateNamespace,
@@ -82,6 +92,13 @@ export interface EmbeddingBatchProgress {
   readonly totalSections: number
 }
 
+export interface SectionChunkProgress {
+  readonly documentPath: DocumentKey
+  readonly heading: string
+  readonly tokenCount: number
+  readonly chunkCount: number
+}
+
 export interface BuildEmbeddingsOptions {
   readonly force?: boolean | undefined
   readonly indexRoot: string
@@ -93,10 +110,14 @@ export interface BuildEmbeddingsOptions {
   readonly client?: EmbeddingClient | undefined
   readonly providerConfig?: EmbeddingProviderConfig | undefined
   readonly excludePatterns?: readonly string[] | undefined
+  readonly execution?: EmbeddingExecutionOptions | undefined
   readonly onFileProgress?: ((progress: FileProgress) => void) | undefined
   /** Callback for batch progress during embedding API calls */
   readonly onBatchProgress?:
     | ((progress: EmbeddingBatchProgress) => void)
+    | undefined
+  readonly onSectionChunked?:
+    | ((progress: SectionChunkProgress) => void)
     | undefined
   /** HNSW build parameters for vector index construction */
   readonly hnswOptions?: HnswBuildOptions | undefined
@@ -123,12 +144,12 @@ export interface BuildEmbeddingsResult {
  * section body. The format is stable so HNSW cache keys derived from it
  * survive across builds.
  */
-const generateEmbeddingText = (
+const generateEmbeddingSource = (
   section: SectionEntry,
   content: string,
   documentTitle: string,
   parentHeading?: string | undefined,
-): string => {
+): EmbeddingSourceInput => {
   const parts: string[] = []
 
   parts.push(`# ${section.heading}`)
@@ -136,10 +157,7 @@ const generateEmbeddingText = (
     parts.push(`Parent section: ${parentHeading}`)
   }
   parts.push(`Document: ${documentTitle}`)
-  parts.push('')
-  parts.push(content)
-
-  return parts.join('\n')
+  return { context: parts.join('\n'), content }
 }
 
 type DocSections = {
@@ -216,7 +234,10 @@ const groupEligibleSections = (
 }
 
 interface SectionsToEmbed {
-  readonly sectionsToEmbed: { section: SectionEntry; text: string }[]
+  readonly sectionsToEmbed: {
+    section: SectionEntry
+    source: EmbeddingSourceInput
+  }[]
   readonly filesProcessed: number
 }
 
@@ -233,7 +254,10 @@ const readSectionsToEmbed = (
   onFileProgress: ((progress: FileProgress) => void) | undefined,
 ): Effect.Effect<SectionsToEmbed, never, never> =>
   Effect.gen(function* () {
-    const sectionsToEmbed: { section: SectionEntry; text: string }[] = []
+    const sectionsToEmbed: {
+      section: SectionEntry
+      source: EmbeddingSourceInput
+    }[] = []
     const docPaths = Array.from(sectionsByDoc.keys())
     let filesProcessed = 0
 
@@ -283,13 +307,13 @@ const readSectionsToEmbed = (
           .slice(section.startLine - 1, section.endLine)
           .join('\n')
 
-        const text = generateEmbeddingText(
+        const source = generateEmbeddingSource(
           section,
           content,
           document.title,
           parentHeading,
         )
-        sectionsToEmbed.push({ section, text })
+        sectionsToEmbed.push({ section, source })
       }
     }
 
@@ -399,25 +423,55 @@ const embedSections = (
   sectionsToEmbed: SectionsToEmbed['sectionsToEmbed'],
   docIndex: DocumentIndex,
   runtime: EmbeddingRuntime,
+  execution: EmbeddingExecutionOptions | undefined,
   onBatchProgress: ((progress: EmbeddingBatchProgress) => void) | undefined,
+  onSectionChunked: ((progress: SectionChunkProgress) => void) | undefined,
 ) =>
   Effect.gen(function* () {
-    const texts = sectionsToEmbed.map((section) => section.text)
+    const prepared = yield* prepareEmbeddingInputs(
+      sectionsToEmbed.map((section) => section.source),
+    )
+    for (const chunked of prepared.chunkedSources) {
+      const section = sectionsToEmbed[chunked.sourceIndex]?.section
+      if (section === undefined) continue
+      onSectionChunked?.({
+        documentPath: section.documentPath,
+        heading: section.heading,
+        tokenCount: chunked.tokenCount,
+        chunkCount: chunked.chunkCount,
+      })
+    }
+
+    const remainingChunks = [...prepared.chunkCounts]
+    let processedSections = 0
+    const texts = prepared.inputs.map((input) => input.text)
     const result = yield* embedInBatches(runtime.client, texts, {
       model: runtime.providerModel,
       ...(supportsMatryoshka(runtime.providerModel)
         ? { dimensions: runtime.dimensions }
         : {}),
+      ...execution,
+      tokenCounts: prepared.inputs.map((input) => input.tokenCount),
+      maxBatchTokens: EMBEDDING_REQUEST_TOKEN_LIMIT,
       onBatchProgress: onBatchProgress
-        ? (progress) =>
+        ? (progress) => {
+            for (const inputIndex of progress.completedTextIndexes) {
+              const sourceIndex = prepared.inputs[inputIndex]?.sourceIndex
+              if (sourceIndex === undefined) continue
+              remainingChunks[sourceIndex] =
+                (remainingChunks[sourceIndex] ?? 1) - 1
+              if (remainingChunks[sourceIndex] === 0) processedSections++
+            }
             onBatchProgress({
               batchIndex: progress.batchIndex,
               totalBatches: progress.totalBatches,
-              processedSections: progress.processedTexts,
-              totalSections: progress.totalTexts,
+              processedSections,
+              totalSections: sectionsToEmbed.length,
             })
+          }
         : undefined,
     })
+    const embeddings = poolEmbeddingsBySource(prepared, result.embeddings)
     const tokensUsed = result.usage?.inputTokens ?? 0
     const pricePerMillion =
       lookupPricing('embed', runtime.providerModel)?.input ?? 0
@@ -425,8 +479,14 @@ const embedSections = (
 
     for (let index = 0; index < sectionsToEmbed.length; index++) {
       const section = sectionsToEmbed[index]?.section
-      const embedding = result.embeddings[index]
-      if (!section || !embedding) continue
+      const embedding = embeddings[index]
+      if (
+        section === undefined ||
+        embedding === undefined ||
+        embedding.length !== runtime.dimensions
+      ) {
+        continue
+      }
       const documentHash = docIndex.documents[section.documentPath]?.hash
       if (documentHash === undefined) continue
 
@@ -575,7 +635,9 @@ export const buildEmbeddings = (
       sectionsToEmbed,
       docIndex,
       runtime,
+      options.execution,
       options.onBatchProgress,
+      options.onSectionChunked,
     )
     yield* runtime.vectorStore.add(embedded.entries)
     runtime.vectorStore.addCost(embedded.cost, embedded.tokensUsed)
