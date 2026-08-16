@@ -308,7 +308,7 @@ export const formatError = (error: MdmError): FormattedError =>
           e.corpusProvider
             ? `Switch back to original provider: --provider ${e.corpusProvider.split(':')[0]} --provider-model ${e.corpusProvider.split(':')[1] ?? ''}`
             : 'Check your embedding provider configuration',
-          "Rebuild corpus with current provider: 'mdm index --embed --force'",
+          "Rebuild corpus with current provider: 'mdm index --force-embed'",
           'The corpus was created with different embedding dimensions than your current provider',
         ] as const,
         exitCode: EXIT_CODE.USER_ERROR,

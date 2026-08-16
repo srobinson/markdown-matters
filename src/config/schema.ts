@@ -76,6 +76,8 @@ export interface EmbeddingsConfig {
   dimensions: number
   /** Batch size for embedding API calls. */
   batchSize: number
+  /** Maximum number of embedding API calls in flight. */
+  concurrency: number
   /** Maximum retries for failed API calls. */
   maxRetries: number
   /** Delay between retries in milliseconds. */
@@ -232,6 +234,7 @@ export const defaultConfig: MdmConfig = {
     model: 'text-embedding-3-small',
     dimensions: 512,
     batchSize: 100,
+    concurrency: 4,
     maxRetries: 3,
     retryDelayMs: 1000,
     timeoutMs: 30000,

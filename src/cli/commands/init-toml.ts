@@ -31,6 +31,7 @@ provider = "${defaultConfig.embeddings.provider}"
 model = "${defaultConfig.embeddings.model}"
 dimensions = ${defaultConfig.embeddings.dimensions}
 batchSize = ${defaultConfig.embeddings.batchSize}
+concurrency = ${defaultConfig.embeddings.concurrency}
 maxRetries = ${defaultConfig.embeddings.maxRetries}
 retryDelayMs = ${defaultConfig.embeddings.retryDelayMs}
 timeoutMs = ${defaultConfig.embeddings.timeoutMs}

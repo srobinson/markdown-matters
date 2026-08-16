@@ -1,6 +1,6 @@
 import { Console, Effect } from 'effect'
 
-import { getConfigValue } from '../../config/service.js'
+import { getConfigSection, getConfigValue } from '../../config/service.js'
 import { resolveMdmHome } from '../../home.js'
 import { refreshManifestIndex } from '../../index/manifest-refresh.js'
 import { ManifestError, manifestPath } from '../../manifest.js'
@@ -39,6 +39,7 @@ export const runIndexCommand = (input: IndexCommandInput) =>
     if (input.watch) return yield* rejectManifestWatch(home)
 
     const colorEnabled = yield* getConfigValue('output', 'color')
+    const embeddingsConfig = yield* getConfigSection('embeddings')
     const showProgress = Boolean(process.stdout.isTTY && colorEnabled)
     const exclude = parseExcludePatterns(input.exclude)
 
@@ -59,7 +60,7 @@ export const runIndexCommand = (input: IndexCommandInput) =>
           )
         }
       },
-      semantic: semanticRefreshOptions(input, showProgress),
+      semantic: semanticRefreshOptions(input, showProgress, embeddingsConfig),
     })
     const result = published.value
 

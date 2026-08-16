@@ -191,6 +191,7 @@ describe('mdm CLI e2e', () => {
       expect(output).toContain('--hnsw-m')
       expect(output).toContain('--hnsw-ef-construction')
       expect(output).toContain('--force')
+      expect(output).toContain('--force-embed')
       expect(output).not.toContain('--all')
       expect(output).not.toContain('--timeout')
     })

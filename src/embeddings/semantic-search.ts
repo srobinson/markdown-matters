@@ -65,6 +65,7 @@ export type SemanticSearchError =
 // ----------------------------------------------------------------------------
 
 export { checkPricingFreshness, getPricingDate } from '../providers/pricing.js'
+export type { EmbeddingExecutionOptions } from './embed-batched.js'
 export { clearHnswCache, invalidateHnswCache } from './hnsw-cache.js'
 export {
   type BuildEmbeddingsOptions,
@@ -72,6 +73,7 @@ export {
   buildEmbeddings,
   type EmbeddingBatchProgress,
   type FileProgress,
+  type SectionChunkProgress,
 } from './semantic-search-build.js'
 export {
   type DirectoryEstimate,

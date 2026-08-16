@@ -176,6 +176,7 @@ color = "yes"
     expect(result.code).toBe(0)
     expect(parsed.valid).toBe(true)
     expect(parsed.config.embeddings.maxRetries.source).toBe('file')
+    expect(parsed.config.embeddings.concurrency.source).toBe('file')
     expect(parsed.config.embeddings.retryDelayMs.source).toBe('file')
     expect(parsed.config.embeddings.timeoutMs.source).toBe('file')
     expect(parsed.config.embeddings.hnswM.source).toBe('file')

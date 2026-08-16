@@ -70,6 +70,17 @@ describe('preprocessArgvWithValidation', () => {
       expect(result.error).toBeUndefined()
     })
 
+    it('accepts the semantic rebuild flag', () => {
+      const result = preprocessArgvWithValidation([
+        node,
+        script,
+        'index',
+        '--force-embed',
+      ])
+      expect(result.argv).toEqual([node, script, 'index', '--force-embed'])
+      expect(result.error).toBeUndefined()
+    })
+
     it('passes through --help flag', () => {
       const result = preprocessArgvWithValidation([
         node,

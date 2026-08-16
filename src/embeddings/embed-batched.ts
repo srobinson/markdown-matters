@@ -7,10 +7,11 @@
  * retry on transient failures. That logic lives here, in the consumer
  * layer, so the runtime stays minimal.
  *
- * Behavior preserved from the previous `OpenAIProvider.embed` path:
+ * Default behavior:
  *  - Batch size defaults to 100 documents per request.
- *  - Retry up to 5 attempts on RateLimit/Network errors with exponential
- *    backoff (1s, 2s, 4s, 8s, 16s) plus 0-1s random jitter.
+ *  - Requests run serially unless the caller configures concurrency.
+ *  - Retry up to 3 times on RateLimit/Network errors with exponential
+ *    backoff plus random jitter.
  *  - Per-batch progress callback fires after each successful batch.
  *  - Aggregated `inputTokens` across batches.
  *  - Maps the runtime's generic `EmbeddingError` into the centralized
@@ -46,9 +47,18 @@ export interface BatchProgress {
   readonly totalBatches: number
   readonly processedTexts: number
   readonly totalTexts: number
+  readonly completedTextIndexes: readonly number[]
 }
 
-export interface EmbedInBatchesOptions {
+export interface EmbeddingExecutionOptions {
+  readonly batchSize?: number | undefined
+  readonly concurrency?: number | undefined
+  readonly maxRetries?: number | undefined
+  readonly retryDelayMs?: number | undefined
+  readonly timeoutMs?: number | undefined
+}
+
+export interface EmbedInBatchesOptions extends EmbeddingExecutionOptions {
   readonly model: string
   /**
    * Output dimensions, only set when the model supports Matryoshka
@@ -56,7 +66,8 @@ export interface EmbedInBatchesOptions {
    * (OpenAI text-embedding-3-*) and ignores it elsewhere.
    */
   readonly dimensions?: number | undefined
-  readonly batchSize?: number | undefined
+  readonly tokenCounts?: readonly number[] | undefined
+  readonly maxBatchTokens?: number | undefined
   readonly onBatchProgress?: ((progress: BatchProgress) => void) | undefined
   readonly signal?: AbortSignal | undefined
 }
@@ -66,7 +77,10 @@ export interface EmbedInBatchesOptions {
 // ============================================================================
 
 const DEFAULT_BATCH_SIZE = 100
-const MAX_RETRY_ATTEMPTS = 5
+const DEFAULT_CONCURRENCY = 1
+const DEFAULT_MAX_RETRIES = 3
+const DEFAULT_RETRY_DELAY_MS = 1000
+export const EMBEDDING_REQUEST_TOKEN_LIMIT = 300_000
 
 // ============================================================================
 // Error Classification
@@ -156,15 +170,51 @@ const toConsumerError = (
   })
 }
 
+interface RequestSignal {
+  readonly signal: AbortSignal | undefined
+  readonly timedOut: () => boolean
+  readonly cleanup: () => void
+}
+
+const requestSignal = (
+  parent: AbortSignal | undefined,
+  timeoutMs: number | undefined,
+): RequestSignal => {
+  if (timeoutMs === undefined) {
+    return { signal: parent, timedOut: () => false, cleanup: () => {} }
+  }
+
+  const controller = new AbortController()
+  let timeoutReached = false
+  const abortFromParent = () => controller.abort(parent?.reason)
+  if (parent?.aborted) abortFromParent()
+  else parent?.addEventListener('abort', abortFromParent, { once: true })
+
+  const timeoutId = setTimeout(() => {
+    timeoutReached = true
+    controller.abort(
+      new Error(`Embedding request timed out after ${timeoutMs}ms`),
+    )
+  }, timeoutMs)
+
+  return {
+    signal: controller.signal,
+    timedOut: () => timeoutReached,
+    cleanup: () => {
+      clearTimeout(timeoutId)
+      parent?.removeEventListener('abort', abortFromParent)
+    },
+  }
+}
+
 // ============================================================================
 // Retry Wrapper
 // ============================================================================
 
 /**
- * Call `client.embed` with up to 5 attempts, retrying on RateLimit and
- * Network categories with exponential backoff + jitter. The OpenAI SDK
- * already retries internally (maxRetries: 2); this loop covers cases
- * that slip through during long batch runs.
+ * Call `client.embed`, retrying RateLimit and Network categories with
+ * exponential backoff and jitter. The caller controls the retry budget,
+ * base delay, and request timeout.
  */
 const embedBatchWithRetry = (
   client: EmbeddingClient,
@@ -173,22 +223,30 @@ const embedBatchWithRetry = (
     readonly model: string
     readonly dimensions?: number | undefined
     readonly signal?: AbortSignal | undefined
+    readonly maxRetries?: number | undefined
+    readonly retryDelayMs?: number | undefined
+    readonly timeoutMs?: number | undefined
   },
 ): Effect.Effect<
   EmbeddingResult,
   ApiKeyInvalidError | ConsumerEmbeddingError
 > =>
   Effect.gen(function* () {
-    for (let attempt = 0; attempt < MAX_RETRY_ATTEMPTS; attempt++) {
+    const maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES
+    const retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS
+    const maxAttempts = maxRetries + 1
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const request = requestSignal(options.signal, options.timeoutMs)
       const result = yield* Effect.either(
         client.embed(texts, {
           model: options.model,
           ...(options.dimensions !== undefined
             ? { dimensions: options.dimensions }
             : {}),
-          ...(options.signal !== undefined ? { signal: options.signal } : {}),
+          ...(request.signal !== undefined ? { signal: request.signal } : {}),
         }),
-      )
+      ).pipe(Effect.ensuring(Effect.sync(request.cleanup)))
 
       if (result._tag === 'Right') {
         return result.right
@@ -200,19 +258,31 @@ const embedBatchWithRetry = (
         return yield* Effect.fail(toConsumerError(error))
       }
 
-      const reason = classifyEmbeddingError(error)
-      const isLastAttempt = attempt === MAX_RETRY_ATTEMPTS - 1
+      const reason = request.timedOut()
+        ? 'Network'
+        : classifyEmbeddingError(error)
+      const isLastAttempt = attempt === maxAttempts - 1
 
       if (!isRetryable(reason) || isLastAttempt) {
+        if (request.timedOut()) {
+          return yield* Effect.fail(
+            new ConsumerEmbeddingError({
+              reason: 'Network',
+              message: `Embedding request timed out after ${options.timeoutMs}ms`,
+              provider: error.provider,
+              cause: error.cause,
+            }),
+          )
+        }
         return yield* Effect.fail(toConsumerError(error))
       }
 
-      const baseDelay = 2 ** attempt * 1000
-      const jitter = Math.random() * 1000
+      const baseDelay = 2 ** attempt * retryDelayMs
+      const jitter = Math.random() * retryDelayMs
       const delay = Math.round(baseDelay + jitter)
 
       console.info(
-        `[mdm] Embedding API ${reason} error, retry ${attempt + 1}/${MAX_RETRY_ATTEMPTS} after ${delay}ms`,
+        `[mdm] Embedding API ${reason} error, retry ${attempt + 1}/${maxRetries} after ${delay}ms`,
       )
 
       yield* Effect.sleep(`${delay} millis`)
@@ -247,6 +317,48 @@ export const createEmbeddingClient = (
   ApiKeyMissingError | CapabilityNotSupported | ProviderNotFound
 > => resolveClient('embed', id, overrides)
 
+interface EmbeddingBatch {
+  readonly index: number
+  readonly texts: readonly string[]
+  readonly textIndexes: readonly number[]
+}
+
+const createEmbeddingBatches = (
+  texts: readonly string[],
+  batchSize: number,
+  tokenCounts: readonly number[] | undefined,
+  maxBatchTokens: number,
+): readonly EmbeddingBatch[] => {
+  const batches: EmbeddingBatch[] = []
+  let batchTexts: string[] = []
+  let textIndexes: number[] = []
+  let batchTokens = 0
+
+  const flush = () => {
+    if (batchTexts.length === 0) return
+    batches.push({ index: batches.length, texts: batchTexts, textIndexes })
+    batchTexts = []
+    textIndexes = []
+    batchTokens = 0
+  }
+
+  for (let index = 0; index < texts.length; index++) {
+    const tokenCount = tokenCounts?.[index] ?? 0
+    if (
+      batchTexts.length > 0 &&
+      (batchTexts.length >= batchSize ||
+        batchTokens + tokenCount > maxBatchTokens)
+    ) {
+      flush()
+    }
+    batchTexts.push(texts[index]!)
+    textIndexes.push(index)
+    batchTokens += tokenCount
+  }
+  flush()
+  return batches
+}
+
 // ============================================================================
 // Public API
 // ============================================================================
@@ -278,36 +390,53 @@ export const embedInBatches = (
     }
 
     const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE
-    const totalBatches = Math.ceil(texts.length / batchSize)
-    const allEmbeddings: (readonly number[])[] = []
-    let totalTokens = 0
-    let resolvedModel = options.model
+    const concurrency = options.concurrency ?? DEFAULT_CONCURRENCY
+    const batches = createEmbeddingBatches(
+      texts,
+      batchSize,
+      options.tokenCounts,
+      options.maxBatchTokens ?? EMBEDDING_REQUEST_TOKEN_LIMIT,
+    )
+    const totalBatches = batches.length
+    let completedBatches = 0
+    let processedTexts = 0
 
-    for (let i = 0; i < texts.length; i += batchSize) {
-      const batch = texts.slice(i, i + batchSize)
-      const batchIndex = Math.floor(i / batchSize)
+    const results = yield* Effect.forEach(
+      batches,
+      (batch) =>
+        embedBatchWithRetry(client, batch.texts, {
+          model: options.model,
+          dimensions: options.dimensions,
+          signal: options.signal,
+          maxRetries: options.maxRetries,
+          retryDelayMs: options.retryDelayMs,
+          timeoutMs: options.timeoutMs,
+        }).pipe(
+          Effect.tap(() =>
+            Effect.sync(() => {
+              completedBatches++
+              processedTexts += batch.texts.length
+              options.onBatchProgress?.({
+                batchIndex: completedBatches,
+                totalBatches,
+                processedTexts,
+                totalTexts: texts.length,
+                completedTextIndexes: batch.textIndexes,
+              })
+            }),
+          ),
+          Effect.map((result) => ({ index: batch.index, result })),
+        ),
+      { concurrency },
+    )
+    results.sort((left, right) => left.index - right.index)
 
-      const result = yield* embedBatchWithRetry(client, batch, {
-        model: options.model,
-        dimensions: options.dimensions,
-        signal: options.signal,
-      })
-
-      for (const embedding of result.embeddings) {
-        allEmbeddings.push(embedding)
-      }
-      totalTokens += result.usage?.inputTokens ?? 0
-      resolvedModel = result.model
-
-      if (options.onBatchProgress) {
-        options.onBatchProgress({
-          batchIndex: batchIndex + 1,
-          totalBatches,
-          processedTexts: Math.min(i + batchSize, texts.length),
-          totalTexts: texts.length,
-        })
-      }
-    }
+    const allEmbeddings = results.flatMap(({ result }) => result.embeddings)
+    const totalTokens = results.reduce(
+      (total, { result }) => total + (result.usage?.inputTokens ?? 0),
+      0,
+    )
+    const resolvedModel = results.at(-1)?.result.model ?? options.model
 
     return {
       embeddings: allEmbeddings,

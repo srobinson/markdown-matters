@@ -59,6 +59,7 @@ snippetLength = 200
 provider = "openai"
 model = "text-embedding-3-small"
 batchSize = 100
+concurrency = 4
 ```
 
 ---
@@ -130,6 +131,7 @@ provider = "openai"
 model = "text-embedding-3-small"
 dimensions = 512
 batchSize = 100
+concurrency = 4
 maxRetries = 3
 # baseURL = "https://custom-endpoint.example.com"
 # apiKey = "sk-..."
@@ -283,11 +285,17 @@ Controls semantic search embedding generation.
 | `provider`     | `string` | `'openai'`                 | Embedding provider (openai, ollama, lm-studio, openrouter) |
 | `model`        | `string` | `'text-embedding-3-small'` | Embedding model name                     |
 | `dimensions`   | `number` | (auto)                     | Vector dimensions (auto-detected from model if not set) |
-| `batchSize`    | `number` | `100`                      | Batch size for API calls                 |
+| `batchSize`    | `number` | `100`                      | Inputs per embedding API call            |
+| `concurrency`  | `number` | `4`                        | Maximum embedding API calls in flight    |
 | `maxRetries`   | `number` | `3`                        | Maximum retries for failed API calls     |
 | `retryDelayMs` | `number` | `1000`                     | Delay between retries in milliseconds    |
 | `timeoutMs`    | `number` | `30000`                    | Request timeout in milliseconds          |
 | `apiKey`       | `string` | (from env)                 | API key (prefer environment variable) |
+
+Embedding inputs are token counted before submission. Sections above the
+provider safe limit are split into bounded inputs, embedded with their heading
+and document context, then pooled into one normalized section vector. Requests
+are also packed below the provider aggregate token limit.
 
 **Model Dimensions:**
 
@@ -323,6 +331,7 @@ model = "text-embedding-3-large"
 
 # Smaller batches for rate limiting
 batchSize = 50
+concurrency = 4
 
 # More aggressive retries
 maxRetries = 5
@@ -563,6 +572,7 @@ environment var:   MDM_INDEX_MAXDEPTH
 | `MDM_EMBEDDINGS_MODEL`      | `embeddings.model`       |
 | `MDM_EMBEDDINGS_DIMENSIONS` | `embeddings.dimensions`  |
 | `MDM_EMBEDDINGS_BATCHSIZE`  | `embeddings.batchSize`   |
+| `MDM_EMBEDDINGS_CONCURRENCY` | `embeddings.concurrency` |
 | `MDM_EMBEDDINGS_MAXRETRIES` | `embeddings.maxRetries`  |
 | `MDM_EMBEDDINGS_RETRYDELAYMS` | `embeddings.retryDelayMs` |
 | `MDM_EMBEDDINGS_TIMEOUTMS`  | `embeddings.timeoutMs`   |

@@ -171,6 +171,12 @@ const numberRules: ConfigRule[] = [
     isPositiveInteger,
   ),
   numberRule(
+    'embeddings.concurrency',
+    'an integer greater than or equal to 1',
+    defaultConfig.embeddings.concurrency,
+    isPositiveInteger,
+  ),
+  numberRule(
     'embeddings.maxRetries',
     'an integer greater than or equal to 0',
     defaultConfig.embeddings.maxRetries,

@@ -26,14 +26,29 @@ import {
   buildEmbeddings,
   semanticSearch,
 } from '../../src/embeddings/semantic-search.js'
+import type { SemanticSearchOptions } from '../../src/embeddings/types.js'
 import { buildIndex } from '../../src/index/indexer.js'
 import { registerDefaultProviders } from '../../src/providers/index.js'
+import {
+  loadSemanticSearchTestRuntime,
+  resolveSemanticSearchTestOptions,
+  type SemanticSearchTestRuntime,
+} from './semantic-search-test-runtime.js'
 
 const TEST_DIR = path.join(process.cwd(), 'tests', 'fixtures', 'search-hyde')
 const originalMdmHome = process.env.MDM_HOME
+let testRuntime: SemanticSearchTestRuntime
 
 const runEffect = <A, E>(effect: Effect.Effect<A, E>) =>
   Effect.runPromise(effect)
+
+const search = (query: string, options: SemanticSearchOptions) =>
+  semanticSearch(
+    testRuntime.session,
+    TEST_DIR,
+    query,
+    resolveSemanticSearchTestOptions(testRuntime, options),
+  )
 
 const skipIfNoApiKey = () => {
   if (!process.env.OPENAI_API_KEY && !process.env.INCLUDE_EMBED_TESTS) {
@@ -261,6 +276,7 @@ describe('HyDE behavior integration', () => {
         force: shouldRebuild,
       }),
     )
+    testRuntime = await runEffect(loadSemanticSearchTestRuntime(TEST_DIR))
   }, 300000)
 
   afterAll(async () => {
@@ -283,7 +299,7 @@ describe('HyDE behavior integration', () => {
       'how does the platform keep a long running api call authenticated when its access token reaches the end of its lifetime mid flight'
 
     const withoutHyde = await runEffect(
-      semanticSearch(TEST_DIR, query, {
+      search(query, {
         limit: 10,
         threshold: 0,
         hyde: false,
@@ -291,7 +307,7 @@ describe('HyDE behavior integration', () => {
     )
 
     const withHyde = await runEffect(
-      semanticSearch(TEST_DIR, query, {
+      search(query, {
         limit: 10,
         threshold: 0,
         hyde: true,
@@ -329,7 +345,7 @@ describe('HyDE behavior integration', () => {
     // return ranked results. This guards against accidental property
     // dropping in the hydeOptions forwarding path.
     const results = await runEffect(
-      semanticSearch(TEST_DIR, 'how do refresh tokens rotate', {
+      search('how do refresh tokens rotate', {
         limit: 5,
         threshold: 0,
         hyde: true,

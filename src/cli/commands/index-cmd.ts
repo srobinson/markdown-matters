@@ -21,6 +21,13 @@ const noEmbedOption = Options.boolean('no-embed').pipe(
   Options.withDefault(false),
 )
 
+const forceEmbedOption = Options.boolean('force-embed').pipe(
+  Options.withDescription(
+    'Rebuild every semantic embedding instead of reusing unchanged vectors',
+  ),
+  Options.withDefault(false),
+)
+
 const excludeOption = Options.text('exclude').pipe(
   Options.withAlias('x'),
   Options.withDescription(
@@ -83,6 +90,7 @@ export const indexCommand = Command.make(
     path: pathArg,
     embed: embedOption,
     noEmbed: noEmbedOption,
+    forceEmbed: forceEmbedOption,
     exclude: excludeOption,
     noGitignore: noGitignoreOption,
     provider: providerOption,
@@ -100,6 +108,7 @@ export const indexCommand = Command.make(
       path: Option.getOrUndefined(input.path),
       embed: input.embed,
       noEmbed: input.noEmbed,
+      forceEmbed: input.forceEmbed,
       exclude: Option.getOrUndefined(input.exclude),
       noGitignore: input.noGitignore,
       provider: Option.getOrUndefined(input.provider),

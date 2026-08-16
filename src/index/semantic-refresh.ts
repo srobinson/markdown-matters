@@ -18,8 +18,10 @@ type SemanticBuildOptions = Omit<BuildEmbeddingsOptions, 'indexRoot'>
 interface ActiveSemanticOptions {
   readonly mode: 'active'
   readonly client?: EmbeddingClient | undefined
+  readonly execution?: BuildEmbeddingsOptions['execution']
   readonly onFileProgress?: BuildEmbeddingsOptions['onFileProgress']
   readonly onBatchProgress?: BuildEmbeddingsOptions['onBatchProgress']
+  readonly onSectionChunked?: BuildEmbeddingsOptions['onSectionChunked']
 }
 
 export type SemanticRefreshOptions =
@@ -57,8 +59,10 @@ const refreshActiveSemanticGeneration = (
         baseURL: metadata.providerBaseURL,
       },
       hnswOptions: metadata.hnswParams,
+      execution: options.execution,
       onFileProgress: options.onFileProgress,
       onBatchProgress: options.onBatchProgress,
+      onSectionChunked: options.onSectionChunked,
     })
   })
 

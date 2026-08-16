@@ -1,6 +1,11 @@
 import { Effect } from 'effect'
 import { describe, expect, it } from 'vitest'
-import { countTokens, countTokensApprox, countWords } from './tokens.js'
+import {
+  countTokens,
+  countTokensApprox,
+  countWords,
+  splitTextByTokens,
+} from './tokens.js'
 
 describe('token utilities', () => {
   describe('countWords', () => {
@@ -137,6 +142,30 @@ describe('token utilities', () => {
       const actual = await Effect.runPromise(countTokens(text))
       expect(approx).toBeGreaterThanOrEqual(actual)
       expect(approx).toBeLessThanOrEqual(actual * 2)
+    })
+  })
+
+  describe('splitTextByTokens', () => {
+    it('preserves text while enforcing the exact token limit', async () => {
+      const text = `${'alpha beta gamma\n'.repeat(80)}終わり🙂`
+      const chunks = await Effect.runPromise(splitTextByTokens(text, 40))
+
+      expect(chunks.length).toBeGreaterThan(1)
+      expect(chunks.map((chunk) => chunk.text).join('')).toBe(text)
+      expect(chunks.every((chunk) => chunk.tokenCount <= 40)).toBe(true)
+      await Promise.all(
+        chunks.map(async (chunk) =>
+          expect(await Effect.runPromise(countTokens(chunk.text))).toBe(
+            chunk.tokenCount,
+          ),
+        ),
+      )
+    })
+
+    it('returns one chunk when the text already fits', async () => {
+      const chunks = await Effect.runPromise(splitTextByTokens('short text', 8))
+
+      expect(chunks).toEqual([{ text: 'short text', tokenCount: 2 }])
     })
   })
 })

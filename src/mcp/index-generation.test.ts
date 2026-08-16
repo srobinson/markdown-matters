@@ -148,6 +148,7 @@ it('publishes equivalent semantic generations through CLI and MCP', async () => 
       pretty: false,
       embed: false,
       noEmbed: false,
+      forceEmbed: false,
       force: false,
       json: true,
       provider: undefined,
