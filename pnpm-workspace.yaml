@@ -3,3 +3,6 @@ ignoredBuiltDependencies:
   - esbuild
   - hnswlib-node
   - msgpackr-extract
+
+overrides:
+  esbuild: ^0.28.2
