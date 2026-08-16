@@ -32,7 +32,7 @@
     "format": "biome format --write . && biome check --write .",
     "check": "pnpm format && pnpm lint && pnpm typecheck",
     "clean": "rm -rf dist",
-    "quality": "pnpm build && npx publint && npx attw --pack .",
+    "quality": "pnpm build && pnpm exec publint && pnpm exec attw --pack . --profile esm-only",
     "prepublishOnly": "pnpm build && pnpm test && pnpm typecheck",
     "release": "npm publish --provenance --access public"
   },
@@ -74,11 +74,14 @@
     "yaml": "^2.9.0"
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
     "@biomejs/biome": "^2.5.5",
     "@types/mdast": "^4.0.4",
     "@types/node": "^25.9.5",
+    "publint": "^0.3.23",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
+    "vite": "^7.3.6",
     "vitest": "^4.1.10"
   }
 }

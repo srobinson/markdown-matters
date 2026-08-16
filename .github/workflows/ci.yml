@@ -23,12 +23,13 @@ jobs:
       should_skip: ${{ steps.check.outputs.should_skip }}
     steps:
       - id: check
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
-          if [[ "${{ github.event.pull_request.title }}" == chore\(main\):\ release* ]]; then
-            echo "should_skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "should_skip=false" >> "$GITHUB_OUTPUT"
-          fi
+          case "$PR_TITLE" in
+            "chore(main): release"*) echo "should_skip=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "should_skip=false" >> "$GITHUB_OUTPUT" ;;
+          esac
 
   quality:
     needs: check-skip
@@ -56,10 +57,10 @@ jobs:
       - run: pnpm lint
 
       - name: Validate package exports
-        run: npx publint
+        run: pnpm exec publint
 
       - name: Validate TypeScript types
-        run: npx attw --pack .
+        run: pnpm exec attw --pack . --profile esm-only
 
   test:
     needs: check-skip
