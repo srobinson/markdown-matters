@@ -1,5 +1,4 @@
 import * as fs from 'node:fs/promises'
-import * as os from 'node:os'
 import * as path from 'node:path'
 
 import { Effect } from 'effect'
@@ -19,6 +18,10 @@ import { bm25Search } from '../search/bm25-store.js'
 import { buildManifestIndex } from './manifest-build.js'
 import { refreshManifestIndex } from './manifest-refresh.js'
 import {
+  makeManifestRoots,
+  removeFixtureRoots,
+} from './manifest-test-fixture.js'
+import {
   createStorage,
   loadDocumentIndex,
   loadLinkIndex,
@@ -27,51 +30,12 @@ import {
 
 const cleanup: string[] = []
 
-const makeManifestRoots = async () => {
-  const parent = await fs.mkdtemp(path.join(os.tmpdir(), 'mdm-corpus-'))
-  cleanup.push(parent)
-  const home = path.join(parent, 'home')
-  const first = path.join(parent, 'first')
-  const second = path.join(parent, 'second')
-  await Promise.all(
-    [home, first, second].map((directory) =>
-      fs.mkdir(directory, { recursive: true }),
-    ),
-  )
-  await Promise.all([
-    fs.writeFile(
-      path.join(first, 'first.md'),
-      '# first\n\nalpha corpus words repeated for keyword index coverage with enough additional semantic terms',
-    ),
-    fs.writeFile(
-      path.join(second, 'second.md'),
-      '# second\n\nbetasecond corpus words repeated for keyword index coverage with enough additional semantic terms',
-    ),
-  ])
-  const manifest: MdmManifest = {
-    directories: [first, second].map((directory) => ({
-      path: expandDeclaredPath(directory),
-      recurse: true,
-    })),
-  }
-  return { home, first, second, manifest }
-}
+const makeRoots = () => makeManifestRoots(cleanup)
 
-afterEach(async () => {
-  await Promise.all(
-    cleanup.splice(0).map((target) =>
-      fs.rm(target, {
-        recursive: true,
-        force: true,
-        maxRetries: 5,
-        retryDelay: 100,
-      }),
-    ),
-  )
-})
+afterEach(() => removeFixtureRoots(cleanup))
 
 it('runs preflight before a requested directory is appended', async () => {
-  const { home, first, second } = await makeManifestRoots()
+  const { home, first, second } = await makeRoots()
   await Effect.runPromise(appendManifestDirectory(home, { path: first }))
   const before = await fs.readFile(manifestPath(home), 'utf8')
   const failure = new Error('preflight rejected')
@@ -92,7 +56,7 @@ it('runs preflight before a requested directory is appended', async () => {
 })
 
 it('deduplicates overlapping roots and hardlinks before one save', async () => {
-  const { home, first, second } = await makeManifestRoots()
+  const { home, first, second } = await makeRoots()
   await Promise.all([
     fs.rm(path.join(first, 'first.md')),
     fs.rm(path.join(second, 'second.md')),
@@ -131,7 +95,7 @@ it('deduplicates overlapping roots and hardlinks before one save', async () => {
 })
 
 it('prunes a root removed from the complete manifest', async () => {
-  const fixture = await makeManifestRoots()
+  const fixture = await makeRoots()
   await Effect.runPromise(
     buildManifestIndex(fixture.manifest, { indexRoot: fixture.home }),
   )
@@ -150,7 +114,7 @@ it('prunes a root removed from the complete manifest', async () => {
 })
 
 it('limits changed path builds to affected manifest roots', async () => {
-  const fixture = await makeManifestRoots()
+  const fixture = await makeRoots()
   await Effect.runPromise(
     buildManifestIndex(fixture.manifest, { indexRoot: fixture.home }),
   )
@@ -173,7 +137,7 @@ it('limits changed path builds to affected manifest roots', async () => {
 })
 
 it('resolves cross-root links only when the target is discovered', async () => {
-  const { home, first, second } = await makeManifestRoots()
+  const { home, first, second } = await makeRoots()
   await Promise.all([
     fs.rm(path.join(first, 'first.md')),
     fs.rm(path.join(second, 'second.md')),
@@ -218,7 +182,7 @@ it('resolves cross-root links only when the target is discovered', async () => {
 })
 
 it('removes stale section vectors when manifest membership shrinks', async () => {
-  const fixture = await makeManifestRoots()
+  const fixture = await makeRoots()
   await Effect.runPromise(
     buildManifestIndex(fixture.manifest, { indexRoot: fixture.home }),
   )
@@ -273,7 +237,7 @@ it('removes stale section vectors when manifest membership shrinks', async () =>
 })
 
 it('removes a vector when its section survives with a changed document hash', async () => {
-  const fixture = await makeManifestRoots()
+  const fixture = await makeRoots()
   const manifest = {
     directories: [fixture.manifest.directories[0]!],
   }
@@ -329,7 +293,7 @@ it('removes a vector when its section survives with a changed document hash', as
 })
 
 it('preserves vectors when an incremental build produces an empty corpus', async () => {
-  const fixture = await makeManifestRoots()
+  const fixture = await makeRoots()
   const source = path.join(fixture.first, 'first.md')
   const manifest = { directories: [fixture.manifest.directories[0]!] }
   await Effect.runPromise(
@@ -384,7 +348,7 @@ it('preserves vectors when an incremental build produces an empty corpus', async
 })
 
 it('leaves semantic vectors unchanged when semantic refresh is skipped', async () => {
-  const fixture = await makeManifestRoots()
+  const fixture = await makeRoots()
   await Effect.runPromise(
     appendManifestDirectory(fixture.home, { path: fixture.first }),
   )
@@ -453,7 +417,7 @@ it('leaves semantic vectors unchanged when semantic refresh is skipped', async (
 })
 
 it('keeps current unchanged when staged semantic refresh fails', async () => {
-  const fixture = await makeManifestRoots()
+  const fixture = await makeRoots()
   await Effect.runPromise(
     appendManifestDirectory(fixture.home, { path: fixture.first }),
   )
@@ -499,7 +463,7 @@ it('keeps current unchanged when staged semantic refresh fails', async () => {
 })
 
 it('publishes only structural changes across identical, edited, and deleted corpora', async () => {
-  const fixture = await makeManifestRoots()
+  const fixture = await makeRoots()
   await Effect.runPromise(
     appendManifestDirectory(fixture.home, { path: fixture.first }),
   )
@@ -554,7 +518,7 @@ it('publishes only structural changes across identical, edited, and deleted corp
 })
 
 it('detects semantic no-ops and embedding-only changes', async () => {
-  const fixture = await makeManifestRoots()
+  const fixture = await makeRoots()
   await Effect.runPromise(
     appendManifestDirectory(fixture.home, { path: fixture.first }),
   )
@@ -628,7 +592,7 @@ it('detects semantic no-ops and embedding-only changes', async () => {
 })
 
 it('reuses copied vectors during a forced structural rebuild', async () => {
-  const fixture = await makeManifestRoots()
+  const fixture = await makeRoots()
   await Effect.runPromise(
     appendManifestDirectory(fixture.home, { path: fixture.first }),
   )

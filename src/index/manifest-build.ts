@@ -1,7 +1,11 @@
 import { isDeepStrictEqual } from 'node:util'
 import { Effect } from 'effect'
 
-import { isPathWithin } from '../db/canonical.js'
+import {
+  type DeclaredPath,
+  expandDeclaredPath,
+  isPathWithin,
+} from '../db/canonical.js'
 import {
   listNamespaces,
   readActiveProvider,
@@ -32,11 +36,12 @@ import {
   loadLinkIndex,
   loadSectionIndex,
 } from './storage.js'
-import type { DocumentIndex, IndexResult } from './types.js'
+import type { DocumentEntry, DocumentIndex, IndexResult } from './types.js'
 
 export interface ManifestBuildOptions extends IndexOptions {
   readonly reconcileVectors?: boolean | undefined
   readonly currentIndexRoot?: string | undefined
+  readonly scopePath?: DeclaredPath | undefined
 }
 
 export interface ManifestBuildResult extends IndexResult {
@@ -120,6 +125,26 @@ export const semanticIndexChanged = (
     Effect.map(({ current, staged }) => !isDeepStrictEqual(current, staged)),
   )
 
+const collectScopedDeletions = (
+  documents: Readonly<Record<string, Pick<DocumentEntry, 'declaredPaths'>>>,
+  scopePath: DeclaredPath,
+  discovered: readonly string[],
+): DeclaredPath[] => {
+  const discoveredSet = new Set(discovered.map(expandDeclaredPath))
+  const deleted: DeclaredPath[] = []
+  for (const entry of Object.values(documents)) {
+    for (const alias of entry.declaredPaths) {
+      if (
+        isPathWithin(alias, scopePath, true) &&
+        !discoveredSet.has(expandDeclaredPath(alias))
+      ) {
+        deleted.push(alias)
+      }
+    }
+  }
+  return deleted
+}
+
 const emptyDiscovery = (): FileDiscoveryResult => ({
   files: [],
   deletedPaths: [],
@@ -137,6 +162,14 @@ const discoverManifestDirectory = (
       )
     : undefined
   if (incremental && changedPaths?.length === 0) {
+    return Effect.succeed(emptyDiscovery())
+  }
+  if (
+    !incremental &&
+    options.scopePath !== undefined &&
+    !isPathWithin(options.scopePath, directory.path, true) &&
+    !isPathWithin(directory.path, options.scopePath, true)
+  ) {
     return Effect.succeed(emptyDiscovery())
   }
   return createIgnoreFilter({
@@ -165,8 +198,12 @@ export const buildManifestIndex = (
       options.indexRoot,
     )
     const discoveryOptions = requiresRebuild
-      ? { ...options, changedPaths: undefined }
+      ? { ...options, changedPaths: undefined, scopePath: undefined }
       : options
+    const scopePath =
+      (discoveryOptions.changedPaths?.length ?? 0) > 0
+        ? undefined
+        : discoveryOptions.scopePath
     const currentStructural = yield* loadCurrentStructuralState(
       options.currentIndexRoot,
     )
@@ -177,9 +214,26 @@ export const buildManifestIndex = (
       ),
       { concurrency: 8 },
     )
-    const files = [...new Set(results.flatMap((result) => result.files))]
+    const discoveredFiles = [
+      ...new Set(results.flatMap((result) => result.files)),
+    ]
+    const files =
+      scopePath === undefined
+        ? discoveredFiles
+        : discoveredFiles.filter((file) => isPathWithin(file, scopePath, true))
+    const scopedDeletions =
+      scopePath === undefined || currentStructural?.documents == null
+        ? []
+        : collectScopedDeletions(
+            currentStructural.documents.documents,
+            scopePath,
+            files,
+          )
     const deletedPaths = [
-      ...new Set(results.flatMap((result) => result.deletedPaths)),
+      ...new Set([
+        ...results.flatMap((result) => result.deletedPaths),
+        ...scopedDeletions,
+      ]),
     ]
     const discovery = yield* canonicalizeDiscoveredFiles(files)
     const skipped = results.reduce(
@@ -195,7 +249,9 @@ export const buildManifestIndex = (
         discovery,
         deletedPaths,
         skipped,
-        complete: (discoveryOptions.changedPaths?.length ?? 0) === 0,
+        complete:
+          (discoveryOptions.changedPaths?.length ?? 0) === 0 &&
+          scopePath === undefined,
       },
       options,
     )
