@@ -23,6 +23,10 @@ import {
   getOutgoingLinks,
   refreshManifestIndex,
 } from '../index/indexer.js'
+import {
+  renderUnlinkedMentions,
+  scanUnlinkedMentions,
+} from '../index/mention-scan.js'
 import { indexSummaryLines } from '../index/summary.js'
 import { parseFile } from '../parser/parser.js'
 import {
@@ -365,13 +369,32 @@ export const handleMdBacklinks = async (
       resolveMcpDocumentPath(session, filePath).pipe(
         Effect.flatMap((resolvedPath) =>
           getIncomingLinks(session, resolvedPath).pipe(
-            Effect.map((links) => ({ links, resolvedPath })),
+            Effect.flatMap((links) =>
+              links.length > 0
+                ? Effect.succeed({ links, mentions: [], resolvedPath })
+                : scanUnlinkedMentions(session, resolvedPath).pipe(
+                    Effect.map((mentions) => ({
+                      links,
+                      mentions,
+                      resolvedPath,
+                    })),
+                  ),
+            ),
           ),
         ),
-        Effect.map(({ links, resolvedPath }) => {
+        Effect.map(({ links, mentions, resolvedPath }) => {
+          if (links.length > 0) {
+            return mcpText(
+              `Incoming links to ${resolvedPath}:\n\n${links.map((l) => `  <- ${l}`).join('\n')}\n\nTotal: ${links.length} backlinks`,
+            )
+          }
+          const mentionLines = renderUnlinkedMentions(
+            path.basename(resolvedPath),
+            mentions,
+          )
           return mcpText(
-            links.length > 0
-              ? `Incoming links to ${resolvedPath}:\n\n${links.map((l) => `  <- ${l}`).join('\n')}\n\nTotal: ${links.length} backlinks`
+            mentionLines.length > 0
+              ? `No incoming links to ${resolvedPath}\n\n${mentionLines.join('\n')}\n\nTotal: ${mentions.length} unlinked mentions`
               : `No incoming links to ${resolvedPath}`,
           )
         }),

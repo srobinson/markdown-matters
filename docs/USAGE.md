@@ -398,7 +398,7 @@ External Links:
 
 ### backlinks
 
-Show files that link to a specific file.
+Show files that link to a specific file. When a file has no incoming links, the corpus is scanned for plain-text mentions of its filename (references in tables, prose, or broken links that never became link edges) and they are reported separately as unlinked mentions.
 
 ```bash
 mdm backlinks <file> [options]
