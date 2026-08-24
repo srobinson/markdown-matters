@@ -292,25 +292,59 @@ const loadPathFilterCorpus = (
     loadDocumentIndex(createStorage(sourceRoot, session.indexRoot)),
   ] as const)
 
+const prepareRootsFilter = (
+  searchRoots: readonly string[],
+  documentIndex: DocumentIndex | null,
+): Effect.Effect<PreparedPathFilter> =>
+  Effect.promise(async () => {
+    // Document aliases are canonical paths; accept a root in either its
+    // declared or canonical form so symlinked locations still match.
+    const roots = [
+      ...new Set(
+        (
+          await Promise.all(
+            searchRoots.map(async (root) => [
+              root,
+              await resolveCanonicalPathOrFallbackAsync(root),
+            ]),
+          )
+        ).flat(),
+      ),
+    ]
+    return (documentPath) =>
+      documentPaths(documentIndex, documentPath).some((alias) =>
+        roots.some((root) => isPathWithin(alias, root, true)),
+      )
+  })
+
 export const prepareUserPathFilter = (
   session: GenerationReadSession,
   sourceRoot: string,
   pattern: string | undefined,
+  searchRoots?: readonly string[] | undefined,
 ) => {
-  if (pattern === undefined) return Effect.succeed(matchAllPaths)
+  const roots = searchRoots ?? []
+  if (pattern === undefined && roots.length === 0) {
+    return Effect.succeed(matchAllPaths)
+  }
   return Effect.gen(function* () {
     const [manifest, documentIndex] = yield* loadPathFilterCorpus(
       session,
       sourceRoot,
       undefined,
     )
-    return yield* prepareUserPathFilterFromCorpus(
+    const patternFilter = yield* prepareUserPathFilterFromCorpus(
       session,
       sourceRoot,
       pattern,
       manifest,
       documentIndex,
     )
+    if (roots.length === 0) return patternFilter
+    const rootsFilter = yield* prepareRootsFilter(roots, documentIndex)
+    return ((documentPath) =>
+      patternFilter(documentPath) &&
+      rootsFilter(documentPath)) satisfies PreparedPathFilter
   })
 }
 

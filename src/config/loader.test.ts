@@ -698,3 +698,57 @@ describe('generateDefaultToml round-trip', () => {
     expect(toml).toContain('[paths]')
   })
 })
+
+// ============================================================================
+// Project config discovery and roots resolution
+// ============================================================================
+
+describe('project config discovery and roots resolution', () => {
+  it('finds project config from a nested working directory', () => {
+    writeTomlConfig(tempDir, { search: { defaultLimit: 7 } })
+    const nested = path.join(tempDir, 'a', 'b')
+    fs.mkdirSync(nested, { recursive: true })
+
+    const result = load({ workingDir: nested, skipEnv: true })
+
+    expect(result.search.defaultLimit).toBe(7)
+  })
+
+  it('finds a project that only declares .mdm.local.toml', () => {
+    fs.writeFileSync(
+      path.join(tempDir, '.mdm.local.toml'),
+      '[search]\ndefaultLimit = 9\n',
+      'utf-8',
+    )
+    const nested = path.join(tempDir, 'sub')
+    fs.mkdirSync(nested)
+
+    const result = load({ workingDir: nested, skipEnv: true })
+
+    expect(result.search.defaultLimit).toBe(9)
+  })
+
+  it('resolves relative roots against the declaring config file directory', () => {
+    writeTomlConfig(tempDir, {
+      index: { roots: ['docs'] },
+      search: { roots: ['.', '~/corpus'] },
+    })
+    const nested = path.join(tempDir, 'sub')
+    fs.mkdirSync(nested)
+
+    const result = load({ workingDir: nested, skipEnv: true })
+
+    expect(result.index.roots).toEqual([path.resolve(tempDir, 'docs')])
+    expect(result.search.roots).toEqual([
+      path.resolve(tempDir),
+      path.join(os.homedir(), 'corpus'),
+    ])
+  })
+
+  it('defaults roots to empty arrays', () => {
+    const result = load({ workingDir: tempDir, skipEnv: true })
+
+    expect(result.index.roots).toEqual([])
+    expect(result.search.roots).toEqual([])
+  })
+})

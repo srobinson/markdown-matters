@@ -401,7 +401,12 @@ export const postProcessResults = (
   Effect.gen(function* () {
     const pathFilter =
       options.preparedPathFilter ??
-      (yield* prepareUserPathFilter(session, sourceRoot, options.pathPattern))
+      (yield* prepareUserPathFilter(
+        session,
+        sourceRoot,
+        options.pathPattern,
+        options.searchRoots,
+      ))
     const filteredResults = rawResults.filter((result) =>
       pathFilter(result.documentPath),
     )

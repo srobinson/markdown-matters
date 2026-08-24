@@ -128,6 +128,12 @@ const searchOptions = {
     ),
     Options.withDefault(false),
   ),
+  global: Options.boolean('global').pipe(
+    Options.withDescription(
+      'Ignore project search roots and search every manifest root',
+    ),
+    Options.withDefault(false),
+  ),
   fuzzyDistance: Options.integer('fuzzy-distance').pipe(
     Options.withDescription(
       'Max edit distance for fuzzy matching (default: 2)',

@@ -237,6 +237,11 @@ export const helpContent: Record<string, CommandHelp> = {
         description: 'Enable fuzzy matching for typo tolerance',
       },
       {
+        name: '--global',
+        description:
+          'Ignore project search roots and search every manifest root',
+      },
+      {
         name: '--stem',
         description: 'Match word variants such as fail, failed, and failing',
       },
