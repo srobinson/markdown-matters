@@ -14,8 +14,8 @@ Thank you for your interest in contributing to mdm! This guide will help you get
 
 ```bash
 # Clone the repository
-git clone https://github.com/mdm/mdm.git
-cd mdm
+git clone https://github.com/srobinson/markdown-matters.git
+cd markdown-matters
 
 # Install dependencies
 pnpm install
@@ -39,11 +39,13 @@ pnpm test
 | `pnpm format` | Format code with Biome |
 | `pnpm check` | Run format, lint, and typecheck |
 
+Note: some tests (for example `config-cmd.test.ts`) spawn the built CLI from `dist/`, so run `pnpm build` before `pnpm test` after changing source.
+
 ## Making Changes
 
 1. **Create a branch** for your changes:
    ```bash
-   git checkout -b feature/my-awesome-feature
+   git checkout -b fix/my-bug-fix
    ```
 
 2. **Make your changes** and ensure:
@@ -51,104 +53,57 @@ pnpm test
    - Type checking passes: `pnpm typecheck`
    - Code is formatted: `pnpm format`
 
-3. **Create a changeset** (see below)
+3. **Submit a pull request** to the `main` branch with a conventional commit title (see below)
 
-4. **Submit a pull request** to the `main` branch
+## Versioning and Releases
 
-## Changeset Workflow
+Releases are managed by [Release Please](https://github.com/googleapis/release-please), driven entirely by commit messages on `main`. There are no changeset files to create.
 
-We use [Changesets](https://github.com/changesets/changesets) to manage versions and releases. **Every PR that affects the published package should include a changeset.**
+All PRs are **squash merged**, so the PR title becomes the commit message that Release Please parses. Individual commits on your branch can use any style; only the PR title matters.
 
-### Creating a Changeset
+### PR Title Format
 
-After making your changes, run:
+PR titles must follow the [Conventional Commits](https://www.conventionalcommits.org/) specification:
 
-```bash
-pnpm changeset
+```
+<type>(<scope>): <description>
 ```
 
-This will prompt you to:
-1. Select the package (mdm)
-2. Choose a bump type (patch/minor/major)
-3. Write a summary of your changes
+| Type | When | Appears in changelog |
+|------|------|---------------------|
+| `feat` | New feature or capability | Yes (Features) |
+| `fix` | Bug fix | Yes (Bug Fixes) |
+| `perf` | Performance improvement | Yes (Performance) |
+| `refactor` | Code restructuring, no behavior change | Hidden |
+| `docs` | Documentation only | Hidden |
+| `test` | Adding or updating tests | Hidden |
+| `chore` | Maintenance, deps, CI | Hidden |
+| `ci` | CI/CD changes | Hidden |
 
-A markdown file will be created in the `.changeset/` directory. **Commit this file with your PR.**
+The scope is optional; use a component name when the change is localized:
 
-### Choosing a Bump Type
-
-| Type | When to use | Example |
-|------|-------------|---------|
-| **patch** | Bug fixes, documentation updates, internal refactors | Fixing a search result formatting bug |
-| **minor** | New features that are backwards compatible | Adding a new CLI flag or command |
-| **major** | Breaking changes to public API or CLI | Changing command syntax, removing flags |
-
-#### Examples
-
-**Patch** (bug fix):
-```markdown
----
-"mdm": patch
----
-
-Fixed section extraction to correctly handle nested headings
+```
+feat(config): project-level index and search roots
+fix(mcp): return section content from md_search
+perf(index): skip BM25 rebuild on unchanged refreshes
+docs: refresh BACKLOG.md against shipped features
 ```
 
-**Minor** (new feature):
-```markdown
----
-"mdm": minor
----
+For a breaking change, add `!` after the type (`feat!:`) or a `BREAKING CHANGE:` footer in the squash commit body.
 
-Added --json flag to context command for structured output
-```
+### Version Bumps
 
-**Major** (breaking change):
-```markdown
----
-"mdm": major
----
+The project is pre-1.0 and configured with `bump-patch-for-minor-pre-major`, so:
 
-Changed search command syntax: path argument now comes before query
+- `fix`, `perf`, and `feat` all bump the **patch** version (0.4.1 -> 0.4.2)
+- Breaking changes bump the **minor** version (0.4.x -> 0.5.0)
 
-Migration: `mdm search "query" path/` becomes `mdm search path/ "query"`
-```
+### Release Process
 
-### When You Don't Need a Changeset
+1. Every merge to `main` updates (or opens) a Release Please PR titled `chore(main): release x.y.z`, which accumulates the pending changelog entries and version bump
+2. When a maintainer merges that PR, the release workflow tags the release, publishes to npm with `--provenance`, and creates the GitHub release
 
-- Documentation-only changes (README, comments)
-- Test-only changes
-- CI/tooling changes that don't affect the package
-- Internal refactors with no user-facing changes
-
-If the changesets bot comments on your PR asking for a changeset and you believe one isn't needed, you can add an empty changeset:
-
-```bash
-pnpm changeset add --empty
-```
-
-## Release Process
-
-Here's what happens after your PR is merged:
-
-1. **Changesets are collected**: The release workflow detects changeset files in `main`
-
-2. **Version Packages PR is created**: GitHub Actions creates a PR titled "chore: release packages" that:
-   - Bumps the version in `package.json`
-   - Updates `CHANGELOG.md` with your changeset descriptions
-   - Deletes the changeset files
-
-3. **Publish on merge**: When a maintainer merges the "Version Packages" PR:
-   - The package is automatically published to npm
-   - A GitHub release is created
-   - Package provenance is attached via npm's OIDC support
-
-### For Maintainers
-
-To trigger a release:
-1. Review the auto-generated "Version Packages" PR
-2. Verify the version bump and changelog look correct
-3. Merge the PR
-4. The release happens automatically
+There is nothing release-related to do in a feature PR beyond a correct title.
 
 ## Code Style
 
