@@ -12,6 +12,10 @@ import {
   getIncomingLinks,
   resolveIndexedDocumentKey,
 } from '../../index/indexer.js'
+import {
+  renderUnlinkedMentions,
+  scanUnlinkedMentions,
+} from '../../index/mention-scan.js'
 import { jsonOption, prettyOption } from '../options.js'
 import { formatJson, withCurrentGenerationGuidance } from '../utils.js'
 
@@ -38,10 +42,21 @@ export const backlinksCommand = Command.make(
         const documentKey =
           (yield* resolveIndexedDocumentKey(session, resolvedFile)) ??
           resolvedFile
+        const mentions =
+          links.length === 0
+            ? yield* scanUnlinkedMentions(session, resolvedFile)
+            : []
 
         if (json) {
           yield* Console.log(
-            formatJson({ file: documentKey, backlinks: links }, pretty),
+            formatJson(
+              {
+                file: documentKey,
+                backlinks: links,
+                ...(links.length === 0 ? { unlinkedMentions: mentions } : {}),
+              },
+              pretty,
+            ),
           )
         } else {
           yield* Console.log(`Incoming links to ${documentKey}:`)
@@ -53,8 +68,22 @@ export const backlinksCommand = Command.make(
               yield* Console.log(`  <- ${link}`)
             }
           }
+          const mentionLines = renderUnlinkedMentions(
+            path.basename(documentKey),
+            mentions,
+          )
+          if (mentionLines.length > 0) {
+            yield* Console.log('')
+            for (const line of mentionLines) {
+              yield* Console.log(line)
+            }
+          }
           yield* Console.log('')
-          yield* Console.log(`Total: ${links.length} backlinks`)
+          yield* Console.log(
+            mentions.length > 0
+              ? `Total: ${links.length} backlinks, ${mentions.length} unlinked mentions`
+              : `Total: ${links.length} backlinks`,
+          )
         }
       }),
     ),

@@ -426,7 +426,8 @@ export const helpContent: Record<string, CommandHelp> = {
     ],
   },
   backlinks: {
-    description: 'Show what links to a file (incoming links)',
+    description:
+      'Show what links to a file; with no incoming links, report unlinked filename mentions',
     usage: 'mdm backlinks <file> [options]',
     examples: [
       'mdm backlinks api.md         # What links to api.md?',
