@@ -99,6 +99,17 @@ export interface SectionChunkProgress {
   readonly chunkCount: number
 }
 
+/**
+ * A section left without a vector because the provider refused its
+ * input. The build keeps going; the section is simply not searchable
+ * semantically until it is fixed and re-indexed.
+ */
+export interface SectionSkipProgress {
+  readonly documentPath: DocumentKey
+  readonly heading: string
+  readonly reason: string
+}
+
 export interface BuildEmbeddingsOptions {
   readonly force?: boolean | undefined
   readonly indexRoot: string
@@ -119,12 +130,17 @@ export interface BuildEmbeddingsOptions {
   readonly onSectionChunked?:
     | ((progress: SectionChunkProgress) => void)
     | undefined
+  readonly onSectionSkipped?:
+    | ((progress: SectionSkipProgress) => void)
+    | undefined
   /** HNSW build parameters for vector index construction */
   readonly hnswOptions?: HnswBuildOptions | undefined
 }
 
 export interface BuildEmbeddingsResult {
   readonly sectionsEmbedded: number
+  /** Sections the provider refused; embedded count excludes them. */
+  readonly sectionsSkipped: number
   readonly tokensUsed: number
   readonly cost: number
   readonly duration: number
@@ -417,17 +433,19 @@ interface EmbeddedSections {
   readonly entries: VectorEntry[]
   readonly tokensUsed: number
   readonly cost: number
+  readonly sectionsSkipped: number
 }
 
 const embedSections = (
   sectionsToEmbed: SectionsToEmbed['sectionsToEmbed'],
   docIndex: DocumentIndex,
   runtime: EmbeddingRuntime,
-  execution: EmbeddingExecutionOptions | undefined,
-  onBatchProgress: ((progress: EmbeddingBatchProgress) => void) | undefined,
-  onSectionChunked: ((progress: SectionChunkProgress) => void) | undefined,
+  options: BuildEmbeddingsOptions,
 ) =>
   Effect.gen(function* () {
+    const { onBatchProgress, onSectionChunked, onSectionSkipped } = options
+    /** Source index -> provider message, for inputs that were refused. */
+    const rejections = new Map<number, string>()
     const prepared = yield* prepareEmbeddingInputs(
       sectionsToEmbed.map((section) => section.source),
     )
@@ -450,8 +468,15 @@ const embedSections = (
       ...(supportsMatryoshka(runtime.providerModel)
         ? { dimensions: runtime.dimensions }
         : {}),
-      ...execution,
+      ...options.execution,
       tokenCounts: prepared.inputs.map((input) => input.tokenCount),
+      onInputRejected: (rejection) => {
+        const sourceIndex = prepared.inputs[rejection.textIndex]?.sourceIndex
+        if (sourceIndex === undefined) return
+        if (!rejections.has(sourceIndex)) {
+          rejections.set(sourceIndex, rejection.message)
+        }
+      },
       maxBatchTokens: EMBEDDING_REQUEST_TOKEN_LIMIT,
       onBatchProgress: onBatchProgress
         ? (progress) => {
@@ -477,14 +502,24 @@ const embedSections = (
       lookupPricing('embed', runtime.providerModel)?.input ?? 0
     const entries: VectorEntry[] = []
 
+    let sectionsSkipped = 0
+
     for (let index = 0; index < sectionsToEmbed.length; index++) {
       const section = sectionsToEmbed[index]?.section
       const embedding = embeddings[index]
-      if (
-        section === undefined ||
-        embedding === undefined ||
-        embedding.length !== runtime.dimensions
-      ) {
+      if (section === undefined) continue
+      if (embedding === undefined || embedding.length !== runtime.dimensions) {
+        // A section keeps its vector when only some of its chunks were
+        // refused, so report a skip only when nothing usable survived.
+        const reason = rejections.get(index)
+        if (reason !== undefined) {
+          sectionsSkipped++
+          onSectionSkipped?.({
+            documentPath: section.documentPath,
+            heading: section.heading,
+            reason,
+          })
+        }
         continue
       }
       const documentHash = docIndex.documents[section.documentPath]?.hash
@@ -504,6 +539,7 @@ const embedSections = (
       entries,
       tokensUsed,
       cost: (tokensUsed / 1_000_000) * pricePerMillion,
+      sectionsSkipped,
     } satisfies EmbeddedSections
   })
 
@@ -590,6 +626,7 @@ export const buildEmbeddings = (
       }
       return {
         sectionsEmbedded: 0,
+        sectionsSkipped: 0,
         tokensUsed: 0,
         cost: 0,
         duration: Date.now() - startTime,
@@ -618,6 +655,7 @@ export const buildEmbeddings = (
           : 0
       return {
         sectionsEmbedded: 0,
+        sectionsSkipped: 0,
         tokensUsed: 0,
         cost: 0,
         duration: Date.now() - startTime,
@@ -635,9 +673,7 @@ export const buildEmbeddings = (
       sectionsToEmbed,
       docIndex,
       runtime,
-      options.execution,
-      options.onBatchProgress,
-      options.onSectionChunked,
+      options,
     )
     yield* runtime.vectorStore.add(embedded.entries)
     runtime.vectorStore.addCost(embedded.cost, embedded.tokensUsed)
@@ -645,6 +681,7 @@ export const buildEmbeddings = (
 
     return {
       sectionsEmbedded: embedded.entries.length,
+      sectionsSkipped: embedded.sectionsSkipped,
       tokensUsed: embedded.tokensUsed,
       cost: embedded.cost,
       duration: Date.now() - startTime,

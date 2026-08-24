@@ -22,6 +22,7 @@ interface ActiveSemanticOptions {
   readonly onFileProgress?: BuildEmbeddingsOptions['onFileProgress']
   readonly onBatchProgress?: BuildEmbeddingsOptions['onBatchProgress']
   readonly onSectionChunked?: BuildEmbeddingsOptions['onSectionChunked']
+  readonly onSectionSkipped?: BuildEmbeddingsOptions['onSectionSkipped']
 }
 
 export type SemanticRefreshOptions =
@@ -63,6 +64,7 @@ const refreshActiveSemanticGeneration = (
       onFileProgress: options.onFileProgress,
       onBatchProgress: options.onBatchProgress,
       onSectionChunked: options.onSectionChunked,
+      onSectionSkipped: options.onSectionSkipped,
     })
   })
 

@@ -150,3 +150,98 @@ describe('embedInBatches', () => {
     })
   })
 })
+
+describe('provider input rejection', () => {
+  const rejectingClient = (
+    invalidTexts: ReadonlySet<string>,
+    onRequest?: (texts: readonly string[]) => void,
+  ): EmbeddingClient => ({
+    embed: (texts) => {
+      onRequest?.(texts)
+      const offender = texts.find((text) => invalidTexts.has(text))
+      return offender === undefined
+        ? Effect.succeed({
+            embeddings: texts.map((text) => [Number(text)]),
+            model: 'test-model',
+            usage: { inputTokens: texts.length },
+          })
+        : Effect.fail(
+            new RuntimeEmbeddingError({
+              provider: 'openai',
+              message: `400 Invalid 'input[0]': maximum input length is 8192 tokens.`,
+            }),
+          )
+    },
+  })
+
+  it('drops the rejected input and embeds the rest of the batch', async () => {
+    const rejected: number[] = []
+    const result = await Effect.runPromise(
+      embedInBatches(
+        rejectingClient(new Set(['2'])),
+        ['0', '1', '2', '3', '4'],
+        {
+          model: 'test-model',
+          onInputRejected: (rejection) => rejected.push(rejection.textIndex),
+        },
+      ),
+    )
+
+    expect(rejected).toEqual([2])
+    expect(result.embeddings).toEqual([[0], [1], [], [3], [4]])
+  })
+
+  it('isolates several rejected inputs across batches', async () => {
+    const rejected: number[] = []
+    const result = await Effect.runPromise(
+      embedInBatches(
+        rejectingClient(new Set(['1', '6'])),
+        ['0', '1', '2', '3', '4', '5', '6', '7'],
+        {
+          model: 'test-model',
+          batchSize: 4,
+          onInputRejected: (rejection) => rejected.push(rejection.textIndex),
+        },
+      ),
+    )
+
+    expect(rejected.sort()).toEqual([1, 6])
+    expect(result.embeddings).toEqual([[0], [], [2], [3], [4], [5], [], [7]])
+  })
+
+  it('bisects instead of retrying every input one by one', async () => {
+    const requestSizes: number[] = []
+    await Effect.runPromise(
+      embedInBatches(
+        rejectingClient(new Set(['5']), (texts) =>
+          requestSizes.push(texts.length),
+        ),
+        Array.from({ length: 16 }, (_, index) => String(index)),
+        { model: 'test-model' },
+      ),
+    )
+
+    // 1 failed batch of 16, then a bisection path of 8/4/2/1 with the
+    // clean sibling embedded at each level: 9 requests, not 17.
+    expect(requestSizes.length).toBeLessThanOrEqual(12)
+    expect(requestSizes.filter((size) => size === 1)).toHaveLength(2)
+  })
+
+  it('still fails the build for errors that are not input rejections', async () => {
+    const client: EmbeddingClient = {
+      embed: () =>
+        Effect.fail(
+          new RuntimeEmbeddingError({
+            provider: 'openai',
+            message: 'insufficient quota',
+          }),
+        ),
+    }
+
+    const exit = await Effect.runPromiseExit(
+      embedInBatches(client, ['0', '1'], { model: 'test-model' }),
+    )
+
+    expect(exit._tag).toBe('Failure')
+  })
+})

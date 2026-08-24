@@ -74,6 +74,7 @@ export {
   type EmbeddingBatchProgress,
   type FileProgress,
   type SectionChunkProgress,
+  type SectionSkipProgress,
 } from './semantic-search-build.js'
 export {
   type DirectoryEstimate,

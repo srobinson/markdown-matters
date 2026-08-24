@@ -104,6 +104,7 @@ export const ErrorCode = {
   EMBEDDING_QUOTA: 'E311',
   EMBEDDING_NETWORK: 'E312',
   EMBEDDING_MODEL: 'E313',
+  EMBEDDING_INVALID_INPUT: 'E314',
   EMBEDDING_UNKNOWN: 'E319',
   PROVIDER_NOT_FOUND: 'E320',
   CAPABILITY_NOT_SUPPORTED: 'E321',
@@ -256,6 +257,7 @@ export type EmbeddingErrorCause =
   | 'QuotaExceeded'
   | 'Network'
   | 'ModelError'
+  | 'InvalidInput'
   | 'Unknown'
 
 /**
@@ -277,6 +279,8 @@ export class EmbeddingError extends Data.TaggedError('EmbeddingError')<{
         return ErrorCode.EMBEDDING_NETWORK
       case 'ModelError':
         return ErrorCode.EMBEDDING_MODEL
+      case 'InvalidInput':
+        return ErrorCode.EMBEDDING_INVALID_INPUT
       default:
         // 'Unknown' and any future unknown reasons
         return ErrorCode.EMBEDDING_UNKNOWN
