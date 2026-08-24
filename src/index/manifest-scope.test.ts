@@ -115,6 +115,34 @@ it('registers a new root only after a successful build', async () => {
   ).toBeDefined()
 })
 
+it('scopes a plain refresh to configured scope roots without registering them', async () => {
+  const { home, first, second } = await makeManifestRoots(cleanup)
+  await registerRoots(home, [first, second])
+  const initial = await refresh(home)
+  const [firstKey, secondKey] = await Promise.all([
+    documentKey(path.join(first, 'first.md')),
+    documentKey(path.join(second, 'second.md')),
+  ])
+  const before = await readDocuments(initial.indexRoot)
+
+  await Promise.all([
+    fs.writeFile(path.join(first, 'first.md'), '# first\n\nrewritten alpha'),
+    fs.writeFile(path.join(second, 'second.md'), '# second\n\nrewritten beta'),
+  ])
+  const manifestBefore = await fs.readFile(manifestPath(home), 'utf8')
+  const scoped = await Effect.runPromise(
+    refreshManifestIndex(home, undefined, { semantic, scopeRoots: [second] }),
+  )
+
+  expect(scoped.value.documentsIndexed).toBe(1)
+  const after = await readDocuments(scoped.indexRoot)
+  expect(after.documents[secondKey]?.hash).not.toBe(
+    before.documents[secondKey]?.hash,
+  )
+  expect(after.documents[firstKey]?.hash).toBe(before.documents[firstKey]?.hash)
+  expect(await fs.readFile(manifestPath(home), 'utf8')).toBe(manifestBefore)
+})
+
 it('force with a path rebuilds every root instead of dropping out-of-scope documents', async () => {
   const { home, first, second } = await makeManifestRoots(cleanup)
   await registerRoots(home, [first, second])

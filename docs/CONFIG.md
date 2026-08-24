@@ -42,6 +42,7 @@ This creates `.mdm.toml` with documented defaults:
 ```toml
 # .mdm.toml
 [index]
+roots = []
 maxDepth = 10
 excludePatterns = ["node_modules", ".git", "dist", "build"]
 fileExtensions = [".md", ".mdx"]
@@ -49,6 +50,7 @@ followSymlinks = false
 indexDir = ".mdm"
 
 [search]
+roots = []
 defaultLimit = 10
 maxLimit = 100
 minSimilarity = 0.35
@@ -79,9 +81,11 @@ Built-in Defaults   (lowest priority)
 ```
 
 **Config File Resolution** (two-tier):
-1. Local: `PWD/.mdm.toml` (project-specific)
+1. Local: the nearest `.mdm.toml` (or `.mdm.local.toml`) found by walking up from the working directory (project-specific)
 2. Global: `~/.mdm/.mdm.toml` (fallback)
 3. Defaults (hardcoded)
+
+Running mdm from any subdirectory of a project picks up that project's config.
 
 **Example:**
 
@@ -101,9 +105,31 @@ Built-in Defaults   (lowest priority)
 
 mdm uses TOML for configuration. The config file must be named `.mdm.toml` and is searched in this order:
 
-1. `.mdm.toml` in current directory (project-local)
+1. The nearest `.mdm.toml` walking up from the current directory (project-local, so subdirectories inherit their project's config)
 2. `~/.mdm/.mdm.toml` in home directory (global)
 3. Built-in defaults
+
+### Project Roots
+
+Two optional keys scope mdm to a project without losing cross-root reach:
+
+```toml
+# <project>/.mdm.toml
+[index]
+# A plain `mdm index` run inside this project refreshes only these manifest
+# roots. Other manifest roots keep their indexed documents untouched.
+roots = ["."]
+
+[search]
+# Search results are filtered to these roots by default. Pass --global to a
+# search (or global: true over MCP) to drop the filter for one invocation.
+roots = [".", "~/.mdx/projects"]
+```
+
+Relative entries resolve against the directory of the config file that
+declares them. Empty arrays (the default) mean no scoping. An explicit path
+argument to `mdm index` or `mdm search` overrides the configured roots for
+that run, and `mdm index --force` always rebuilds the full manifest.
 
 ### TOML Config Format (Recommended)
 
@@ -112,6 +138,7 @@ TOML is the standard format for mdm configuration:
 ```toml
 # .mdm.toml
 [index]
+roots = []
 maxDepth = 10
 excludePatterns = ["node_modules", ".git", "dist", "build"]
 fileExtensions = [".md", ".mdx"]
@@ -119,6 +146,7 @@ followSymlinks = false
 indexDir = ".mdm"
 
 [search]
+roots = []
 defaultLimit = 10
 maxLimit = 100
 minSimilarity = 0.35

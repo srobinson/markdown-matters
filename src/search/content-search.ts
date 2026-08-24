@@ -35,6 +35,7 @@ export interface SearchOptions {
   readonly heading?: string | undefined
   readonly content?: string | undefined
   readonly pathPattern?: string | undefined
+  readonly searchRoots?: readonly string[] | undefined
   readonly hasCode?: boolean | undefined
   readonly hasList?: boolean | undefined
   readonly hasTable?: boolean | undefined
@@ -96,6 +97,7 @@ export const search = (
       session,
       sourceRoot,
       options.pathPattern,
+      options.searchRoots,
     )
 
     const results: SearchResult[] = []
@@ -294,6 +296,7 @@ export const searchContent = (
       session,
       sourceRoot,
       options.pathPattern,
+      options.searchRoots,
     )
 
     const query = yield* prepareContentQuery(options)

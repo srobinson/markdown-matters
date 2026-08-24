@@ -14,6 +14,7 @@ export const MdSearchArgs = Schema.Struct({
   ),
   threshold: Schema.optional(Schema.Number.pipe(Schema.between(0, 1))),
   path_filter: Schema.optional(Schema.String),
+  global: Schema.optional(Schema.Boolean),
 })
 
 export const MdmArgs = Schema.Struct({
@@ -34,6 +35,7 @@ export const MdKeywordSearchArgs = Schema.Struct({
   limit: Schema.optional(
     Schema.Number.pipe(Schema.int(), Schema.between(1, 500)),
   ),
+  global: Schema.optional(Schema.Boolean),
 })
 
 export const MdIndexArgs = Schema.Struct({

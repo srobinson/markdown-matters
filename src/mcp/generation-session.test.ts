@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { afterEach, expect, it } from 'vitest'
+import { defaultConfig } from '../config/schema.js'
 import {
   createGenerationReadFixture,
   type GenerationReadFixture,
@@ -42,11 +43,13 @@ it('acquires a fresh generation session for every MCP request', async () => {
   const first = await handleMdKeywordSearch(
     { heading: 'gen-1', limit: 10 },
     fixture.sourceRoot,
+    defaultConfig,
   )
   await setFixtureCurrent(fixture, fixture.gen2)
   const second = await handleMdKeywordSearch(
     { heading: 'gen-2', limit: 10 },
     fixture.sourceRoot,
+    defaultConfig,
   )
 
   expect(resultText(first)).toContain('gen-1-heading-1')

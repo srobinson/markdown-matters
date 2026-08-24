@@ -64,6 +64,7 @@ export interface HybridSearchOptions {
   readonly threshold?: number
   /** Filter by document path pattern */
   readonly pathPattern?: string
+  readonly searchRoots?: readonly string[] | undefined
   /** Force a specific search mode */
   readonly mode?: SearchMode
   /** BM25 weight for RRF (default: 1.0) */
@@ -389,6 +390,7 @@ export const collectSearchChannels = (
       session,
       sourceRoot,
       options.pathPattern,
+      options.searchRoots,
     )
     const hasBM25 = yield* bm25IndexExists(session.indexRoot)
     const semantic = yield* collectSemanticChannel(

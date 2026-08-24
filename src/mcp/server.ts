@@ -100,7 +100,7 @@ export const createServer = (rootPath: string, config: MdmConfig) => {
       case 'md_structure':
         return handleMdStructure(args ?? {})
       case 'md_keyword_search':
-        return handleMdKeywordSearch(args ?? {}, rootPath)
+        return handleMdKeywordSearch(args ?? {}, rootPath, config)
       case 'md_index':
         return handleMdIndex(args ?? {}, rootPath)
       case 'md_links':

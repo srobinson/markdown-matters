@@ -40,17 +40,22 @@ export const runIndexCommand = (input: IndexCommandInput) =>
 
     const colorEnabled = yield* getConfigValue('output', 'color')
     const embeddingsConfig = yield* getConfigSection('embeddings')
+    const indexConfig = yield* getConfigSection('index')
     const showProgress = Boolean(process.stdout.isTTY && colorEnabled)
     const exclude = parseExcludePatterns(input.exclude)
+    const scopeRoots = input.path === undefined ? indexConfig.roots : []
 
     yield* Console.log(
-      input.path === undefined
-        ? 'Refreshing manifest index...'
-        : `Indexing ${input.path}...`,
+      input.path !== undefined
+        ? `Indexing ${input.path}...`
+        : scopeRoots.length > 0
+          ? `Refreshing ${scopeRoots.length} project root${scopeRoots.length === 1 ? '' : 's'} from config...`
+          : 'Refreshing manifest index...',
     )
 
     const published = yield* refreshManifestIndex(home, input.path, {
       force: input.force,
+      scopeRoots,
       exclude,
       honorGitignore: !input.noGitignore,
       onProgress: (progress) => {

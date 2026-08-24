@@ -199,6 +199,11 @@ export const searchSchema: CommandSchema = {
       description: 'Enable word stemming (fail matches failure, failed)',
     },
     {
+      name: 'global',
+      type: 'boolean',
+      description: 'Ignore project search roots and search every manifest root',
+    },
+    {
       name: 'fuzzy-distance',
       type: 'string',
       description: 'Max edit distance for fuzzy matching (default: 2)',

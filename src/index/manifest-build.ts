@@ -41,7 +41,7 @@ import type { DocumentEntry, DocumentIndex, IndexResult } from './types.js'
 export interface ManifestBuildOptions extends IndexOptions {
   readonly reconcileVectors?: boolean | undefined
   readonly currentIndexRoot?: string | undefined
-  readonly scopePath?: DeclaredPath | undefined
+  readonly scopePaths?: readonly DeclaredPath[] | undefined
 }
 
 export interface ManifestBuildResult extends IndexResult {
@@ -125,9 +125,15 @@ export const semanticIndexChanged = (
     Effect.map(({ current, staged }) => !isDeepStrictEqual(current, staged)),
   )
 
+const withinAnyScope = (
+  candidate: string,
+  scopePaths: readonly DeclaredPath[],
+): boolean =>
+  scopePaths.some((scopePath) => isPathWithin(candidate, scopePath, true))
+
 const collectScopedDeletions = (
   documents: Readonly<Record<string, Pick<DocumentEntry, 'declaredPaths'>>>,
-  scopePath: DeclaredPath,
+  scopePaths: readonly DeclaredPath[],
   discovered: readonly string[],
 ): DeclaredPath[] => {
   const discoveredSet = new Set(discovered.map(expandDeclaredPath))
@@ -135,7 +141,7 @@ const collectScopedDeletions = (
   for (const entry of Object.values(documents)) {
     for (const alias of entry.declaredPaths) {
       if (
-        isPathWithin(alias, scopePath, true) &&
+        withinAnyScope(alias, scopePaths) &&
         !discoveredSet.has(expandDeclaredPath(alias))
       ) {
         deleted.push(alias)
@@ -166,9 +172,13 @@ const discoverManifestDirectory = (
   }
   if (
     !incremental &&
-    options.scopePath !== undefined &&
-    !isPathWithin(options.scopePath, directory.path, true) &&
-    !isPathWithin(directory.path, options.scopePath, true)
+    options.scopePaths !== undefined &&
+    options.scopePaths.length > 0 &&
+    !options.scopePaths.some(
+      (scopePath) =>
+        isPathWithin(scopePath, directory.path, true) ||
+        isPathWithin(directory.path, scopePath, true),
+    )
   ) {
     return Effect.succeed(emptyDiscovery())
   }
@@ -198,12 +208,13 @@ export const buildManifestIndex = (
       options.indexRoot,
     )
     const discoveryOptions = requiresRebuild
-      ? { ...options, changedPaths: undefined, scopePath: undefined }
+      ? { ...options, changedPaths: undefined, scopePaths: undefined }
       : options
-    const scopePath =
-      (discoveryOptions.changedPaths?.length ?? 0) > 0
+    const scopePaths =
+      (discoveryOptions.changedPaths?.length ?? 0) > 0 ||
+      (discoveryOptions.scopePaths?.length ?? 0) === 0
         ? undefined
-        : discoveryOptions.scopePath
+        : discoveryOptions.scopePaths
     const currentStructural = yield* loadCurrentStructuralState(
       options.currentIndexRoot,
     )
@@ -218,15 +229,15 @@ export const buildManifestIndex = (
       ...new Set(results.flatMap((result) => result.files)),
     ]
     const files =
-      scopePath === undefined
+      scopePaths === undefined
         ? discoveredFiles
-        : discoveredFiles.filter((file) => isPathWithin(file, scopePath, true))
+        : discoveredFiles.filter((file) => withinAnyScope(file, scopePaths))
     const scopedDeletions =
-      scopePath === undefined || currentStructural?.documents == null
+      scopePaths === undefined || currentStructural?.documents == null
         ? []
         : collectScopedDeletions(
             currentStructural.documents.documents,
-            scopePath,
+            scopePaths,
             files,
           )
     const deletedPaths = [
@@ -251,7 +262,7 @@ export const buildManifestIndex = (
         skipped,
         complete:
           (discoveryOptions.changedPaths?.length ?? 0) === 0 &&
-          scopePath === undefined,
+          scopePaths === undefined,
       },
       options,
     )

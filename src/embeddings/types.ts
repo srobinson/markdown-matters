@@ -153,6 +153,8 @@ export interface SemanticSearchOptions {
   readonly threshold?: number | undefined
   /** Filter by document path pattern */
   readonly pathPattern?: string | undefined
+  /** Restrict results to these roots (project search roots) */
+  readonly searchRoots?: readonly string[] | undefined
   /** Canonical filter prepared by a coordinating search pipeline. */
   readonly preparedPathFilter?: PreparedPathFilter | undefined
   /** Search quality mode: fast, balanced (default), or thorough */
