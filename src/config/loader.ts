@@ -12,8 +12,10 @@
  * No string serialisation/deserialisation. No ConfigProvider intermediary.
  */
 
+import { existsSync } from 'node:fs'
 import * as path from 'node:path'
 import { Option } from 'effect'
+import { expandDeclaredPath } from '../db/canonical.js'
 import { resolveMdmHome } from '../home.js'
 import { loadTomlDocumentWithStatus, type TomlParseError } from '../toml.js'
 import type { MdmConfig } from './schema.js'
@@ -107,8 +109,67 @@ export const loadTomlFile = (filePath: string): PartialMdmConfig | null => {
 }
 
 // ============================================================================
+// Roots Resolution
+// ============================================================================
+
+const resolveRootEntries = (
+  roots: unknown,
+  baseDir: string,
+): readonly string[] | unknown =>
+  Array.isArray(roots) && roots.every((entry) => typeof entry === 'string')
+    ? roots.map((entry: string) =>
+        path.isAbsolute(entry) || entry.startsWith('~')
+          ? expandDeclaredPath(entry)
+          : expandDeclaredPath(path.resolve(baseDir, entry)),
+      )
+    : roots
+
+/**
+ * Resolve relative `roots` entries in a partial config against the directory
+ * they were declared in, so downstream consumers only see absolute paths.
+ * Invalid shapes pass through untouched for validation to report.
+ */
+export const resolvePartialRoots = (
+  partial: PartialMdmConfig,
+  baseDir: string,
+): PartialMdmConfig => {
+  let result = partial
+  for (const section of ['index', 'search'] as const) {
+    const values = result[section] as Record<string, unknown> | undefined
+    if (values?.roots === undefined) continue
+    result = {
+      ...result,
+      [section]: {
+        ...values,
+        roots: resolveRootEntries(values.roots, baseDir),
+      },
+    }
+  }
+  return result
+}
+
+// ============================================================================
 // Config File Resolution
 // ============================================================================
+
+/**
+ * Find the nearest ancestor of cwd (cwd included) that holds a project
+ * config file. Returns null when no ancestor declares one.
+ */
+export const findProjectConfigDir = (cwd: string): string | null => {
+  let current = path.resolve(cwd)
+  while (true) {
+    if (
+      existsSync(path.join(current, '.mdm.toml')) ||
+      existsSync(path.join(current, '.mdm.local.toml'))
+    ) {
+      return current
+    }
+    const parent = path.dirname(current)
+    if (parent === current) return null
+    current = parent
+  }
+}
 
 /**
  * Load and merge every config file tier with explicit status.
@@ -121,16 +182,24 @@ export const loadConfigFileWithStatus = (
   const parseErrors: ConfigParseError[] = []
   const sourceFiles: string[] = []
   let config: PartialMdmConfig = {}
+  const projectDir = findProjectConfigDir(cwd)
   const configPaths = [
     path.join(resolveMdmHome(), '.mdm.toml'),
-    path.join(cwd, '.mdm.toml'),
-    path.join(cwd, '.mdm.local.toml'),
-  ]
+    ...(projectDir === null
+      ? []
+      : [
+          path.join(projectDir, '.mdm.toml'),
+          path.join(projectDir, '.mdm.local.toml'),
+        ]),
+  ].filter((filePath, index, all) => all.indexOf(filePath) === index)
 
   for (const filePath of configPaths) {
     const result = loadTomlFileWithStatus(filePath)
     if (result.status === 'loaded') {
-      config = mergePartials(config, result.config)
+      config = mergePartials(
+        config,
+        resolvePartialRoots(result.config, path.dirname(filePath)),
+      )
       sourceFiles.push(filePath)
     } else if (result.status === 'error') {
       parseErrors.push(result.error)
@@ -427,8 +496,9 @@ export const loadDetailed = (options: LoadOptions = {}): LoadResult => {
   // Layer 1: Config file (lowest priority source)
   // fileConfig always takes effect when provided (used for testing).
   // skipConfigFile only prevents reading from disk.
+  const rootsBaseDir = workingDir ?? process.cwd()
   if (options.fileConfig) {
-    fileConfig = options.fileConfig
+    fileConfig = resolvePartialRoots(options.fileConfig, rootsBaseDir)
     merged = fileConfig
   } else if (!skipConfigFile) {
     const result = loadConfigFileWithStatus(workingDir)
@@ -457,13 +527,16 @@ export const loadDetailed = (options: LoadOptions = {}): LoadResult => {
 
   // Layer 2: Environment variables
   if (!skipEnv) {
-    envConfig = readEnvVars(envPrefix)
+    envConfig = resolvePartialRoots(readEnvVars(envPrefix), rootsBaseDir)
     merged = mergePartials(merged, envConfig)
   }
 
   // Layer 3: CLI overrides (highest priority)
   if (cliOverrides) {
-    merged = mergePartials(merged, cliOverrides)
+    merged = mergePartials(
+      merged,
+      resolvePartialRoots(cliOverrides, rootsBaseDir),
+    )
   }
 
   const unvalidatedConfig = mergeWithDefaults(merged)

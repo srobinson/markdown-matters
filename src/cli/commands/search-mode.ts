@@ -68,6 +68,7 @@ export interface SearchCommandInput {
   readonly stream: boolean
   readonly fuzzy: boolean
   readonly stem: boolean
+  readonly global: boolean
   readonly fuzzyDistance: Option.Option<number>
   readonly refine: readonly string[]
 }
@@ -77,6 +78,7 @@ interface ExecutionContext {
   readonly session: GenerationReadSession
   readonly sourceRoot: string
   readonly pathPattern: string | undefined
+  readonly searchRoots: readonly string[]
   readonly config: MdmConfig
   readonly indexInfo: IndexInfo
   readonly effectiveLimit: number
@@ -92,10 +94,20 @@ const summarizationConfig = (context: ExecutionContext) => ({
   provider: context.config.aiSummarization.provider,
 })
 
-const pathScopeOptions = (
-  pathPattern: string | undefined,
-): { readonly pathPattern?: string } =>
-  pathPattern === undefined ? {} : { pathPattern }
+const pathScopeOptions = (context: {
+  readonly pathPattern: string | undefined
+  readonly searchRoots: readonly string[]
+}): {
+  readonly pathPattern?: string
+  readonly searchRoots?: readonly string[]
+} => ({
+  ...(context.pathPattern === undefined
+    ? {}
+    : { pathPattern: context.pathPattern }),
+  ...(context.searchRoots.length === 0
+    ? {}
+    : { searchRoots: context.searchRoots }),
+})
 
 const resolveEmptyGuidance = (
   context: ExecutionContext,
@@ -141,7 +153,7 @@ const runHybridMode = (context: ExecutionContext) =>
           | undefined,
         contextBefore: context.contextBefore,
         contextAfter: context.contextAfter,
-        ...pathScopeOptions(context.pathPattern),
+        ...pathScopeOptions(context),
         queryProvider: {
           config: context.config.embeddings,
           providerOverride: Option.getOrUndefined(input.provider),
@@ -216,12 +228,12 @@ const runKeywordMode = (context: ExecutionContext) =>
       ? yield* search(context.session, context.sourceRoot, {
           heading: input.query,
           limit: fetchLimit,
-          ...pathScopeOptions(context.pathPattern),
+          ...pathScopeOptions(context),
         })
       : yield* searchContent(context.session, context.sourceRoot, {
           content: input.query,
           limit: fetchLimit,
-          ...pathScopeOptions(context.pathPattern),
+          ...pathScopeOptions(context),
           contextBefore: context.contextBefore,
           contextAfter: context.contextAfter,
           fuzzy: input.fuzzy,
@@ -300,7 +312,7 @@ const runSemanticMode = (context: ExecutionContext) =>
         hyde: input.hyde,
         contextBefore: context.contextBefore,
         contextAfter: context.contextAfter,
-        ...pathScopeOptions(context.pathPattern),
+        ...pathScopeOptions(context),
       },
     )
     let { results } = searchResult
@@ -480,11 +492,16 @@ export const runSearchCommand = (
     if (!input.json) yield* renderIndexInfo(indexInfo)
 
     const context = Option.getOrUndefined(input.context)
+    // An explicit path argument overrides project search roots; --global
+    // drops them.
+    const searchRoots =
+      input.global || requestedPath !== undefined ? [] : config.search.roots
     const execution: ExecutionContext = {
       input,
       session,
       sourceRoot,
       pathPattern,
+      searchRoots,
       config,
       indexInfo,
       effectiveLimit,

@@ -17,6 +17,12 @@ import { Option } from 'effect'
 // ============================================================================
 
 export interface IndexConfig {
+  /**
+   * Manifest roots a plain `mdm index` refreshes when run inside this
+   * project. Empty means every manifest root. Relative entries are resolved
+   * against the directory of the config file that declares them.
+   */
+  roots: readonly string[]
   /** Maximum directory depth to traverse when indexing. */
   maxDepth: number
   /** Glob patterns to exclude from indexing. */
@@ -32,6 +38,13 @@ export interface IndexConfig {
 // ============================================================================
 
 export interface SearchConfig {
+  /**
+   * Roots search results are filtered to by default. Empty means no filter.
+   * A per-invocation flag (`--global`) drops the filter, so this narrows
+   * default noise without walling off cross-root reach. Relative entries are
+   * resolved against the directory of the config file that declares them.
+   */
+  roots: readonly string[]
   /** Default number of search results to return. */
   defaultLimit: number
   /** Maximum number of search results allowed. */
@@ -215,12 +228,14 @@ export interface MdmConfig {
 
 export const defaultConfig: MdmConfig = {
   index: {
+    roots: [],
     maxDepth: 10,
     excludePatterns: ['node_modules', '.git', 'dist', 'build'],
     fileExtensions: ['.md', '.mdx'],
     followSymlinks: false,
   },
   search: {
+    roots: [],
     defaultLimit: 10,
     maxLimit: 100,
     minSimilarity: 0.35,

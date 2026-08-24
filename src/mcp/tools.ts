@@ -34,6 +34,11 @@ export const tools: Tool[] = [
           description: 'Minimum similarity threshold 0-1 (default: 0.35)',
           default: 0.35,
         },
+        global: {
+          type: 'boolean',
+          description:
+            'Ignore project search roots and search every manifest root',
+        },
       },
       required: ['query'],
     },
@@ -143,6 +148,11 @@ export const tools: Tool[] = [
           type: 'string',
           description: 'Path to the markdown file',
         },
+      },
+      global: {
+        type: 'boolean',
+        description:
+          'Ignore project search roots and search every manifest root',
       },
       required: ['path'],
     },

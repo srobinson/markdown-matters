@@ -13,12 +13,19 @@ export const generateDefaultToml = (): string => `# mdm configuration
 # https://github.com/helioy/markdown-matters
 
 [index]
+# roots scopes a plain \`mdm index\` run inside this project to these
+# manifest roots. Empty means every manifest root. Relative entries resolve
+# against this file's directory.
+roots = ${tomlArray(defaultConfig.index.roots)}
 maxDepth = ${defaultConfig.index.maxDepth}
 excludePatterns = ${tomlArray(defaultConfig.index.excludePatterns)}
 fileExtensions = ${tomlArray(defaultConfig.index.fileExtensions)}
 followSymlinks = ${defaultConfig.index.followSymlinks}
 
 [search]
+# roots filters search results to these roots by default; pass --global to a
+# search to drop the filter. Empty means no filter.
+roots = ${tomlArray(defaultConfig.search.roots)}
 defaultLimit = ${defaultConfig.search.defaultLimit}
 maxLimit = ${defaultConfig.search.maxLimit}
 minSimilarity = ${defaultConfig.search.minSimilarity}

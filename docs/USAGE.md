@@ -205,6 +205,7 @@ mdm search [options] <query> [path]
 | `-k, --keyword` | Force keyword search (exact text match)        |
 | `-n, --limit`   | Maximum results (default: 10)                  |
 | `--threshold`   | Similarity threshold for semantic search (0-1) |
+| `--global`      | Ignore project search roots (`[search] roots`) |
 | `--json`        | Output as JSON                                 |
 | `--pretty`      | Pretty-print JSON                              |
 
@@ -230,6 +231,9 @@ mdm search --threshold 0.8 "deploy"
 
 # Search in specific directory
 mdm search "config" ./docs
+
+# Ignore the project's [search] roots filter for one query
+mdm search --global "config"
 ```
 
 ---

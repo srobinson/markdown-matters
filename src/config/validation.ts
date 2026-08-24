@@ -256,6 +256,8 @@ const CONFIG_RULES: ConfigRule[] = [
   booleanRule('output.prettyJson', defaultConfig.output.prettyJson),
   booleanRule('output.verbose', defaultConfig.output.verbose),
   booleanRule('output.debug', defaultConfig.output.debug),
+  stringArrayRule('index.roots', defaultConfig.index.roots),
+  stringArrayRule('search.roots', defaultConfig.search.roots),
   stringArrayRule('index.excludePatterns', defaultConfig.index.excludePatterns),
   stringArrayRule('index.fileExtensions', defaultConfig.index.fileExtensions, {
     allowEmpty: false,

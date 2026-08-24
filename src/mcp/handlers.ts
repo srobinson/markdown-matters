@@ -117,6 +117,11 @@ export const handleMdSearch = async (
   const limit = validated.limit ?? 5
   const pathFilter = validated.path_filter
   const threshold = validated.threshold ?? config.search.minSimilarity
+  // An explicit path_filter overrides project search roots; global drops them.
+  const searchRoots =
+    validated.global === true || pathFilter !== undefined
+      ? undefined
+      : config.search.roots
 
   return effectToMcpResult(
     withCurrentGeneration(resolveMdmHome(), (session) =>
@@ -134,6 +139,7 @@ export const handleMdSearch = async (
             limit,
             threshold,
             pathPattern: pathFilter,
+            searchRoots,
             providerConfig: queryProvider.providerConfig,
             activeProvider: queryProvider.activeProvider,
           })
@@ -230,12 +236,17 @@ export const handleMdStructure = async (
 export const handleMdKeywordSearch = async (
   args: Record<string, unknown>,
   rootPath: string,
+  config: MdmConfig,
 ): Promise<CallToolResult> => {
   const validated = await validateArgs(MdKeywordSearchArgs, args)
   if (isValidationError(validated)) return validated
 
   const heading = validated.heading
   const pathFilter = validated.path_filter
+  const searchRoots =
+    validated.global === true || pathFilter !== undefined
+      ? undefined
+      : config.search.roots
   const hasCode = validated.has_code
   const hasList = validated.has_list
   const hasTable = validated.has_table
@@ -251,6 +262,7 @@ export const handleMdKeywordSearch = async (
         search(session, rootPath, {
           heading,
           pathPattern: pathFilter,
+          searchRoots,
           hasCode,
           hasList,
           hasTable,

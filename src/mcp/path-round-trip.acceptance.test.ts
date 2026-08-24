@@ -276,6 +276,7 @@ const filterWithBothSearchTools = async (
     handleMdKeywordSearch(
       { path_filter: pathFilter, limit: 100 },
       fixture.callerRoot,
+      defaultConfig,
     ),
   ])
 
@@ -515,7 +516,11 @@ describe('MCP multi-root empty result guidance', () => {
 
     const results = await Promise.all([
       handleMdSearch({ query: 'anything' }, fixture.callerRoot, defaultConfig),
-      handleMdKeywordSearch({ heading: 'anything' }, fixture.callerRoot),
+      handleMdKeywordSearch(
+        { heading: 'anything' },
+        fixture.callerRoot,
+        defaultConfig,
+      ),
     ])
 
     expect(results.every((result) => result.isError)).toBe(true)
@@ -548,7 +553,11 @@ describe('MCP multi-root empty result guidance', () => {
 
     const results = await Promise.all([
       handleMdSearch({ query: 'anything' }, fixture.callerRoot, defaultConfig),
-      handleMdKeywordSearch({ heading: 'anything' }, fixture.callerRoot),
+      handleMdKeywordSearch(
+        { heading: 'anything' },
+        fixture.callerRoot,
+        defaultConfig,
+      ),
     ])
 
     expect(results[0].isError).toBe(true)
@@ -588,7 +597,11 @@ describe('MCP multi-root empty result guidance', () => {
         fixture.callerRoot,
         defaultConfig,
       ),
-      handleMdKeywordSearch({ heading: keywordQuery }, fixture.callerRoot),
+      handleMdKeywordSearch(
+        { heading: keywordQuery },
+        fixture.callerRoot,
+        defaultConfig,
+      ),
     ])
 
     expect(results.every((result) => !result.isError)).toBe(true)
@@ -614,6 +627,7 @@ describe('MCP multi-root empty result guidance', () => {
       handleMdKeywordSearch(
         { heading: keywordQuery, path_filter: pathFilter },
         fixture.callerRoot,
+        defaultConfig,
       ),
     ])
 
@@ -641,6 +655,7 @@ describe('MCP multi-root successful search responses', () => {
       handleMdKeywordSearch(
         { heading: '^Search Source$', limit: 1 },
         fixture.callerRoot,
+        defaultConfig,
       ),
     ])
 

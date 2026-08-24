@@ -56,6 +56,12 @@ export interface ManifestRefreshOptions<P = never>
   extends Omit<IndexOptions, 'indexRoot'> {
   readonly semantic?: SemanticRefreshOptions | undefined
   readonly preflight?: GenerationPreflight<P> | undefined
+  /**
+   * Roots to scope the refresh to when no requestedPath is given, typically
+   * from project config. Unlike requestedPath these never register manifest
+   * entries. Empty means no scope.
+   */
+  readonly scopeRoots?: readonly string[] | undefined
 }
 
 export type ManifestRefreshError<P = never> =
@@ -73,7 +79,12 @@ export const refreshManifestIndex = <P = never>(
   requestedPath: string | undefined,
   options: ManifestRefreshOptions<P>,
 ): Effect.Effect<ManifestRefreshResult, ManifestRefreshError<P>> => {
-  const { semantic = { mode: 'active' }, preflight, ...indexOptions } = options
+  const {
+    semantic = { mode: 'active' },
+    preflight,
+    scopeRoots,
+    ...indexOptions
+  } = options
   return Effect.gen(function* () {
     const manifest = yield* loadManifest(home)
     const requested =
@@ -82,7 +93,14 @@ export const refreshManifestIndex = <P = never>(
         : expandDeclaredPath(requestedPath)
     // force rebuilds the index from empty state, so a scope would drop every
     // document outside it; force therefore always rebuilds the full manifest.
-    const scopePath = indexOptions.force === true ? undefined : requested
+    const scopePaths =
+      indexOptions.force === true
+        ? undefined
+        : requested !== undefined
+          ? [requested]
+          : scopeRoots !== undefined && scopeRoots.length > 0
+            ? scopeRoots.map(expandDeclaredPath)
+            : undefined
     const pendingDirectory: ManifestDirectory | undefined =
       requested !== undefined &&
       !manifest.directories.some((directory) =>
@@ -120,7 +138,7 @@ export const refreshManifestIndex = <P = never>(
             indexRoot: generation.indexRoot,
             currentIndexRoot,
             reconcileVectors: semantic.mode !== 'skip',
-            scopePath,
+            scopePaths,
           })
           const semanticResult = yield* refreshSemanticGeneration(
             home,
