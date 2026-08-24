@@ -145,12 +145,18 @@ export const refreshManifestIndex = <P = never>(
             generation.indexRoot,
             semantic,
           )
-          const semanticChanged = currentIndexRoot
-            ? yield* semanticIndexChanged(
-                currentIndexRoot,
-                generation.indexRoot,
-              )
-            : true
+          // With unchanged structure, the staged vectors were seeded from the
+          // published generation; only a catch-up embed can change them, so
+          // the deep semantic comparison is needed only after structural
+          // changes.
+          const semanticChanged = index.mutation.structural
+            ? currentIndexRoot
+              ? yield* semanticIndexChanged(
+                  currentIndexRoot,
+                  generation.indexRoot,
+                )
+              : true
+            : (semanticResult?.sectionsEmbedded ?? 0) > 0
           const mutation: ManifestMutationSummary = {
             structural: index.mutation.structural,
             semantic: semanticChanged,

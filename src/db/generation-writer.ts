@@ -78,7 +78,12 @@ export interface GenerationWriterRuntime {
 
 export const nodeGenerationWriterFileSystem: GenerationWriterFileSystem = {
   ...nodeGenerationReaderFileSystem,
-  copyFile: (sourcePath, targetPath) => fs.copyFile(sourcePath, targetPath),
+  // COPYFILE_FICLONE makes seeding a generation a copy-on-write clone on
+  // filesystems that support it (APFS, Btrfs, XFS): near-instant, and
+  // unchanged artifacts share blocks between generations. Filesystems
+  // without reflink support silently fall back to a full copy.
+  copyFile: (sourcePath, targetPath) =>
+    fs.copyFile(sourcePath, targetPath, fs.constants.COPYFILE_FICLONE),
   remove: removeFileSystemPath,
 }
 
