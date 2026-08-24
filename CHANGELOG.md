@@ -16,6 +16,26 @@
 
 * `providerConfig.baseURL` is now honored on the embedding path for the four OpenAI-compatible providers (openai, openrouter, ollama, lm-studio). Previously the field was documented as "carried for HyDE inheritance only" and the embed path silently routed to the transport default. Private ollama hosts, self-hosted lm-studio instances, and openrouter proxies now receive embedding traffic on the configured URL during both index build and query. Vector-store metadata also records the endpoint the runtime actually dialled rather than the caller-supplied override, so on-disk observability matches the requests that were sent.
 
+## [0.4.2](https://github.com/srobinson/markdown-matters/compare/v0.4.1...v0.4.2) (2026-08-24)
+
+
+### Features
+
+* **config:** project-level index and search roots with upward config discovery ([#89](https://github.com/srobinson/markdown-matters/issues/89)) ([391651c](https://github.com/srobinson/markdown-matters/commit/391651c6a0b5c44312b0e5506368e340128a4315))
+* **links:** report unlinked filename mentions when a document has no backlinks ([#86](https://github.com/srobinson/markdown-matters/issues/86)) ([0217254](https://github.com/srobinson/markdown-matters/commit/021725492cb3ec383ded6aba3a9336ad6694cb4e))
+
+
+### Bug Fixes
+
+* **embeddings:** skip provider-rejected inputs instead of aborting the build ([#82](https://github.com/srobinson/markdown-matters/issues/82)) ([49da752](https://github.com/srobinson/markdown-matters/commit/49da752696c1e17cc326b63d8964d7164c2e820d))
+* **index:** scope mdm index &lt;path&gt; to the requested path and register roots only on success ([#85](https://github.com/srobinson/markdown-matters/issues/85)) ([bc5a0d6](https://github.com/srobinson/markdown-matters/commit/bc5a0d68e0bfa763bba07617d6e2292b3fc1012d))
+* **mcp:** return section content from md_search and real totals from md_index ([#83](https://github.com/srobinson/markdown-matters/issues/83)) ([3abcd6b](https://github.com/srobinson/markdown-matters/commit/3abcd6b29b7c44d513d181aee1f25fff88ac2d5a))
+
+
+### Performance
+
+* **index:** skip vector prune, BM25 rebuild, and semantic comparison on unchanged refreshes ([#90](https://github.com/srobinson/markdown-matters/issues/90)) ([8c48102](https://github.com/srobinson/markdown-matters/commit/8c481027b1d026e6faadb965fc8b927af848e4ad))
+
 ## [0.4.1](https://github.com/srobinson/markdown-matters/compare/v0.4.0...v0.4.1) (2026-08-16)
 
 
