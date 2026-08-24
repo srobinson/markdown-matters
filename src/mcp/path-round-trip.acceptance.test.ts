@@ -27,6 +27,7 @@ const semanticResult = vi.hoisted(() => ({
     documentPath: DocumentKey
     heading: string
     similarity: number
+    content?: string
   }>,
 }))
 
@@ -38,7 +39,7 @@ vi.mock('../embeddings/semantic-search.js', async (importOriginal) => {
   )
   return {
     ...actual,
-    semanticSearch: (
+    semanticSearchWithContent: (
       session: Parameters<typeof postProcessResults>[0],
       sourceRoot: string,
       query: string,
@@ -48,6 +49,15 @@ vi.mock('../embeddings/semantic-search.js', async (importOriginal) => {
       if (semanticResult.error !== null) {
         return Effect.fail(semanticResult.error)
       }
+      const contentBySection = new Map(
+        semanticResult.current.map(({ sectionId, content }) => [
+          sectionId,
+          content,
+        ]),
+      )
+      // The real semanticSearchWithContent enriches after ranking, so
+      // re-attach here rather than before postProcessResults, which
+      // rebuilds each result and drops unknown fields.
       return postProcessResults(
         session,
         sourceRoot,
@@ -55,7 +65,14 @@ vi.mock('../embeddings/semantic-search.js', async (importOriginal) => {
         query,
         options,
         options.limit ?? 5,
-      ).pipe(Effect.map(({ results }) => results))
+      ).pipe(
+        Effect.map(({ results }) =>
+          results.map((result) => {
+            const content = contentBySection.get(result.sectionId)
+            return content === undefined ? result : { ...result, content }
+          }),
+        ),
+      )
     },
   }
 })
@@ -656,6 +673,47 @@ describe('MCP multi-root successful search responses', () => {
         /path_filter matched|corpus roots|no matches for|mdm index/,
       )
     }
+  })
+
+  it('shows section content so a hit can be judged without opening it', () => {
+    semanticResult.current = [
+      {
+        ...semanticResult.current[0]!,
+        content: '# Search Source\n\nThe body a caller needs to see.',
+      },
+    ]
+
+    return handleMdSearch(
+      { query: 'with-content', limit: 1 },
+      fixture.callerRoot,
+      defaultConfig,
+    ).then((semantic) => {
+      expect(resultText(semantic)).toBe(
+        `Found 1 results for "with-content":\n\n1. **search-source** (99.0% match)\n   ${fixture.source}\n   The body a caller needs to see.`,
+      )
+    })
+  })
+
+  it('omits the content line when snippets are disabled', () => {
+    semanticResult.current = [
+      {
+        ...semanticResult.current[0]!,
+        content: '# Search Source\n\nThe body a caller needs to see.',
+      },
+    ]
+
+    return handleMdSearch(
+      { query: 'no-snippet', limit: 1 },
+      fixture.callerRoot,
+      {
+        ...defaultConfig,
+        search: { ...defaultConfig.search, includeSnippets: false },
+      },
+    ).then((semantic) => {
+      expect(resultText(semantic)).toBe(
+        `Found 1 results for "no-snippet":\n\n1. **search-source** (99.0% match)\n   ${fixture.source}`,
+      )
+    })
   })
 })
 

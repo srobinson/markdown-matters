@@ -1,5 +1,6 @@
 import { Console, Effect } from 'effect'
 
+import { indexSummaryLines } from '../../index/summary.js'
 import type { IndexResult } from '../../index/types.js'
 import { formatJson } from '../utils.js'
 
@@ -23,29 +24,8 @@ export const renderIndexResult = (
     }
 
     yield* Console.log('')
-    const newlyIndexed =
-      result.documentsIndexed < result.totalDocuments
-        ? ` (${result.documentsIndexed} updated)`
-        : ''
-    yield* Console.log(
-      `Indexed ${result.totalDocuments} documents${newlyIndexed}`,
-    )
-    yield* Console.log(`  Sections: ${result.totalSections}`)
-    yield* Console.log(`  Links: ${result.totalLinks}`)
-    yield* Console.log(`  Duration: ${result.duration}ms`)
-
-    if (result.skipped.total > 0) {
-      const skipParts: string[] = []
-      if (result.skipped.unchanged > 0) {
-        skipParts.push(`${result.skipped.unchanged} unchanged`)
-      }
-      if (result.skipped.hidden > 0) {
-        skipParts.push(`${result.skipped.hidden} hidden`)
-      }
-      if (result.skipped.excluded > 0) {
-        skipParts.push(`${result.skipped.excluded} excluded`)
-      }
-      yield* Console.log(`  Skipped: ${skipParts.join(', ')}`)
+    for (const line of indexSummaryLines(result)) {
+      yield* Console.log(line)
     }
 
     if (result.errors.length === 0) return
