@@ -1,3 +1,4 @@
+import * as fs from 'node:fs/promises'
 import { isDeepStrictEqual } from 'node:util'
 import { Effect } from 'effect'
 
@@ -36,7 +37,12 @@ import {
   loadLinkIndex,
   loadSectionIndex,
 } from './storage.js'
-import type { DocumentEntry, DocumentIndex, IndexResult } from './types.js'
+import {
+  type DocumentEntry,
+  type DocumentIndex,
+  getIndexPaths,
+  type IndexResult,
+} from './types.js'
 
 export interface ManifestBuildOptions extends IndexOptions {
   readonly reconcileVectors?: boolean | undefined
@@ -267,29 +273,46 @@ export const buildManifestIndex = (
       options,
     )
     const storage = createStorage(options.indexRoot, options.indexRoot)
-    const [documentIndex, sectionIndex] = yield* Effect.all([
-      loadDocumentIndex(storage),
-      loadSectionIndex(storage),
-    ])
-    const corpusKnown =
-      documentIndex !== null &&
-      sectionIndex !== null &&
-      Object.keys(documentIndex.documents).length > 0 &&
-      Object.keys(sectionIndex.sections).length > 0
-    if (options.reconcileVectors !== false && corpusKnown) {
-      yield* pruneVectorNamespaces(
-        options.indexRoot,
-        sectionDocumentHashes(sectionIndex, documentIndex),
-      )
-    }
-    yield* buildBM25Index(options.indexRoot, { force: true })
     const stagedStructural = yield* loadStructuralState(options.indexRoot)
+    const structuralChanged =
+      currentStructural === null ||
+      !isDeepStrictEqual(currentStructural, stagedStructural)
+    // A structurally unchanged staging area was seeded from the published
+    // generation, so its vectors and BM25 index are already correct; the
+    // reconcile steps below only run when something changed.
+    if (structuralChanged) {
+      const [documentIndex, sectionIndex] = yield* Effect.all([
+        loadDocumentIndex(storage),
+        loadSectionIndex(storage),
+      ])
+      const corpusKnown =
+        documentIndex !== null &&
+        sectionIndex !== null &&
+        Object.keys(documentIndex.documents).length > 0 &&
+        Object.keys(sectionIndex.sections).length > 0
+      if (options.reconcileVectors !== false && corpusKnown) {
+        yield* pruneVectorNamespaces(
+          options.indexRoot,
+          sectionDocumentHashes(sectionIndex, documentIndex),
+        )
+      }
+      yield* buildBM25Index(options.indexRoot, { force: true })
+    } else {
+      const bm25MetadataPath = getIndexPaths(options.indexRoot).bm25Metadata
+      const bm25Present = yield* Effect.promise(() =>
+        fs.access(bm25MetadataPath).then(
+          () => true,
+          () => false,
+        ),
+      )
+      if (!bm25Present) {
+        yield* buildBM25Index(options.indexRoot, { force: true })
+      }
+    }
     return {
       ...result,
       mutation: {
-        structural:
-          currentStructural === null ||
-          !isDeepStrictEqual(currentStructural, stagedStructural),
+        structural: structuralChanged,
       },
     } satisfies ManifestBuildResult
   })

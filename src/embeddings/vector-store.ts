@@ -327,16 +327,14 @@ class HnswVectorStore implements VectorStore {
 
         yield* Effect.tryPromise({
           try: async () => {
-            // Size validation
-            const estimatedSize = this.entries.size * 15000
-            if (estimatedSize > 100_000_000) {
+            await writeVectorIndex(this.metaPath, meta)
+            const { size } = await fs.stat(this.metaPath)
+            if (size > 100_000_000) {
               console.warn(
-                `Large metadata detected: ~${(estimatedSize / 1e6).toFixed(0)}MB. ` +
-                  `Consider indexing subdirectories separately.`,
+                `Large vector metadata: ~${(size / 1e6).toFixed(0)}MB on disk. ` +
+                  `Loading it dominates search and index startup; consider indexing subdirectories separately.`,
               )
             }
-
-            await writeVectorIndex(this.metaPath, meta)
           },
           catch: (e) =>
             new VectorStoreError({
