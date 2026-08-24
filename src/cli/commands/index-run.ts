@@ -46,7 +46,7 @@ export const runIndexCommand = (input: IndexCommandInput) =>
     yield* Console.log(
       input.path === undefined
         ? 'Refreshing manifest index...'
-        : `Adding ${input.path} and refreshing manifest index...`,
+        : `Indexing ${input.path}...`,
     )
 
     const published = yield* refreshManifestIndex(home, input.path, {

@@ -264,7 +264,7 @@ describe('MCP Server', () => {
       expect(await readIndexedDocumentKeys(testHome)).toHaveLength(4)
     })
 
-    it('appends the requested path and refreshes every manifest directory', async () => {
+    it('force refreshes every manifest directory even when a path is given', async () => {
       const result = await client.callTool({
         name: 'md_index',
         arguments: { path: '.', force: true },

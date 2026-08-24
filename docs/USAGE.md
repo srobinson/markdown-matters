@@ -82,7 +82,7 @@ mdm search "how to authenticate"
 
 ### index
 
-Refresh every directory in the active manifest. Run this first before using other commands.
+Refresh the manifest index. Run this first before using other commands. With a path, only that path is indexed; documents indexed from other manifest directories are kept as they are. A path outside every manifest directory is registered as a new manifest root after the run succeeds.
 
 ```bash
 mdm index [path] [options]
@@ -92,7 +92,7 @@ mdm index [path] [options]
 
 | Argument | Description                                            |
 | -------- | ------------------------------------------------------ |
-| `path`   | Optional directory to append before the full refresh   |
+| `path`   | Optional directory to index; only that path is walked  |
 
 **Options:**
 
@@ -100,7 +100,7 @@ mdm index [path] [options]
 | ------------- | ------------------------------------------ |
 | `-e, --embed` | Also build semantic embeddings             |
 | `-w, --watch` | Show deferred manifest watch guidance      |
-| `--force`     | Rebuild the structural index               |
+| `--force`     | Rebuild the structural index (full rebuild, ignores a path scope) |
 | `--force-embed` | Rebuild all semantic embeddings          |
 | `--json`      | Output as JSON                             |
 | `--pretty`    | Pretty-print JSON                          |
@@ -111,7 +111,7 @@ mdm index [path] [options]
 # Refresh every existing manifest directory
 mdm index
 
-# Append a directory, then refresh the full manifest
+# Index only this directory; other manifest roots keep their entries
 mdm index ./docs
 
 # Refresh with embeddings for semantic search
