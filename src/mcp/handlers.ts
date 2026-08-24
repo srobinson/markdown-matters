@@ -16,13 +16,14 @@ import type { MdSection } from '../core/types.js'
 import { expandDeclaredPath } from '../db/canonical.js'
 import { withCurrentGeneration } from '../db/generation-reader.js'
 import { resolveQueryProviderConfig } from '../embeddings/query-provider-config.js'
-import { semanticSearch } from '../embeddings/semantic-search.js'
+import { semanticSearchWithContent } from '../embeddings/semantic-search.js'
 import { resolveMdmHome } from '../home.js'
 import {
   getIncomingLinks,
   getOutgoingLinks,
   refreshManifestIndex,
 } from '../index/indexer.js'
+import { indexSummaryLines } from '../index/summary.js'
 import { parseFile } from '../parser/parser.js'
 import {
   buildEmptySearchGuidance,
@@ -30,6 +31,7 @@ import {
 } from '../read-guidance.js'
 import { inspectCorpus } from '../search/path-matcher.js'
 import { search } from '../search/searcher.js'
+import { buildSnippet } from '../search/snippet.js'
 import { formatSummary, summarizeFile } from '../summarize/summarizer.js'
 import {
   effectToMcpResult,
@@ -130,7 +132,7 @@ export const handleMdSearch = async (
             session,
             config.embeddings,
           )
-          return yield* semanticSearch(session, rootPath, query, {
+          return yield* semanticSearchWithContent(session, rootPath, query, {
             limit,
             threshold,
             pathPattern: pathFilter,
@@ -141,7 +143,11 @@ export const handleMdSearch = async (
         (results) => {
           const formatted = results.map((r, i) => {
             const similarity = (r.similarity * 100).toFixed(1)
-            return `${i + 1}. **${r.heading}** (${similarity}% match)\n   ${r.documentPath}`
+            const snippet = config.search.includeSnippets
+              ? buildSnippet(r.content, config.search.snippetLength)
+              : undefined
+            const head = `${i + 1}. **${r.heading}** (${similarity}% match)\n   ${r.documentPath}`
+            return snippet === undefined ? head : `${head}\n   ${snippet}`
           })
 
           return mcpText(
@@ -307,10 +313,7 @@ export const handleMdIndex = async (
     refreshManifestIndex(home, requestedPath, {
       force,
     }),
-    (published) =>
-      mcpText(
-        `Indexed ${published.value.documentsIndexed} documents, ${published.value.sectionsIndexed} sections, ${published.value.linksIndexed} links in ${published.value.duration}ms`,
-      ),
+    (published) => mcpText(indexSummaryLines(published.value).join('\n')),
   )
 }
 
