@@ -56,7 +56,7 @@ const progressOptions = (
   showProgress: boolean,
 ): Pick<
   BuildEmbeddingsOptions,
-  'onBatchProgress' | 'onFileProgress' | 'onSectionChunked'
+  'onBatchProgress' | 'onFileProgress' | 'onSectionChunked' | 'onSectionSkipped'
 > => ({
   onFileProgress: (progress) => {
     if (!input.json && showProgress) {
@@ -77,6 +77,13 @@ const progressOptions = (
     if (showProgress) process.stdout.write('\x1b[2K\r')
     process.stderr.write(
       `  Chunking oversized section: ${progress.documentPath} > ${progress.heading} (${progress.tokenCount} tokens into ${progress.chunkCount} inputs)\n`,
+    )
+  },
+  onSectionSkipped: (progress) => {
+    if (input.json) return
+    if (showProgress) process.stdout.write('\x1b[2K\r')
+    process.stderr.write(
+      `  Skipped section rejected by provider: ${progress.documentPath} > ${progress.heading} (${progress.reason})\n`,
     )
   },
 })
@@ -118,6 +125,9 @@ const renderEmbeddingResult = (result: BuildEmbeddingsResult) =>
     yield* Console.log(`Completed in ${(result.duration / 1000).toFixed(1)}s`)
     yield* Console.log(`  Files: ${result.filesProcessed}`)
     yield* Console.log(`  Sections: ${result.sectionsEmbedded}`)
+    if (result.sectionsSkipped > 0) {
+      yield* Console.log(`  Skipped: ${result.sectionsSkipped} (rejected)`)
+    }
     yield* Console.log(`  Tokens: ${result.tokensUsed.toLocaleString()}`)
     yield* Console.log(`  Cost: $${result.cost.toFixed(6)}`)
   })

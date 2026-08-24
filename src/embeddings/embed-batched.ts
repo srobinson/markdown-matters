@@ -58,6 +58,16 @@ export interface EmbeddingExecutionOptions {
   readonly timeoutMs?: number | undefined
 }
 
+/**
+ * A single input the provider refused. `textIndex` is the position in
+ * the `texts` array handed to `embedInBatches`, so callers can map it
+ * back to whatever produced the text.
+ */
+export interface InputRejection {
+  readonly textIndex: number
+  readonly message: string
+}
+
 export interface EmbedInBatchesOptions extends EmbeddingExecutionOptions {
   readonly model: string
   /**
@@ -69,6 +79,8 @@ export interface EmbedInBatchesOptions extends EmbeddingExecutionOptions {
   readonly tokenCounts?: readonly number[] | undefined
   readonly maxBatchTokens?: number | undefined
   readonly onBatchProgress?: ((progress: BatchProgress) => void) | undefined
+  /** Fires once per input the provider rejected as invalid. */
+  readonly onInputRejected?: ((rejection: InputRejection) => void) | undefined
   readonly signal?: AbortSignal | undefined
 }
 
@@ -131,6 +143,14 @@ const classifyEmbeddingError = (
       msg.includes('invalid'))
   ) {
     return 'ModelError'
+  }
+
+  if (
+    msg.includes('maximum input length') ||
+    msg.includes('invalid_request_error') ||
+    (msg.includes('400') && msg.includes('input'))
+  ) {
+    return 'InvalidInput'
   }
 
   return 'Unknown'
@@ -298,6 +318,83 @@ const embedBatchWithRetry = (
   })
 
 // ============================================================================
+// Rejection Isolation
+// ============================================================================
+
+type BatchRetryOptions = Parameters<typeof embedBatchWithRetry>[2]
+
+const isInvalidInput = (
+  error: ApiKeyInvalidError | ConsumerEmbeddingError,
+): boolean => error._tag === 'EmbeddingError' && error.reason === 'InvalidInput'
+
+/**
+ * Embed one batch, isolating inputs the provider refuses.
+ *
+ * A provider rejects the whole request when a single input is invalid
+ * (an over-long section, say), and it never says which one in a form we
+ * can trust across providers. Bisect instead: split the batch until the
+ * offending input stands alone, drop it, and keep the rest. Dropped
+ * positions come back as empty vectors so the result stays aligned with
+ * `texts`; callers skip them.
+ *
+ * One bad section costs O(log n) extra requests. It no longer costs the
+ * whole index build.
+ */
+const embedBatchIsolatingRejections = (
+  client: EmbeddingClient,
+  texts: readonly string[],
+  textIndexes: readonly number[],
+  options: BatchRetryOptions,
+  onInputRejected: ((rejection: InputRejection) => void) | undefined,
+): Effect.Effect<
+  EmbeddingResult,
+  ApiKeyInvalidError | ConsumerEmbeddingError
+> =>
+  embedBatchWithRetry(client, texts, options).pipe(
+    Effect.catchIf(isInvalidInput, (error) => {
+      if (texts.length === 1) {
+        onInputRejected?.({
+          textIndex: textIndexes[0] ?? 0,
+          message: error.message,
+        })
+        return Effect.succeed({
+          embeddings: [[]],
+          model: options.model,
+          usage: { inputTokens: 0 },
+        } satisfies EmbeddingResult)
+      }
+
+      const middle = Math.ceil(texts.length / 2)
+      return Effect.zipWith(
+        embedBatchIsolatingRejections(
+          client,
+          texts.slice(0, middle),
+          textIndexes.slice(0, middle),
+          options,
+          onInputRejected,
+        ),
+        embedBatchIsolatingRejections(
+          client,
+          texts.slice(middle),
+          textIndexes.slice(middle),
+          options,
+          onInputRejected,
+        ),
+        (left, right) =>
+          ({
+            embeddings: [...left.embeddings, ...right.embeddings],
+            model: right.model,
+            usage: {
+              inputTokens:
+                (left.usage?.inputTokens ?? 0) +
+                (right.usage?.inputTokens ?? 0),
+            },
+          }) satisfies EmbeddingResult,
+      )
+    }),
+  )
+
+// ============================================================================
 // Client Factory
 // ============================================================================
 
@@ -404,14 +501,20 @@ export const embedInBatches = (
     const results = yield* Effect.forEach(
       batches,
       (batch) =>
-        embedBatchWithRetry(client, batch.texts, {
-          model: options.model,
-          dimensions: options.dimensions,
-          signal: options.signal,
-          maxRetries: options.maxRetries,
-          retryDelayMs: options.retryDelayMs,
-          timeoutMs: options.timeoutMs,
-        }).pipe(
+        embedBatchIsolatingRejections(
+          client,
+          batch.texts,
+          batch.textIndexes,
+          {
+            model: options.model,
+            dimensions: options.dimensions,
+            signal: options.signal,
+            maxRetries: options.maxRetries,
+            retryDelayMs: options.retryDelayMs,
+            timeoutMs: options.timeoutMs,
+          },
+          options.onInputRejected,
+        ).pipe(
           Effect.tap(() =>
             Effect.sync(() => {
               completedBatches++
