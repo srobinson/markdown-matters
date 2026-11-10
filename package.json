@@ -52,7 +52,7 @@
   "dependencies": {
     "@clack/prompts": "^0.11.0",
     "@effect/cli": "^0.73.2",
-    "@effect/platform": "^0.94.5",
+    "@effect/platform": "^0.97.1",
     "@effect/platform-node": "^0.104.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@msgpack/msgpack": "^3.1.3",
